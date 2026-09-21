@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; width:1200px; padding:36px 40px 48px; }
+  .hdr { display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
+  .hdr h1 { font-size:30px; font-weight:700; letter-spacing:-.5px; }
+  .hdr h1 .jev { color:#79c0ff; }
+  .sub { color:#8b949e; font-size:14px; margin-bottom:22px; }
+  .sub code { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:2px 7px; font-size:13px; color:#79c0ff; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px; }
+  .stat { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 16px; }
+  .stat .n { font-size:26px; font-weight:700; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .stat .l { color:#8b949e; font-size:12px; margin-top:4px; }
+  .flow { display:flex; align-items:center; gap:10px; background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 18px; margin-bottom:22px; font-size:13px; }
+  .flow .step { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:8px 12px; text-align:center; }
+  .flow .step b { display:block; font-size:13px; }
+  .flow .step span { color:#8b949e; font-size:11px; }
+  .flow .arrow { color:#58a6ff; font-size:18px; font-weight:700; }
+  .qchips { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .q { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:7px 12px; font-size:12.5px; }
+  .q b { color:#79c0ff; font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+  .q .t { color:#8b949e; border:1px solid #30363d; border-radius:4px; padding:0 5px; margin-left:6px; font-size:11px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 16px; }
+  .card-top { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .aid { font-family:ui-monospace,Menlo,monospace; color:#8b949e; font-size:12px; }
+  .sev { font-size:11px; font-weight:700; border:1px solid; border-radius:5px; padding:2px 7px; }
+  .team { font-size:11px; color:#8b949e; border:1px solid #30363d; border-radius:5px; padding:2px 7px; }
+  .act { font-size:11px; font-weight:700; border:1px solid; border-radius:5px; padding:2px 7px; }
+  .rev { font-size:11px; font-weight:700; color:#d29922; border:1px dashed #d29922; border-radius:5px; padding:2px 7px; }
+  .ms { margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#8b949e; }
+  .title { font-size:14px; font-weight:600; margin-bottom:4px; }
+  .desc { font-size:12.5px; color:#8b949e; margin-bottom:10px; line-height:1.45; }
+  .bar-row { display:flex; align-items:center; gap:8px; margin-top:5px; }
+  .bl { font-size:11px; color:#8b949e; width:92px; }
+  .bar { flex:1; height:7px; background:#0d1117; border:1px solid #30363d; border-radius:4px; overflow:hidden; }
+  .fill { height:100%; border-radius:4px; }
+  .bv { font-family:ui-monospace,Menlo,monospace; font-size:11px; width:36px; text-align:right; }
+  .foot { margin-top:22px; color:#8b949e; font-size:12.5px; text-align:center; }
+  .foot b { color:#e6edf3; }
+  .agree { display:flex; gap:10px; margin-top:14px; }
+  .ag { flex:1; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:10px; text-align:center; }
+  .ag .n { font-size:20px; font-weight:700; font-family:ui-monospace,Menlo,monospace; color:#3fb950; }
+  .ag .l { font-size:11px; color:#8b949e; margin-top:2px; }
+</style></head>
+<body>
+  <div class="hdr"><h1><span class="jev">jev</span>-oncall</h1></div>
+  <div class="sub">One Jev call per alert · 4 typed questions · zero prose to parse · model <code>jev-1.13.0</code></div>
+  <div class="stats">
+    <div class="stat"><div class="n">14</div><div class="l">alerts triaged</div></div>
+    <div class="stat"><div class="n">9.2s</div><div class="l">total · ~658ms per alert</div></div>
+    <div class="stat"><div class="n">$0.0005</div><div class="l">12,625 input tokens · output free</div></div>
+    <div class="stat"><div class="n" style="color:#d29922">5</div><div class="l">routed to human review (low confidence)</div></div>
+  </div>
+  <div class="flow">
+    <div class="step"><b>alert</b><span>title + description</span></div><div class="arrow">→</div>
+    <div class="step"><b>Jev</b><span>4 questions, 1 call</span></div><div class="arrow">→</div>
+    <div class="step"><b>route</b><span>plain code</span></div><div class="arrow">→</div>
+    <div class="step"><b>confidence gate</b><span>&lt; 0.75 → human</span></div>
+  </div>
+  <div class="qchips">
+    <div class="q"><b>actionable?</b><span class="t">Noul</span></div>
+    <div class="q"><b>severity?</b> SEV1–SEV4<span class="t">Choice</span></div>
+    <div class="q"><b>team?</b> db / compute / network / deploy<span class="t">Choice</span></div>
+    <div class="q"><b>duplicate?</b><span class="t">Noul</span></div>
+  </div>
+  <div class="grid">
+    
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a01</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">deploy</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        
+        <span class="ms">607ms</span>
+      </div>
+      <div class="title">Firing: checkout-api error rate 98% for 6m (us-west-2)</div>
+      <div class="desc">5xx rate on checkout-api climbed from 0.1% to 98% starting 14:03 UTC, 2 minutes after deploy v2.14.3 rolled to us-west-2. Payment authorization failur</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:99%;background:#f85149"></div></div>
+          <span class="bv">0.99</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:31%;background:#bc8cff"></div></div>
+          <span class="bv">0.31</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a02</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#bc8cff;background:rgba(188,140,255,.14);border-color:#bc8cff">DEDUP (link to primary)</span>
+        
+        <span class="ms">454ms</span>
+      </div>
+      <div class="title">Firing: payment-service 5xx rate 91% (us-west-2)</div>
+      <div class="desc">payment-service returning 503s at 91% rate since 14:04 UTC. Upstream dependency checkout-api is in full outage since 14:03 UTC.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
+          <span class="bv">1.00</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:94%;background:#bc8cff"></div></div>
+          <span class="bv">0.94</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a03</span>
+        <span class="sev" style="color:#d29922;border-color:#d29922">SEV2</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE</span>
+        <span class="rev">HUMAN REVIEW</span>
+        <span class="ms">740ms</span>
+      </div>
+      <div class="title">Firing: p99 latency on search-api above 2s for 15m</div>
+      <div class="desc">p99 latency on search-api has exceeded the 800ms SLO for 15 minutes, currently 2.3s. Error rate normal, traffic normal, no deploy in the last 4 hours.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:62%;background:#d29922"></div></div>
+          <span class="bv">0.62</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:41%;background:#bc8cff"></div></div>
+          <span class="bv">0.41</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a04</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">database</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        
+        <span class="ms">823ms</span>
+      </div>
+      <div class="title">Firing: orders-db replica lag 45s and growing after failover</div>
+      <div class="desc">Automatic failover of orders-db primary completed at 13:51 UTC. New replica lag is 45 seconds and growing 5s/min. Read-your-write complaints starting </div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:85%;background:#f85149"></div></div>
+          <span class="bv">0.85</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:26%;background:#bc8cff"></div></div>
+          <span class="bv">0.26</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a05</span>
+        <span class="sev" style="color:#58a6ff;border-color:#58a6ff">SEV3</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#58a6ff;background:rgba(88,166,255,.14);border-color:#58a6ff">TICKET</span>
+        <span class="rev">HUMAN REVIEW</span>
+        <span class="ms">627ms</span>
+      </div>
+      <div class="title">Warning: disk usage 82% on log-aggregator-03</div>
+      <div class="desc">Disk usage on log-aggregator-03 at 82%, growing ~2%/day for the past week. At current rate fills in ~9 days.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:13%;background:#58a6ff"></div></div>
+          <span class="bv">0.13</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:11%;background:#bc8cff"></div></div>
+          <span class="bv">0.11</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a06</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">network</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        <span class="rev">HUMAN REVIEW</span>
+        <span class="ms">908ms</span>
+      </div>
+      <div class="title">Warning: TLS cert for api.example.com expires in 13 days</div>
+      <div class="desc">Public TLS certificate for api.example.com expires in 13 days. Auto-renewal job last succeeded 60 days ago.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:18%;background:#f85149"></div></div>
+          <span class="bv">0.18</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:11%;background:#bc8cff"></div></div>
+          <span class="bv">0.11</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a07</span>
+        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
+        <span class="team">deploy</span>
+        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
+        
+        <span class="ms">501ms</span>
+      </div>
+      <div class="title">Firing: test-alert-heartbeat missing for 2m</div>
+      <div class="desc">Synthetic heartbeat canary in the staging environment has not reported for 2 minutes. Production canaries healthy.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:32%;background:#8b949e"></div></div>
+          <span class="bv">0.32</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:17%;background:#bc8cff"></div></div>
+          <span class="bv">0.17</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a08</span>
+        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
+        
+        <span class="ms">528ms</span>
+      </div>
+      <div class="title">Info: nightly-report cron took 42m (usual 35m)</div>
+      <div class="desc">The nightly-report batch job completed successfully in 42 minutes vs a 35-minute trailing average. No errors, output validated.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:77%;background:#8b949e"></div></div>
+          <span class="bv">0.77</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:6%;background:#bc8cff"></div></div>
+          <span class="bv">0.06</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a09</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">network</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        
+        <span class="ms">721ms</span>
+      </div>
+      <div class="title">Firing: all edge PoPs returning 503</div>
+      <div class="desc">Global edge outage: all PoPs returning 503 since 14:02 UTC, correlating exactly with the CDN config push at 14:02 UTC. Origin healthy.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
+          <span class="bv">1.00</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:16%;background:#bc8cff"></div></div>
+          <span class="bv">0.16</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a10</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">network</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        
+        <span class="ms">724ms</span>
+      </div>
+      <div class="title">Firing: homepage health check failing from 3 regions</div>
+      <div class="desc">Synthetic homepage checks failing from us-west, us-east, and eu-west since 14:03 UTC. Edge PoPs are globally returning 503 since 14:02 UTC.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
+          <span class="bv">1.00</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:65%;background:#bc8cff"></div></div>
+          <span class="bv">0.65</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a11</span>
+        <span class="sev" style="color:#d29922;border-color:#d29922">SEV2</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE</span>
+        <span class="rev">HUMAN REVIEW</span>
+        <span class="ms">562ms</span>
+      </div>
+      <div class="title">Firing: Kafka consumer lag above 500k on billing-events</div>
+      <div class="desc">Consumer lag on the billing-events topic exceeded 500k messages and is growing at 20k/min. Consumers running, no errors, just slow. Billing pipeline d</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:52%;background:#d29922"></div></div>
+          <span class="bv">0.52</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:32%;background:#bc8cff"></div></div>
+          <span class="bv">0.32</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a12</span>
+        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
+        <span class="team">deploy</span>
+        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
+        
+        <span class="ms">757ms</span>
+      </div>
+      <div class="title">Warning: deploy v2.14.4 canary analysis paused in eu-west-1</div>
+      <div class="desc">Automated canary analysis for deploy v2.14.4 paused: insufficient traffic in eu-west-1 to reach statistical significance. No errors detected so far.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:67%;background:#8b949e"></div></div>
+          <span class="bv">0.67</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:12%;background:#bc8cff"></div></div>
+          <span class="bv">0.12</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a13</span>
+        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
+        <span class="team">compute</span>
+        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
+        
+        <span class="ms">739ms</span>
+      </div>
+      <div class="title">Firing: CPU above 90% for 5m on dev-jumpbox-01</div>
+      <div class="desc">CPU on dev-jumpbox-01 (development bastion host, no production traffic) above 90% for 5 minutes. Owner ran a load test and forgot to stop it.</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:90%;background:#8b949e"></div></div>
+          <span class="bv">0.90</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:4%;background:#bc8cff"></div></div>
+          <span class="bv">0.04</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <span class="aid">a14</span>
+        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
+        <span class="team">database</span>
+        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
+        <span class="rev">HUMAN REVIEW</span>
+        <span class="ms">515ms</span>
+      </div>
+      <div class="title">Firing: Redis evictions spiking on session-store</div>
+      <div class="desc">Evicted keys/sec on the session-store Redis cluster up 40x in 10 minutes. Cache hit rate dropped from 99% to 61%. Users being logged out intermittentl</div>
+      <div class="bars">
+        <div class="bar-row"><span class="bl">severity conf</span>
+          <div class="bar"><div class="fill" style="width:68%;background:#f85149"></div></div>
+          <span class="bv">0.68</span></div>
+        <div class="bar-row"><span class="bl">duplicate p</span>
+          <div class="bar"><div class="fill" style="width:28%;background:#bc8cff"></div></div>
+          <span class="bv">0.28</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="agree">
+    <div class="ag"><div class="n">13/14</div><div class="l">actionable</div></div>
+    <div class="ag"><div class="n">10/14</div><div class="l">severity</div></div>
+    <div class="ag"><div class="n">12/14</div><div class="l">team</div></div>
+    <div class="ag"><div class="n">13/14</div><div class="l">duplicate</div></div>
+  </div>
+  <div class="foot">Agreement vs author's labels · every miss carried low confidence and went to <b>human review</b> · <b>6 paged · 4 dropped · 1 deduped</b></div>
+</body></html>
