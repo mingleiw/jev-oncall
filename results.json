@@ -1,0 +1,183 @@
+{
+  "alerts": 14,
+  "total_input_tokens": 12625,
+  "total_output_tokens": 1848,
+  "total_ms": 9205,
+  "avg_ms_per_alert": 658,
+  "agreement_vs_author_labels": {
+    "actionable": "13/14",
+    "severity": "10/14",
+    "team": "12/14",
+    "duplicate": "13/14"
+  },
+  "results": [
+    {
+      "id": "a01",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 0.99,
+      "team": "deploy",
+      "team_conf": 0.77,
+      "duplicate": false,
+      "dup_p": 0.31,
+      "action": "PAGE NOW",
+      "ms": 607
+    },
+    {
+      "id": "a02",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 1.0,
+      "team": "compute",
+      "team_conf": 0.58,
+      "duplicate": true,
+      "dup_p": 0.94,
+      "action": "DEDUP (link to primary)",
+      "ms": 454
+    },
+    {
+      "id": "a03",
+      "actionable": true,
+      "severity": "SEV2",
+      "sev_conf": 0.62,
+      "team": "compute",
+      "team_conf": 0.81,
+      "duplicate": false,
+      "dup_p": 0.41,
+      "action": "PAGE + HUMAN REVIEW (low conf)",
+      "ms": 740
+    },
+    {
+      "id": "a04",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 0.85,
+      "team": "database",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.26,
+      "action": "PAGE NOW",
+      "ms": 823
+    },
+    {
+      "id": "a05",
+      "actionable": true,
+      "severity": "SEV3",
+      "sev_conf": 0.13,
+      "team": "compute",
+      "team_conf": 0.61,
+      "duplicate": false,
+      "dup_p": 0.11,
+      "action": "TICKET + HUMAN REVIEW (low conf)",
+      "ms": 627
+    },
+    {
+      "id": "a06",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 0.18,
+      "team": "network",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.11,
+      "action": "PAGE NOW + HUMAN REVIEW (low conf)",
+      "ms": 908
+    },
+    {
+      "id": "a07",
+      "actionable": false,
+      "severity": "SEV4",
+      "sev_conf": 0.32,
+      "team": "deploy",
+      "team_conf": 0.87,
+      "duplicate": false,
+      "dup_p": 0.17,
+      "action": "DROP (noise)",
+      "ms": 501
+    },
+    {
+      "id": "a08",
+      "actionable": false,
+      "severity": "SEV4",
+      "sev_conf": 0.77,
+      "team": "compute",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.06,
+      "action": "DROP (noise)",
+      "ms": 528
+    },
+    {
+      "id": "a09",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 1.0,
+      "team": "network",
+      "team_conf": 0.99,
+      "duplicate": false,
+      "dup_p": 0.16,
+      "action": "PAGE NOW",
+      "ms": 721
+    },
+    {
+      "id": "a10",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 1.0,
+      "team": "network",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.65,
+      "action": "PAGE NOW",
+      "ms": 724
+    },
+    {
+      "id": "a11",
+      "actionable": true,
+      "severity": "SEV2",
+      "sev_conf": 0.52,
+      "team": "compute",
+      "team_conf": 0.38,
+      "duplicate": false,
+      "dup_p": 0.32,
+      "action": "PAGE + HUMAN REVIEW (low conf)",
+      "ms": 562
+    },
+    {
+      "id": "a12",
+      "actionable": false,
+      "severity": "SEV4",
+      "sev_conf": 0.67,
+      "team": "deploy",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.12,
+      "action": "DROP (noise)",
+      "ms": 757
+    },
+    {
+      "id": "a13",
+      "actionable": false,
+      "severity": "SEV4",
+      "sev_conf": 0.9,
+      "team": "compute",
+      "team_conf": 0.99,
+      "duplicate": false,
+      "dup_p": 0.04,
+      "action": "DROP (noise)",
+      "ms": 739
+    },
+    {
+      "id": "a14",
+      "actionable": true,
+      "severity": "SEV1",
+      "sev_conf": 0.68,
+      "team": "database",
+      "team_conf": 1.0,
+      "duplicate": false,
+      "dup_p": 0.28,
+      "action": "PAGE NOW + HUMAN REVIEW (low conf)",
+      "ms": 515
+    }
+  ]
+}
