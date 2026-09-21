@@ -74,7 +74,7 @@ urgent than the alert itself, or if anything was dropped without a model judgmen
 ## Evaluating it
 
 The 14 synthetic alerts in `alerts.json` are a smoke test, not an evaluation. At that
-size, v1's 10/14 severity agreement has a 95% interval of roughly 45 to 88%, and
+size, the 11/12 severity agreement has a 95% interval of roughly 65 to 99%, and
 calibration, which every threshold depends on, can't be measured at all.
 
 The smoke test has a second limit. The alert titles start with Firing, Warning, or
