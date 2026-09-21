@@ -113,31 +113,6 @@ Alert format (JSON list or JSONL):
 
 `expected` is optional and only used for evaluation.
 
-## What v1 got wrong
-
-v1 claimed every miss came back low-confidence and went to human review. Its own
-`results.json` showed 7 alerts with at least one miss. Only 2 got review, and both
-still paged.
-
-| Alert | Miss | v1 action |
-| --- | --- | --- |
-| a04 | SEV1 at 0.85 confidence (label SEV2) | PAGE NOW, no review |
-| a06 | SEV1 at 0.18 confidence (label SEV3) | PAGE NOW; the review tag didn't stop the page |
-| a10 | Duplicate at 0.65, under the 0.70 bar | A second page for the same incident |
-| a12 | Not actionable (label: actionable SEV3) | Dropped; review was skipped for non-actionable alerts |
-| a14 | SEV1 at 0.68 confidence (label SEV2) | PAGE NOW; the review tag didn't stop the page |
-| a02 | Team compute at 0.58 (label deploy) | Deduped, no review |
-| a07 | Team deploy at 0.87 (label compute) | Dropped, no review |
-
-v1 also had these design problems:
-
-- It routed on the top label and threw away the distribution.
-- It dropped alerts at a 0.5 bar, while the less destructive dedup got 0.70.
-- It used a Noul for dedup, which can't name the parent.
-- Its instructions named a test canary, a dev box, and a slow batch job as
-  non-actionable. Those are exactly the three non-actionable test alerts. The one
-  actionable miss, a12, was a deploy *canary* analysis.
-
 ## Run it
 
 ```
