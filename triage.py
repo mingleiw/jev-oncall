@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
 """Jev incident-triage POC.
 
-Every alert gets 4 typed Jev questions (no LLM prose, no parsing):
+One Jev API call per alert asks 4 typed questions (no LLM prose, no parsing):
   actionable  Noul    - does a human need to do something?
   severity    Choice  - SEV1..SEV4
   team        Choice  - database / compute / network / deploy
   duplicate   Noul    - downstream symptom of another firing alert?
 
 Routing policy lives in plain code; Jev only makes the judgments.
-Usage: python3 triage.py  (prints table, writes results.json)
+
+Setup:
+  export TYPESAFE_API_KEY=<your key from console.typesafe.ai/keys>
+
+Run:
+  python3 triage.py          # prints routing table, writes results.json
 """
 
 import json
-import subprocess
+import os
 import sys
 import time
+import urllib.request
 
-BASE = "/home/hatch/workspace/jev-incident-triage"
-BIN = "/home/hatch/workspace/skills/typesafe/bin/system_one.py"
+API_URL = "https://api.typesafe.ai/v1/systemone"
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 SEV_CRITERIA = {
     "SEV1": "customer-facing outage or data-loss risk, page immediately",
@@ -32,12 +38,13 @@ TEAM_CRITERIA = {
     "deploy": "releases, deploys, canary analysis, CI/CD",
 }
 
-DUP_THRESHOLD = 0.70   # dedup is destructive: needs high bar
+DUP_THRESHOLD = 0.70   # dedup is destructive: needs a high bar
 REVIEW_CONF = 0.75     # below this severity confidence -> human review
 
 
 def build_payload(alert, all_alerts):
     return {
+        "model": "jev-latest",
         "state": {
             "alert": {"title": alert["title"], "description": alert["description"]},
             "other_firing_alerts": [
@@ -75,19 +82,18 @@ def build_payload(alert, all_alerts):
     }
 
 
-def call_jev(payload):
-    with open(BASE + "/_payload.json", "w") as f:
-        json.dump(payload, f)
-    t0 = time.time()
-    out = subprocess.run(
-        [sys.executable, BIN, "--payload-file", BASE + "/_payload.json"],
-        capture_output=True, text=True, timeout=120,
+def call_jev(payload, api_key):
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        API_URL, data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {api_key}"},
+        method="POST",
     )
-    dt_ms = (time.time() - t0) * 1000
-    if out.returncode != 0:
-        raise RuntimeError(out.stderr[-500:])
-    resp = json.loads(out.stdout)
-    return resp, dt_ms
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+    return result, (time.time() - t0) * 1000
 
 
 def route(actionable, dup, sev, sev_conf):
@@ -110,13 +116,17 @@ def route(actionable, dup, sev, sev_conf):
 
 
 def main():
-    alerts = json.load(open(BASE + "/alerts.json"))
+    api_key = os.environ.get("TYPESAFE_API_KEY")
+    if not api_key:
+        sys.exit("Set TYPESAFE_API_KEY first "
+                 "(get one at console.typesafe.ai/keys).")
+    alerts = json.load(open(os.path.join(BASE, "alerts.json")))
     results = []
     agree = {"actionable": 0, "severity": 0, "team": 0, "duplicate": 0}
     tot_in, tot_out, tot_ms = 0, 0, 0.0
 
     for a in alerts:
-        resp, dt_ms = call_jev(build_payload(a, alerts))
+        resp, dt_ms = call_jev(build_payload(a, alerts), api_key)
         ans = resp["answers"]
         actionable = ans["actionable"]["noul"] >= 0.5
         dup = ans["duplicate"]["noul"] >= DUP_THRESHOLD
@@ -143,8 +153,9 @@ def main():
             "dup_p": round(ans["duplicate"]["noul"], 2),
             "action": action, "ms": round(dt_ms),
         })
-        flag = "" if action.split(" ")[0] in ("PAGE", "DROP", "DEDUP", "TICKET", "LOG") else ""
-        print(f"[{a['id']}] {action:34s} sev={sev}({sev_conf:.2f}) team={team} dup_p={ans['duplicate']['noul']:.2f} {dt_ms:6.0f}ms")
+        print(f"[{a['id']}] {action:34s} sev={sev}({sev_conf:.2f}) "
+              f"team={team} dup_p={ans['duplicate']['noul']:.2f} "
+              f"{dt_ms:6.0f}ms")
 
     n = len(alerts)
     summary = {
@@ -156,7 +167,7 @@ def main():
         "agreement_vs_author_labels": {k: f"{v}/{n}" for k, v in agree.items()},
         "results": results,
     }
-    json.dump(summary, open(BASE + "/results.json", "w"), indent=2)
+    json.dump(summary, open(os.path.join(BASE, "results.json"), "w"), indent=2)
     print(f"\n{n} alerts | {tot_in} in / {tot_out} out tokens | "
           f"{tot_ms/1000:.1f}s total, {tot_ms/n:.0f}ms avg per alert")
     print("agreement vs author's labels:",
