@@ -1,358 +1,397 @@
-<!DOCTYPE html>
-<html><head><meta charset="utf-8">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Triage run, Sep 21, 2026, 21:25 UTC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;display=swap">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#0d1117; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; width:1200px; padding:36px 40px 48px; }
-  .hdr { display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
-  .hdr h1 { font-size:30px; font-weight:700; letter-spacing:-.5px; }
-  .hdr h1 .jev { color:#79c0ff; }
-  .sub { color:#8b949e; font-size:14px; margin-bottom:22px; }
-  .sub code { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:2px 7px; font-size:13px; color:#79c0ff; }
-  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px; }
-  .stat { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 16px; }
-  .stat .n { font-size:26px; font-weight:700; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .stat .l { color:#8b949e; font-size:12px; margin-top:4px; }
-  .flow { display:flex; align-items:center; gap:10px; background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 18px; margin-bottom:22px; font-size:13px; }
-  .flow .step { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:8px 12px; text-align:center; }
-  .flow .step b { display:block; font-size:13px; }
-  .flow .step span { color:#8b949e; font-size:11px; }
-  .flow .arrow { color:#58a6ff; font-size:18px; font-weight:700; }
-  .qchips { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
-  .q { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:7px 12px; font-size:12.5px; }
-  .q b { color:#79c0ff; font-family:ui-monospace,Menlo,monospace; font-weight:600; }
-  .q .t { color:#8b949e; border:1px solid #30363d; border-radius:4px; padding:0 5px; margin-left:6px; font-size:11px; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 16px; }
-  .card-top { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-  .aid { font-family:ui-monospace,Menlo,monospace; color:#8b949e; font-size:12px; }
-  .sev { font-size:11px; font-weight:700; border:1px solid; border-radius:5px; padding:2px 7px; }
-  .team { font-size:11px; color:#8b949e; border:1px solid #30363d; border-radius:5px; padding:2px 7px; }
-  .act { font-size:11px; font-weight:700; border:1px solid; border-radius:5px; padding:2px 7px; }
-  .rev { font-size:11px; font-weight:700; color:#d29922; border:1px dashed #d29922; border-radius:5px; padding:2px 7px; }
-  .ms { margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#8b949e; }
-  .title { font-size:14px; font-weight:600; margin-bottom:4px; }
-  .desc { font-size:12.5px; color:#8b949e; margin-bottom:10px; line-height:1.45; }
-  .bar-row { display:flex; align-items:center; gap:8px; margin-top:5px; }
-  .bl { font-size:11px; color:#8b949e; width:92px; }
-  .bar { flex:1; height:7px; background:#0d1117; border:1px solid #30363d; border-radius:4px; overflow:hidden; }
-  .fill { height:100%; border-radius:4px; }
-  .bv { font-family:ui-monospace,Menlo,monospace; font-size:11px; width:36px; text-align:right; }
-  .foot { margin-top:22px; color:#8b949e; font-size:12.5px; text-align:center; }
-  .foot b { color:#e6edf3; }
-  .agree { display:flex; gap:10px; margin-top:14px; }
-  .ag { flex:1; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:10px; text-align:center; }
-  .ag .n { font-size:20px; font-weight:700; font-family:ui-monospace,Menlo,monospace; color:#3fb950; }
-  .ag .l { font-size:11px; color:#8b949e; margin-top:2px; }
-</style></head>
+:root {
+  --ground: #F3F5F6; --face: #E7EBEE; --ink: #1C232B; --graphite: #5A6572; --rule: #CBD2D8;
+  --accent: #C21F3A; --accent-mid: #D87F8F; --accent-wash: rgba(194, 31, 58, .10); --accent-ink: #FFFFFF;
+  --radius: 4px; --dot: 14px; --step: 18px;
+  --sans: "Archivo", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  color-scheme: light;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
+    --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
+  --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+  color-scheme: dark;
+}
+html { scroll-padding-top: env(safe-area-inset-top, 0px); -webkit-text-size-adjust: 100%; }
+*, *::before, *::after { box-sizing: inherit; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+  font-size: 16px; line-height: 1.5; }
+.page { max-width: 1180px; margin: 0 auto; padding: clamp(20px, 4vw, 44px) clamp(16px, 4vw, 40px) 56px; }
+a { color: inherit; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.pin:focus-visible { border-radius: 50%; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+
+/* Header: which run this is */
+.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline;
+  gap: 6px 24px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.mark { margin: 0; font-size: 18px; font-weight: 760; font-stretch: 125%; letter-spacing: -.01em; }
+.run { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--graphite);
+  font-stretch: 90%; font-variant-numeric: tabular-nums; }
+.note { margin: 16px 0 0; padding: 10px 14px; border-radius: var(--radius); background: var(--face);
+  font-size: 14px; max-width: 80ch; }
+
+/* The thesis: one sentence about who got woken up */
+.hero { padding-top: 40px; }
+.hero h1 { margin: 0; max-width: 30ch; font-size: clamp(27px, 4vw, 42px); line-height: 1.12;
+  font-weight: 640; font-stretch: 112%; letter-spacing: -.015em; }
+.follow { margin: 12px 0 0; max-width: 60ch; font-size: 18px; color: var(--graphite); }
+
+/* The signature: P(page) as an instrument scale with the policy's detents */
+.rail { margin: 36px 0 0; }
+.instrument { margin: 0 calc(var(--dot) / 2 + 2px); }
+.rail-plot { --rows: var(--rows-d); position: relative; height: calc(var(--rows) * var(--step) + 14px); }
+.pin { --k: var(--kd); }
+.more.only-m, .hide-d { display: none; }
+.pin { position: absolute; bottom: calc(6px + var(--k) * var(--step)); width: var(--dot); height: var(--dot);
+  border-radius: 50%; transform: translateX(-50%); }
+.pin::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%); width: max-content; max-width: 260px; padding: 6px 10px;
+  border-radius: var(--radius); background: var(--ink); color: var(--ground); font-size: 13px;
+  line-height: 1.35; font-stretch: 92%; white-space: normal; pointer-events: none;
+  opacity: 0; visibility: hidden; z-index: 2; }
+.pin:hover::after, .pin:focus-visible::after { opacity: 1; visibility: visible; }
+.pin.tip-start::after { left: 0; transform: none; }
+.pin.tip-end::after { left: auto; right: 0; transform: none; }
+.more { position: absolute; bottom: calc(6px + var(--k) * var(--step)); transform: translateX(-50%);
+  font-size: 12px; line-height: var(--dot); color: var(--graphite); font-variant-numeric: tabular-nums; }
+.scale { position: relative; height: 36px; background: var(--face); border-radius: var(--radius); }
+.zone { position: absolute; top: 0; bottom: 0; }
+.zone-review { background: repeating-linear-gradient(135deg, var(--accent-wash) 0 6px, transparent 6px 12px); }
+.zone-page { background: var(--accent-wash); border-radius: 0 var(--radius) var(--radius) 0; }
+.ticks { position: absolute; left: 0; right: 0; top: 0; height: 7px;
+  background: repeating-linear-gradient(to right, var(--graphite) 0 1px, transparent 1px 5%); opacity: .55; }
+.detent { position: absolute; top: -8px; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); }
+.scale-labels, .zone-labels { position: relative; height: 22px; }
+.scale-labels span { position: absolute; top: 6px; transform: translateX(-50%); font-size: 13px;
+  font-weight: 620; font-stretch: 118%; font-variant-numeric: tabular-nums; }
+.scale-labels .at-start { transform: none; }
+.scale-labels .at-end { transform: translateX(-100%); }
+.zone-labels { height: 28px; }
+.zone-labels > span { position: absolute; top: 8px; text-align: center; font-size: 13px; color: var(--graphite); }
+.zone-labels > .z-review, .zone-labels > .z-page { color: var(--accent); font-weight: 600; }
+.zone-labels .short { display: none; }
+.rail figcaption { margin-top: 18px; max-width: 72ch; font-size: 14px; color: var(--graphite); }
+.legend { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px;
+  font-size: 14px; color: var(--graphite); }
+.legend li { display: flex; align-items: center; gap: 8px; }
+.rail-empty { margin: 0; padding: 18px 0 20px; max-width: 64ch; }
+
+/* Decision states: fill carries the state, the one accent carries urgency */
+.m { display: inline-block; flex: none; border-radius: 50%; }
+.legend .m, .glyph { width: 12px; height: 12px; }
+.m-page { background: var(--accent); }
+.m-linked { background: var(--accent-mid); }
+.m-review { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.m-ticket { background: var(--ink); }
+.m-quiet { background: transparent; box-shadow: inset 0 0 0 1.5px var(--graphite); }
+
+.alarm { margin: 28px 0 0; padding: 14px 16px; border-radius: var(--radius); background: var(--accent);
+  color: var(--accent-ink); }
+.alarm p, .notice p { margin: 0; }
+.alarm ul { margin: 8px 0 0; padding-left: 20px; }
+.notice { margin: 28px 0 0; padding: 12px 16px; border-radius: var(--radius); background: var(--face); max-width: 80ch; }
+
+section > h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.25; font-weight: 680; font-stretch: 112%;
+  letter-spacing: -.01em; }
+
+/* Alerts, grouped by what a person experiences */
+.alerts { margin-top: 56px; }
+.colhead, .row { display: grid; column-gap: 18px; align-items: baseline;
+  grid-template-columns: 14px minmax(0, 1fr) 176px 148px 140px 60px 76px; }
+.colhead { padding-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--graphite);
+  font-stretch: 92%; }
+.colhead .r { text-align: right; }
+.group { padding-top: 26px; }
+.group h3 { margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; font-size: 16px; font-weight: 680; }
+.group h3 .count { font-weight: 500; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.rows { list-style: none; margin: 0; padding: 0; }
+.row { padding: 12px 0; scroll-margin-top: 24px; border-radius: var(--radius);
+  transition: background-color .6s ease, box-shadow .6s ease; }
+.row:target { background: var(--accent-wash); box-shadow: 0 0 0 8px var(--accent-wash); }
+.glyph { align-self: start; margin-top: 6px; }
+.main { min-width: 0; }
+.title { font-weight: 560; line-height: 1.35; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; font-size: 13px; color: var(--graphite);
+  font-stretch: 88%; font-variant-numeric: tabular-nums; }
+.flags { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 13px; font-weight: 600;
+  color: var(--graphite); }
+.flags .severe { color: var(--accent); }
+.row.child .main { position: relative; padding-left: 20px; }
+.row.child .main::before { content: ""; position: absolute; left: 3px; top: -10px; width: 11px; height: 20px;
+  border-left: 1.5px solid var(--rule); border-bottom: 1.5px solid var(--rule); border-bottom-left-radius: var(--radius); }
+.tag { display: inline-block; padding: 1px 8px; border-radius: var(--radius); font-size: 13px; font-weight: 600;
+  line-height: 1.6; white-space: nowrap; }
+.tag-page { background: var(--accent); color: var(--accent-ink); }
+.tag-linked { background: var(--accent-wash); color: var(--ink); }
+.tag-review { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); }
+.tag-ticket { background: var(--ink); color: var(--ground); }
+.tag-quiet { box-shadow: inset 0 0 0 1px var(--rule); color: var(--graphite); }
+.sub { display: block; margin-top: 3px; font-size: 13px; color: var(--graphite); }
+.owner { font-weight: 500; overflow-wrap: anywhere; }
+.dist { display: flex; height: 8px; border-radius: var(--radius); overflow: hidden; align-self: center; }
+.dist span { flex-basis: 0; min-width: 0; }
+.s4 { background: var(--rule); } .s3 { background: var(--graphite); }
+.s2 { background: var(--accent-mid); } .s1 { background: var(--accent); }
+.no-dist { align-self: center; font-size: 13px; color: var(--graphite); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.num .k { display: none; }
+.why { grid-column: 2 / -1; margin-top: 6px; }
+.why summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--graphite); }
+.why-body { margin-top: 8px; padding: 12px 14px; border-radius: var(--radius); background: var(--face); font-size: 14px; }
+.reasons { margin: 0 0 10px; padding-left: 18px; }
+.why-body dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 16px; margin: 0; }
+.why-body dt { color: var(--graphite); }
+.why-body dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Run facts and evaluation */
+.facts, .eval { margin-top: 60px; }
+.facts dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px 36px; margin: 0; }
+.facts dt { font-size: 13px; color: var(--graphite); }
+.facts dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.caveat { margin: 0 0 22px; max-width: 70ch; color: var(--graphite); }
+.eval-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 32px 56px; }
+.eval h3 { margin: 0 0 8px; font-size: 16px; font-weight: 680; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 0; text-align: left; font-size: 15px; vertical-align: baseline; }
+th { font-size: 13px; font-weight: 500; color: var(--graphite); border-bottom: 1px solid var(--rule); }
+th.n, td.n { text-align: right; padding-left: 18px; white-space: nowrap; }
+tr.zero td.n { color: var(--graphite); }
+tr.bad td { color: var(--accent); font-weight: 600; }
+tr.total td { border-top: 1px solid var(--rule); }
+.stat { margin: 10px 0 0; font-size: 14px; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.eval-side > * + * { margin-top: 28px; }
+.foot { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--graphite); }
+.foot p { margin: 0; max-width: 80ch; }
+
+@media (max-width: 900px) {
+  .rail-plot { --rows: var(--rows-m); }
+  .pin { --k: var(--km); }
+  .hide-d { display: block; } .hide-m, .more.only-d { display: none; } .more.only-m { display: block; }
+  .colhead { display: none; }
+  .row { grid-template-columns: 14px minmax(0, 1fr) auto auto; row-gap: 8px;
+    grid-template-areas: "glyph main main main" ". decision owner owner" ". dist p a" ". why why why"; }
+  .glyph { grid-area: glyph; } .main { grid-area: main; } .decision { grid-area: decision; }
+  .owner { grid-area: owner; text-align: right; } .dist, .no-dist { grid-area: dist; }
+  .num-page { grid-area: p; } .num-act { grid-area: a; } .why { grid-area: why; }
+  .num .k { display: inline; margin-right: 4px; font-size: 12px; color: var(--graphite); }
+  .eval-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  :root { --dot: 11px; --step: 14px; }
+  .zone-labels .long { display: none; } .zone-labels .short { display: inline; }
+  .hero { padding-top: 28px; }
+  .follow { font-size: 16px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pin { animation: settle 520ms cubic-bezier(.16, 1, .3, 1) backwards; animation-delay: calc(var(--i) * 28ms); }
+  @keyframes settle { from { opacity: 0; transform: translate(-50%, -16px); } }
+}
+@media (prefers-reduced-motion: reduce) { .row { transition: none; } }
+</style>
+</head>
 <body>
-  <div class="hdr"><h1><span class="jev">jev</span>-oncall</h1></div>
-  <div class="sub">One Jev call per alert · 4 typed questions · zero prose to parse · model <code>jev-1.13.0</code></div>
-  <div class="stats">
-    <div class="stat"><div class="n">14</div><div class="l">alerts triaged</div></div>
-    <div class="stat"><div class="n">9.2s</div><div class="l">total · ~658ms per alert</div></div>
-    <div class="stat"><div class="n">$0.0005</div><div class="l">12,625 input tokens · output free</div></div>
-    <div class="stat"><div class="n" style="color:#d29922">5</div><div class="l">routed to human review (low confidence)</div></div>
-  </div>
-  <div class="flow">
-    <div class="step"><b>alert</b><span>title + description</span></div><div class="arrow">→</div>
-    <div class="step"><b>Jev</b><span>4 questions, 1 call</span></div><div class="arrow">→</div>
-    <div class="step"><b>route</b><span>plain code</span></div><div class="arrow">→</div>
-    <div class="step"><b>confidence gate</b><span>&lt; 0.75 → human</span></div>
-  </div>
-  <div class="qchips">
-    <div class="q"><b>actionable?</b><span class="t">Noul</span></div>
-    <div class="q"><b>severity?</b> SEV1–SEV4<span class="t">Choice</span></div>
-    <div class="q"><b>team?</b> db / compute / network / deploy<span class="t">Choice</span></div>
-    <div class="q"><b>duplicate?</b><span class="t">Noul</span></div>
-  </div>
-  <div class="grid">
+<main class="page">
+  <header class="top">
+    <p class="mark">jev-oncall</p>
+    <p class="run"><span>Triage run</span><span>Sep 21, 2026, 21:25 UTC</span></p>
+  </header>
+  
+  <section class="hero" aria-labelledby="thesis">
+    <h1 id="thesis">6 alerts paged someone, and 2 are waiting for a human.</h1>
+    <p class="follow">1 more was linked to an incident that already paged, and 5 were ticketed, logged or dropped.</p>
     
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a01</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">deploy</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        
-        <span class="ms">607ms</span>
-      </div>
-      <div class="title">Firing: checkout-api error rate 98% for 6m (us-west-2)</div>
-      <div class="desc">5xx rate on checkout-api climbed from 0.1% to 98% starting 14:03 UTC, 2 minutes after deploy v2.14.3 rolled to us-west-2. Payment authorization failur</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:99%;background:#f85149"></div></div>
-          <span class="bv">0.99</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:31%;background:#bc8cff"></div></div>
-          <span class="bv">0.31</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a02</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#bc8cff;background:rgba(188,140,255,.14);border-color:#bc8cff">DEDUP (link to primary)</span>
-        
-        <span class="ms">454ms</span>
-      </div>
-      <div class="title">Firing: payment-service 5xx rate 91% (us-west-2)</div>
-      <div class="desc">payment-service returning 503s at 91% rate since 14:04 UTC. Upstream dependency checkout-api is in full outage since 14:03 UTC.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
-          <span class="bv">1.00</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:94%;background:#bc8cff"></div></div>
-          <span class="bv">0.94</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a03</span>
-        <span class="sev" style="color:#d29922;border-color:#d29922">SEV2</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE</span>
-        <span class="rev">HUMAN REVIEW</span>
-        <span class="ms">740ms</span>
-      </div>
-      <div class="title">Firing: p99 latency on search-api above 2s for 15m</div>
-      <div class="desc">p99 latency on search-api has exceeded the 800ms SLO for 15 minutes, currently 2.3s. Error rate normal, traffic normal, no deploy in the last 4 hours.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:62%;background:#d29922"></div></div>
-          <span class="bv">0.62</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:41%;background:#bc8cff"></div></div>
-          <span class="bv">0.41</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a04</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">database</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        
-        <span class="ms">823ms</span>
-      </div>
-      <div class="title">Firing: orders-db replica lag 45s and growing after failover</div>
-      <div class="desc">Automatic failover of orders-db primary completed at 13:51 UTC. New replica lag is 45 seconds and growing 5s/min. Read-your-write complaints starting </div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:85%;background:#f85149"></div></div>
-          <span class="bv">0.85</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:26%;background:#bc8cff"></div></div>
-          <span class="bv">0.26</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a05</span>
-        <span class="sev" style="color:#58a6ff;border-color:#58a6ff">SEV3</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#58a6ff;background:rgba(88,166,255,.14);border-color:#58a6ff">TICKET</span>
-        <span class="rev">HUMAN REVIEW</span>
-        <span class="ms">627ms</span>
-      </div>
-      <div class="title">Warning: disk usage 82% on log-aggregator-03</div>
-      <div class="desc">Disk usage on log-aggregator-03 at 82%, growing ~2%/day for the past week. At current rate fills in ~9 days.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:13%;background:#58a6ff"></div></div>
-          <span class="bv">0.13</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:11%;background:#bc8cff"></div></div>
-          <span class="bv">0.11</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a06</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">network</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        <span class="rev">HUMAN REVIEW</span>
-        <span class="ms">908ms</span>
-      </div>
-      <div class="title">Warning: TLS cert for api.example.com expires in 13 days</div>
-      <div class="desc">Public TLS certificate for api.example.com expires in 13 days. Auto-renewal job last succeeded 60 days ago.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:18%;background:#f85149"></div></div>
-          <span class="bv">0.18</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:11%;background:#bc8cff"></div></div>
-          <span class="bv">0.11</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a07</span>
-        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
-        <span class="team">deploy</span>
-        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
-        
-        <span class="ms">501ms</span>
-      </div>
-      <div class="title">Firing: test-alert-heartbeat missing for 2m</div>
-      <div class="desc">Synthetic heartbeat canary in the staging environment has not reported for 2 minutes. Production canaries healthy.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:32%;background:#8b949e"></div></div>
-          <span class="bv">0.32</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:17%;background:#bc8cff"></div></div>
-          <span class="bv">0.17</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a08</span>
-        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
-        
-        <span class="ms">528ms</span>
-      </div>
-      <div class="title">Info: nightly-report cron took 42m (usual 35m)</div>
-      <div class="desc">The nightly-report batch job completed successfully in 42 minutes vs a 35-minute trailing average. No errors, output validated.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:77%;background:#8b949e"></div></div>
-          <span class="bv">0.77</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:6%;background:#bc8cff"></div></div>
-          <span class="bv">0.06</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a09</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">network</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        
-        <span class="ms">721ms</span>
-      </div>
-      <div class="title">Firing: all edge PoPs returning 503</div>
-      <div class="desc">Global edge outage: all PoPs returning 503 since 14:02 UTC, correlating exactly with the CDN config push at 14:02 UTC. Origin healthy.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
-          <span class="bv">1.00</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:16%;background:#bc8cff"></div></div>
-          <span class="bv">0.16</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a10</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">network</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        
-        <span class="ms">724ms</span>
-      </div>
-      <div class="title">Firing: homepage health check failing from 3 regions</div>
-      <div class="desc">Synthetic homepage checks failing from us-west, us-east, and eu-west since 14:03 UTC. Edge PoPs are globally returning 503 since 14:02 UTC.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:100%;background:#f85149"></div></div>
-          <span class="bv">1.00</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:65%;background:#bc8cff"></div></div>
-          <span class="bv">0.65</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a11</span>
-        <span class="sev" style="color:#d29922;border-color:#d29922">SEV2</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE</span>
-        <span class="rev">HUMAN REVIEW</span>
-        <span class="ms">562ms</span>
-      </div>
-      <div class="title">Firing: Kafka consumer lag above 500k on billing-events</div>
-      <div class="desc">Consumer lag on the billing-events topic exceeded 500k messages and is growing at 20k/min. Consumers running, no errors, just slow. Billing pipeline d</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:52%;background:#d29922"></div></div>
-          <span class="bv">0.52</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:32%;background:#bc8cff"></div></div>
-          <span class="bv">0.32</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a12</span>
-        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
-        <span class="team">deploy</span>
-        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
-        
-        <span class="ms">757ms</span>
-      </div>
-      <div class="title">Warning: deploy v2.14.4 canary analysis paused in eu-west-1</div>
-      <div class="desc">Automated canary analysis for deploy v2.14.4 paused: insufficient traffic in eu-west-1 to reach statistical significance. No errors detected so far.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:67%;background:#8b949e"></div></div>
-          <span class="bv">0.67</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:12%;background:#bc8cff"></div></div>
-          <span class="bv">0.12</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a13</span>
-        <span class="sev" style="color:#8b949e;border-color:#8b949e">SEV4</span>
-        <span class="team">compute</span>
-        <span class="act" style="color:#8b949e;background:rgba(139,148,158,.14);border-color:#8b949e">DROP (noise)</span>
-        
-        <span class="ms">739ms</span>
-      </div>
-      <div class="title">Firing: CPU above 90% for 5m on dev-jumpbox-01</div>
-      <div class="desc">CPU on dev-jumpbox-01 (development bastion host, no production traffic) above 90% for 5 minutes. Owner ran a load test and forgot to stop it.</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:90%;background:#8b949e"></div></div>
-          <span class="bv">0.90</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:4%;background:#bc8cff"></div></div>
-          <span class="bv">0.04</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-top">
-        <span class="aid">a14</span>
-        <span class="sev" style="color:#f85149;border-color:#f85149">SEV1</span>
-        <span class="team">database</span>
-        <span class="act" style="color:#f85149;background:rgba(248,81,73,.14);border-color:#f85149">PAGE NOW</span>
-        <span class="rev">HUMAN REVIEW</span>
-        <span class="ms">515ms</span>
-      </div>
-      <div class="title">Firing: Redis evictions spiking on session-store</div>
-      <div class="desc">Evicted keys/sec on the session-store Redis cluster up 40x in 10 minutes. Cache hit rate dropped from 99% to 61%. Users being logged out intermittentl</div>
-      <div class="bars">
-        <div class="bar-row"><span class="bl">severity conf</span>
-          <div class="bar"><div class="fill" style="width:68%;background:#f85149"></div></div>
-          <span class="bv">0.68</span></div>
-        <div class="bar-row"><span class="bl">duplicate p</span>
-          <div class="bar"><div class="fill" style="width:28%;background:#bc8cff"></div></div>
-          <span class="bv">0.28</span></div>
-      </div>
-    </div>
+<figure class="rail">
+  <div class="instrument">
+  <div class="rail-plot" style="--rows-d:6;--rows-m:6"><a class="pin m m-ticket tip-start" href="#alert-a08" style="left:0.00%;--kd:0;--km:0;--i:0" aria-label="a08, ticketed, P(page) 0.00" data-tip="a08: nightly-report cron took 42m (usual 35m)"></a><a class="pin m m-ticket tip-start" href="#alert-a12" style="left:0.00%;--kd:1;--km:1;--i:1" aria-label="a12, ticketed, P(page) 0.00" data-tip="a12: deploy v2.14.4 canary analysis paused in eu-west-1"></a><a class="pin m m-ticket" href="#alert-a05" style="left:20.00%;--kd:0;--km:0;--i:2" aria-label="a05, ticketed, P(page) 0.20" data-tip="a05: disk usage 82% on log-aggregator-03"></a><a class="pin m m-review" href="#alert-a06" style="left:25.00%;--kd:0;--km:0;--i:3" aria-label="a06, waiting for review, P(page) 0.25" data-tip="a06: TLS cert for api.example.com expires in 13 days"></a><a class="pin m m-page tip-end" href="#alert-a11" style="left:95.00%;--kd:0;--km:0;--i:4" aria-label="a11, paged, P(page) 0.95" data-tip="a11: Kafka consumer lag above 500k on billing-events"></a><a class="pin m m-page tip-end" href="#alert-a03" style="left:96.00%;--kd:1;--km:1;--i:5" aria-label="a03, paged, P(page) 0.96" data-tip="a03: p99 latency on search-api above 2s for 15m"></a><a class="pin m m-page tip-end" href="#alert-a01" style="left:100.00%;--kd:0;--km:0;--i:6" aria-label="a01, paged now, P(page) 1.00" data-tip="a01: checkout-api error rate 98% for 6m (us-west-2)"></a><a class="pin m m-page tip-end" href="#alert-a04" style="left:100.00%;--kd:1;--km:1;--i:7" aria-label="a04, paged, P(page) 1.00" data-tip="a04: orders-db replica lag 45s and growing after failover"></a><a class="pin m m-page tip-end" href="#alert-a09" style="left:100.00%;--kd:2;--km:2;--i:8" aria-label="a09, paged now, P(page) 1.00" data-tip="a09: all edge PoPs returning 503"></a><a class="pin m m-page tip-end" href="#alert-a14" style="left:100.00%;--kd:3;--km:3;--i:9" aria-label="a14, paged, P(page) 1.00" data-tip="a14: Redis evictions spiking on session-store"></a><a class="pin m m-linked tip-end" href="#alert-a10" style="left:100.00%;--kd:4;--km:4;--i:10" aria-label="a10, linked, P(page) 1.00" data-tip="a10: homepage health check failing from 3 regions"></a><a class="pin m m-review tip-end" href="#alert-a02" style="left:100.00%;--kd:5;--km:5;--i:11" aria-label="a02, waiting for review, P(page) 1.00" data-tip="a02: payment-service 5xx rate 91% (us-west-2)"></a></div>
+  <div class="scale" aria-hidden="true">
+    <div class="zone zone-review" style="left:20.00%;width:60.00%"></div>
+    <div class="zone zone-page" style="left:80.00%;width:20.00%"></div>
+    <div class="ticks"></div>
+    <div class="detent" style="left:20.00%"></div>
+    <div class="detent" style="left:80.00%"></div>
   </div>
-  <div class="agree">
-    <div class="ag"><div class="n">13/14</div><div class="l">actionable</div></div>
-    <div class="ag"><div class="n">10/14</div><div class="l">severity</div></div>
-    <div class="ag"><div class="n">12/14</div><div class="l">team</div></div>
-    <div class="ag"><div class="n">13/14</div><div class="l">duplicate</div></div>
+  <div class="scale-labels" aria-hidden="true">
+    <span class="at-start" style="left:0">0</span>
+    <span style="left:20.00%">0.20</span>
+    <span style="left:80.00%">0.80</span>
+    <span class="at-end" style="left:100%">1</span>
   </div>
-  <div class="foot">Agreement vs author's labels · every miss carried low confidence and went to <b>human review</b> · <b>6 paged · 4 dropped · 1 deduped</b></div>
-</body></html>
+  <div class="zone-labels" aria-hidden="true">
+    <span class="z-quiet" style="left:0.00%;width:20.00%">No page</span>
+    <span class="z-review" style="left:20.00%;width:60.00%"><span class="long">A human decides within 15 min</span><span class="short">Human decides</span></span>
+    <span class="z-page" style="left:80.00%;width:20.00%">Page</span>
+  </div>
+  </div>
+  <figcaption>Each dot is an alert, placed at P(page): the probability Jev gives SEV1 or SEV2. The marks at 0.20 and 0.80 are the policy. Select a dot to jump to its alert. 2 alerts skipped the model and are listed below only.</figcaption>
+  <ul class="legend"><li><span class="m m-page" aria-hidden="true"></span>Paged</li><li><span class="m m-linked" aria-hidden="true"></span>Linked to a paged incident</li><li><span class="m m-review" aria-hidden="true"></span>Waiting for review</li><li><span class="m m-ticket" aria-hidden="true"></span>Ticketed</li><li><span class="m m-quiet" aria-hidden="true"></span>Logged or dropped</li></ul>
+</figure>
+  </section>
+  
+  <section class="alerts" aria-labelledby="alerts-h"><h2 id="alerts-h">Alerts by outcome</h2><div class="colhead" aria-hidden="true"><span></span><span>Alert</span><span>Decision</span><span>Owner</span><span>Severity, low to high</span><span class="r">P(page)</span><span class="r">Actionable</span></div><section class="group" aria-labelledby="g-page-now"><h3 id="g-page-now">Paged now<span class="count">4</span></h3><ul class="rows">
+<li class="row" id="alert-a01">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">checkout-api error rate 98% for 6m (us-west-2)</div><div class="meta"><span>a01</span><span>checkout-api</span><span>14:03 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged now</span></div>
+  <div class="owner">deploy</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.99, SEV2 0.01, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.0100"></span><span class="s1" style="flex-grow:0.9900"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.98</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.99, SEV2 0.01, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>deploy 0.98, compute 0.02</dd><dt>Cause</dt><dd>a02 at 0.65</dd><dt>Candidates</dt><dd>a10, a02, a09, a14, a12, a03, a04, a11</dd><dt>Call</dt><dd>1070 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: checkout-api error rate 98% for 6m (us-west-2)</dd><dt>Labeled</dt><dd>actionable, SEV1, deploy</dd></dl></div></details>
+</li>
+<li class="row child" id="alert-a02">
+  <span class="glyph m m-review" aria-hidden="true"></span>
+  <div class="main"><div class="title">payment-service 5xx rate 91% (us-west-2)</div><div class="meta"><span>a02</span><span>payment-service</span><span>14:04 UTC</span></div><div class="flags"><span class="severe">Wrong team</span></div></div>
+  <div class="decision"><span class="tag tag-review">Waiting for review</span><span class="sub">Linked to a01</span></div>
+  <div class="owner">compute</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:1.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.96</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>duplicate_of a01 (0.94); incident root a01</li><li>root is owned by deploy, so compute gets a REVIEW, not silence</li></ul><dl><dt>Severity</dt><dd>SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.71, database 0.18</dd><dt>Cause</dt><dd>a01 at 0.94</dd><dt>Candidates</dt><dd>a01</dd><dt>Call</dt><dd>765 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: payment-service 5xx rate 91% (us-west-2)</dd><dt>Labeled</dt><dd>actionable, SEV1, deploy, caused by a01</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a09">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">all edge PoPs returning 503</div><div class="meta"><span>a09</span><span>edge</span><span>14:02 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged now</span></div>
+  <div class="owner">network</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:1.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.98</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>network 0.94, deploy 0.06</dd><dt>Cause</dt><dd>none at 0.97</dd><dt>Candidates</dt><dd>a01, a10, a02, a14, a12, a03, a04, a11</dd><dt>Call</dt><dd>1058 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: all edge PoPs returning 503</dd><dt>Labeled</dt><dd>actionable, SEV1, network</dd></dl></div></details>
+</li>
+<li class="row child" id="alert-a10">
+  <span class="glyph m m-linked" aria-hidden="true"></span>
+  <div class="main"><div class="title">homepage health check failing from 3 regions</div><div class="meta"><span>a10</span><span>homepage</span><span>14:03 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-linked">Linked to a09</span></div>
+  <div class="owner">network</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:1.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.97</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>duplicate_of a09 (0.93); incident root a09</li></ul><dl><dt>Severity</dt><dd>SEV1 1.00, SEV2 0.00, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>network 1.00</dd><dt>Cause</dt><dd>a09 at 0.93</dd><dt>Candidates</dt><dd>a09</dd><dt>Call</dt><dd>748 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: homepage health check failing from 3 regions</dd><dt>Labeled</dt><dd>actionable, SEV1, network, caused by a09</dd></dl></div></details>
+</li></ul></section><section class="group" aria-labelledby="g-page"><h3 id="g-page">Paged<span class="count">4</span></h3><ul class="rows">
+<li class="row" id="alert-a03">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">p99 latency on search-api above 2s for 15m</div><div class="meta"><span>a03</span><span>search-api</span><span>13:54 UTC</span></div><div class="flags"><span class="severe">Wrong team</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged</span></div>
+  <div class="owner">database</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.96, SEV3 0.04, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0400"></span><span class="s2" style="flex-grow:0.9600"></span><span class="s1" style="flex-grow:0.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.96</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.93</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.96, SEV3 0.04, SEV4 0.00</dd><dt>Owner</dt><dd>database 0.63, compute 0.37</dd><dt>Cause</dt><dd>none at 0.96</dd><dt>Candidates</dt><dd>a04, a11</dd><dt>Call</dt><dd>807 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: p99 latency on search-api above 2s for 15m</dd><dt>Labeled</dt><dd>actionable, SEV2, compute</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a04">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">orders-db replica lag 45s and growing after failover</div><div class="meta"><span>a04</span><span>orders-db</span><span>13:52 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged</span></div>
+  <div class="owner">database</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.18, SEV2 0.82, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.8200"></span><span class="s1" style="flex-grow:0.1800"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.96</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.18, SEV2 0.82, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>database 1.00</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>a03, a11</dd><dt>Call</dt><dd>803 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: orders-db replica lag 45s and growing after failover</dd><dt>Labeled</dt><dd>actionable, SEV2, database</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a11">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">Kafka consumer lag above 500k on billing-events</div><div class="meta"><span>a11</span><span>billing-events</span><span>13:44 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged</span></div>
+  <div class="owner">compute</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.05, SEV2 0.90, SEV3 0.05, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0500"></span><span class="s2" style="flex-grow:0.9000"></span><span class="s1" style="flex-grow:0.0500"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.95</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.91</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.05, SEV2 0.90, SEV3 0.05, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.83, database 0.17</dd><dt>Call</dt><dd>638 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: Kafka consumer lag above 500k on billing-events</dd><dt>Labeled</dt><dd>actionable, SEV2, compute</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a14">
+  <span class="glyph m m-page" aria-hidden="true"></span>
+  <div class="main"><div class="title">Redis evictions spiking on session-store</div><div class="meta"><span>a14</span><span>session-store</span><span>13:59 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-page">Paged</span></div>
+  <div class="owner">database</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.08, SEV2 0.92, SEV3 0.00, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.9200"></span><span class="s1" style="flex-grow:0.0800"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>1.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.97</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.08, SEV2 0.92, SEV3 0.00, SEV4 0.00</dd><dt>Owner</dt><dd>database 1.00</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>a12, a03, a04, a11</dd><dt>Call</dt><dd>892 input tokens, 0 ms</dd><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: Redis evictions spiking on session-store</dd><dt>Labeled</dt><dd>actionable, SEV2, database</dd></dl></div></details>
+</li></ul></section><section class="group" aria-labelledby="g-review"><h3 id="g-review">Waiting for a human<span class="count">1</span></h3><ul class="rows">
+<li class="row" id="alert-a06">
+  <span class="glyph m m-review" aria-hidden="true"></span>
+  <div class="main"><div class="title">TLS cert for api.example.com expires in 13 days</div><div class="meta"><span>a06</span><span>api-edge</span><span>06:00 UTC</span></div><div class="flags"><span class="">Unneeded review</span></div></div>
+  <div class="decision"><span class="tag tag-review">Waiting for review</span></div>
+  <div class="owner">network</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.05, SEV2 0.20, SEV3 0.57, SEV4 0.18"><span class="s4" style="flex-grow:0.1800"></span><span class="s3" style="flex-grow:0.5700"></span><span class="s2" style="flex-grow:0.2000"></span><span class="s1" style="flex-grow:0.0500"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.25</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.91</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>unsure whether to page (0.2 &lt; P(page) &lt; 0.8): a human decides within 15m or it pages</li></ul><dl><dt>Severity</dt><dd>SEV1 0.05, SEV2 0.20, SEV3 0.57, SEV4 0.18</dd><dt>Owner</dt><dd>network 1.00</dd><dt>Call</dt><dd>623 input tokens, 0 ms</dd><dt>Configured</dt><dd>warning</dd><dt>Full title</dt><dd>Warning: TLS cert for api.example.com expires in 13 days</dd><dt>Labeled</dt><dd>actionable, SEV3, network</dd></dl></div></details>
+</li></ul></section><section class="group" aria-labelledby="g-ticket"><h3 id="g-ticket">Ticketed<span class="count">3</span></h3><ul class="rows">
+<li class="row" id="alert-a05">
+  <span class="glyph m m-ticket" aria-hidden="true"></span>
+  <div class="main"><div class="title">disk usage 82% on log-aggregator-03</div><div class="meta"><span>a05</span><span>log-aggregator</span><span>11:20 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-ticket">Ticketed</span></div>
+  <div class="owner">database</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.08, SEV2 0.12, SEV3 0.57, SEV4 0.23"><span class="s4" style="flex-grow:0.2300"></span><span class="s3" style="flex-grow:0.5700"></span><span class="s2" style="flex-grow:0.1200"></span><span class="s1" style="flex-grow:0.0800"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.20</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.91</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.08, SEV2 0.12, SEV3 0.57, SEV4 0.23</dd><dt>Owner</dt><dd>database 0.57, compute 0.43</dd><dt>Call</dt><dd>638 input tokens, 0 ms</dd><dt>Configured</dt><dd>warning</dd><dt>Full title</dt><dd>Warning: disk usage 82% on log-aggregator-03</dd><dt>Labeled</dt><dd>actionable, SEV3, compute</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a08">
+  <span class="glyph m m-ticket" aria-hidden="true"></span>
+  <div class="main"><div class="title">nightly-report cron took 42m (usual 35m)</div><div class="meta"><span>a08</span><span>nightly-report</span><span>03:12 UTC</span></div><div class="flags"><span class="">Ticket for noise</span></div></div>
+  <div class="decision"><span class="tag tag-ticket">Ticketed</span></div>
+  <div class="owner">compute</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.00, SEV4 1.00"><span class="s4" style="flex-grow:1.0000"></span><span class="s3" style="flex-grow:0.0000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.08</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>probably noise, but P(actionable) &gt; 0.05: ticket, not drop</li></ul><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.00, SEV4 1.00</dd><dt>Owner</dt><dd>compute 1.00</dd><dt>Call</dt><dd>628 input tokens, 0 ms</dd><dt>Configured</dt><dd>info</dd><dt>Full title</dt><dd>Info: nightly-report cron took 42m (usual 35m)</dd><dt>Labeled</dt><dd>not actionable, SEV4, compute</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a12">
+  <span class="glyph m m-ticket" aria-hidden="true"></span>
+  <div class="main"><div class="title">deploy v2.14.4 canary analysis paused in eu-west-1</div><div class="meta"><span>a12</span><span>deploy-canary</span><span>13:58 UTC</span></div></div>
+  <div class="decision"><span class="tag tag-ticket">Ticketed</span></div>
+  <div class="owner">deploy</div>
+  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97"><span class="s4" style="flex-grow:0.9700"></span><span class="s3" style="flex-grow:0.0300"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div>
+  <div class="num num-page"><span class="k">P(page)</span>0.00</div>
+  <div class="num num-act"><span class="k">Actionable</span>0.20</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>probably noise, but P(actionable) &gt; 0.05: ticket, not drop</li></ul><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97</dd><dt>Owner</dt><dd>deploy 1.00</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>a14, a03, a04, a11</dd><dt>Call</dt><dd>881 input tokens, 0 ms</dd><dt>Configured</dt><dd>warning</dd><dt>Full title</dt><dd>Warning: deploy v2.14.4 canary analysis paused in eu-west-1</dd><dt>Labeled</dt><dd>actionable, SEV3, deploy</dd></dl></div></details>
+</li></ul></section><section class="group" aria-labelledby="g-quiet"><h3 id="g-quiet">Logged or dropped<span class="count">2</span></h3><ul class="rows">
+<li class="row" id="alert-a07">
+  <span class="glyph m m-quiet" aria-hidden="true"></span>
+  <div class="main"><div class="title">test-alert-heartbeat missing for 2m</div><div class="meta"><span>a07</span><span>heartbeat-canary</span><span>14:07 UTC</span><span>staging</span></div></div>
+  <div class="decision"><span class="tag tag-quiet">Logged</span><span class="sub">Rule: not production</span></div>
+  <div class="owner">triage-rotation</div>
+  <span class="no-dist">No model answer</span>
+  <div class="num num-page"><span class="k">P(page)</span>-</div>
+  <div class="num num-act"><span class="k">Actionable</span>-</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>env=staging: non-production never pages (rule, no model call)</li></ul><dl><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: test-alert-heartbeat missing for 2m</dd><dt>Labeled</dt><dd>not actionable, SEV4, compute</dd></dl></div></details>
+</li>
+<li class="row" id="alert-a13">
+  <span class="glyph m m-quiet" aria-hidden="true"></span>
+  <div class="main"><div class="title">CPU above 90% for 5m on dev-jumpbox-01</div><div class="meta"><span>a13</span><span>dev-jumpbox</span><span>14:04 UTC</span><span>dev</span></div></div>
+  <div class="decision"><span class="tag tag-quiet">Logged</span><span class="sub">Rule: not production</span></div>
+  <div class="owner">triage-rotation</div>
+  <span class="no-dist">No model answer</span>
+  <div class="num num-page"><span class="k">P(page)</span>-</div>
+  <div class="num num-act"><span class="k">Actionable</span>-</div>
+  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>env=dev: non-production never pages (rule, no model call)</li></ul><dl><dt>Configured</dt><dd>critical</dd><dt>Full title</dt><dd>Firing: CPU above 90% for 5m on dev-jumpbox-01</dd><dt>Labeled</dt><dd>not actionable, SEV4, compute</dd></dl></div></details>
+</li></ul></section></section>
+  <section class="facts" aria-labelledby="facts-h"><h2 id="facts-h">About this run</h2><dl><div><dt>Model</dt><dd>jev-1.13.0</dd></div><div><dt>Alerts</dt><dd>14: 12 judged by Jev, 2 by rule, 0 by fallback</dd></div><div><dt>Cost</dt><dd>$0.00040 for 9,551 input tokens</dd></div><div><dt>Latency per call</dt><dd>0 ms median, 0 ms p95</dd></div><div><dt>Policy</dt><dd>Page at 0.80, review above 0.20, drop at 0.05 actionable, link at 0.70</dd></div><div><dt>Safety checks</dt><dd>All invariants held</dd></div></dl></section>
+  <section class="eval" aria-labelledby="eval-h"><h2 id="eval-h">Against the labels</h2><p class="caveat">14 labeled alerts is a smoke test. Trust these numbers, and the calibration especially, only after replaying a few hundred labeled alerts.</p><div class="eval-grid"><div><h3>Outcomes</h3><div class="table-wrap"><table><thead><tr><th>What happened</th><th class="n">With Jev</th><th class="n">Without Jev</th></tr></thead><tbody><tr class="zero"><td>Needed a human, reached no one</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a ticket</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a review</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Paged when it shouldn&#x27;t have</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Paged twice for one incident</td><td class="n">0</td><td class="n">2</td></tr><tr class="bad"><td>Reached the wrong team</td><td class="n">2</td><td class="n">n/a</td></tr><tr class="zero"><td>Linked to the wrong incident</td><td class="n">0</td><td class="n">n/a</td></tr><tr class=""><td>Review that wasn&#x27;t needed</td><td class="n">1</td><td class="n">0</td></tr><tr class=""><td>Ticket for noise</td><td class="n">1</td><td class="n">0</td></tr><tr class="total"><td>Pages sent</td><td class="n">6</td><td class="n">8</td></tr><tr><td>Reviews sent</td><td class="n">2</td><td class="n">0</td></tr></tbody></table></div></div><div class="eval-side"><div><h3>Agreement with labels</h3><div class="table-wrap"><table><thead><tr><th>Question</th><th class="n">Matched</th><th class="n">95% interval</th></tr></thead><tbody><tr><td>Actionable</td><td class="n">11 of 12</td><td class="n">65% to 99%</td></tr><tr><td>Page or not</td><td class="n">12 of 12</td><td class="n">76% to 100%</td></tr><tr><td>Severity</td><td class="n">11 of 12</td><td class="n">65% to 99%</td></tr><tr><td>Owner</td><td class="n">9 of 12</td><td class="n">47% to 91%</td></tr><tr><td>Cause</td><td class="n">7 of 8</td><td class="n">53% to 98%</td></tr></tbody></table></div></div><div><h3>Calibration of P(page)</h3><div class="table-wrap"><table><thead><tr><th>P(page)</th><th class="n">Alerts</th><th class="n">Predicted</th><th class="n">Paged by label</th></tr></thead><tbody><tr><td>0.0 to 0.2</td><td class="n">2</td><td class="n">0.00</td><td class="n">0.00</td></tr><tr><td>0.2 to 0.4</td><td class="n">2</td><td class="n">0.23</td><td class="n">0.00</td></tr><tr><td>0.8 to 1.0</td><td class="n">8</td><td class="n">0.99</td><td class="n">1.00</td></tr></tbody></table></div><p class="stat">Brier score 0.009, calibration error 0.045. Lower is better for both.</p></div></div></div></section>
+  <footer class="foot"><p>Built from results.json by generate_dashboard.py. To refresh, run
+    <code>python3 triage.py</code>, then <code>python3 generate_dashboard.py</code>.</p></footer>
+</main>
+</body>
+</html>

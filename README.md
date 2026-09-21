@@ -1,70 +1,170 @@
 # jev-oncall
 
-Incident triage with [Jev](https://typesafe.ai) (TypeSafe's System One decision
-model): every alert gets **4 typed questions**, the answers come back as
-probabilities, and plain code turns them into routing decisions. No LLM prose,
-nothing to parse.
+Incident triage with [Jev](https://typesafe.ai), TypeSafe's System One decision model.
+Each production alert gets one Jev call with four typed questions. Jev returns
+probabilities, and plain code turns them into routing decisions. Jev never pages
+anyone. It only judges.
 
 ## How it works
 
 ```
-alert ──► Jev (1 API call, 4 questions in parallel) ──► routing policy (code)
-                                                                     │
-                              ┌──────────┬──────────┬────────┬─────────┴────────┐
-                              ▼          ▼          ▼        ▼                  ▼
-                           PAGE NOW    PAGE     TICKET     DROP              HUMAN
-                          (SEV1)     (SEV2)    (SEV3)    (noise)            REVIEW
+alert ──► rules ──► non-prod: LOG (no model call)
+            │
+            ▼
+          Jev: 1 call, 4 questions ──(error / timeout / malformed)──► configured severity
+            │                                                          (fail-open)
+            ▼
+          policy on probabilities ──► dedup graph ──► PAGE_NOW · PAGE · REVIEW · TICKET · LOG · DROP · DEDUP
 ```
 
-**1. Ask.** Each alert is sent as `state` (title + description, plus the other
-firing alerts for context) with four typed questions:
+| Question | Type | Used for |
+| --- | --- | --- |
+| `actionable` | Noul | Can drop an alert only when severity agrees it's noise |
+| `severity` | Score: SEV4 < SEV3 < SEV2 < SEV1 | P(page) = P(SEV1) + P(SEV2) |
+| `team` | Choice | Owner. Below 0.60, the runner-up team is notified too |
+| `duplicate_of` | Choice over candidate alerts + `none` | Edges of the dedup graph |
 
-| Question     | Type   | Decides |
-|--------------|--------|---------|
-| `actionable` | Noul   | Does a human need to do something? (test canaries, dev-box metrics, and healthy-but-slow batch jobs are *not* actionable) |
-| `severity`   | Choice | SEV1 (page now) / SEV2 (page) / SEV3 (ticket) / SEV4 (log), each with a one-line criterion |
-| `team`       | Choice | database / compute / network / deploy |
-| `duplicate`  | Noul   | Is this a downstream symptom of another firing alert? (bar is high: p ≥ 0.70, since dedup is destructive) |
+### Routing policy
 
-Jev returns a probability per question — e.g. `severity: SEV1 @ 0.99`,
-`duplicate: 0.31` — in a single parallel pass. All four questions are answered
-in one call; extra questions add almost no latency.
+The thresholds live in `Policy` in `triage.py`. They are starting points: tune them
+with `evaluate.py --sweep` on replayed history.
 
-**2. Route (plain code).** `triage.py` maps answers to actions: not actionable →
-DROP, duplicate → DEDUP, SEV1 → PAGE NOW, SEV2 → PAGE, SEV3 → TICKET,
-SEV4 → LOG. Jev never pages anyone itself — it only judges.
+| Condition | Action |
+| --- | --- |
+| `env` is not prod | LOG. A rule, not a model call |
+| Jev error, timeout, or malformed answer | The alert's `configured_severity`: critical → PAGE, warning → TICKET, info → LOG |
+| P(page) ≥ 0.80 | PAGE_NOW if P(SEV1) ≥ P(SEV2), otherwise PAGE |
+| 0.20 < P(page) < 0.80 | REVIEW: low urgency, and it pages if nobody acks it within 15 minutes |
+| P(page) ≤ 0.20 and P(actionable) ≤ 0.05 | DROP |
+| Otherwise | TICKET |
 
-**3. Gate on confidence.** Every Choice answer carries a confidence number.
-Severity confidence below 0.75 routes to **human review** instead of
-auto-paging. This is the whole trick: the cheap model triages everything, and
-humans only touch what it flags as unsure.
+The bars are asymmetric on purpose. DROP is the only outcome no human ever sees, so it
+needs the most certainty. Being unsure costs a REVIEW, never silence. When `actionable`
+and `severity` disagree, the more urgent answer wins and the disagreement is logged.
 
-## Results (14 synthetic alerts, model `jev-1.13.0`)
+### Dedup as a graph
 
-- **9.2s total, ~658ms per alert** end-to-end (model latency is typically 70–500ms)
-- **12,625 input tokens → $0.00053** at $0.042/MTok input; output tokens are free
-  (~$0.00004/alert — about 26,000 alerts per dollar)
-- Agreement vs author's labels: actionable **13/14**, severity **10/14**,
-  team **12/14**, duplicate **13/14**
+1. **Candidates.** `duplicate_of` offers other production alerts that started up to
+   30 minutes before this one, or up to 2 minutes after (delivery jitter). If
+   `topology.json` lists the alert's service, candidates are limited to that service
+   and its upstream dependencies. At most 50 are offered; Choice allows 255.
+2. **Edges.** An alert links to its most likely cause when that probability is at
+   least 0.70 and the cause isn't itself dropped or logged.
+3. **Cycles.** If alerts name each other, the loop is broken at whichever started
+   first, so two alerts can never dedup each other into silence.
+4. **Clusters.** Each cluster's root gets the most urgent action of any member.
+   Members owned by the root's team are DEDUPed. A member owned by another team that
+   would have paged gets a REVIEW instead, so a wrong link can delay another team by
+   the ack window but never silence it.
 
-The misses are the feature: every disagreement came back low-confidence and
-was routed to human review. Example: a TLS-cert-expiry warning got labeled
-SEV1 at **0.18 confidence** — wrong label, but the system knew it didn't know,
-so it escalated instead of paging.
+`check_invariants()` exits the run with status 1 if a linked alert's root is less
+urgent than the alert itself, or if anything was dropped without a model judgment.
 
-## Run it yourself
+### Failure handling
 
-```bash
+- The model is pinned to `jev-1.13.0`, not `jev-latest`. An alias moves when
+  TypeSafe ships a release, which can shift probabilities under the thresholds.
+  Re-run the sweep before moving the pin. A warning prints if Jev answers as a
+  different version.
+- Each call gets a 2-second timeout and one retry. A retry that would wait more than
+  1 second falls back instead: on a paging path, falling back beats waiting.
+- `results.json` keeps every raw probability, so any decision, including every DROP,
+  can be audited and re-routed offline.
+
+## Evaluating it
+
+The 14 synthetic alerts in `alerts.json` are a smoke test, not an evaluation. At that
+size, v1's 10/14 severity agreement has a 95% interval of roughly 45 to 88%, and
+calibration, which every threshold depends on, can't be measured at all.
+
+The smoke test has a second limit. The alert titles start with Firing, Warning, or
+Info, and routing on that configured severity alone already matches every label
+except the two duplicates. So this set can only show what Jev adds through dedup.
+Real alert streams have noisier configured severities, and measuring that gap is what
+a replay is for.
+
+Replay a few hundred historical alerts, labeled with the severity assigned after
+each incident:
+
+```
+python3 triage.py --alerts history.jsonl --out replay.json --timeout 10 --retries 3 --max-wait 30
+python3 evaluate.py replay.json --sweep
+```
+
+`evaluate.py` makes no API calls. It reports:
+
+- **Outcomes that matter on-call:** silent misses; missed, delayed, false, and
+  duplicate pages; pages to the wrong team; wrong incident links; review and ticket
+  load. These appear side by side with the static baseline, meaning routing by
+  configured severity without Jev.
+- **Per-question agreement** with Wilson 95% intervals.
+- **Calibration:** Brier score, ECE, and a reliability table for P(page) and
+  P(actionable).
+- **`--sweep`:** re-routes the stored answers under other thresholds, so you can
+  choose them from data.
+
+Alert format (JSON list or JSONL):
+
+```json
+{"id": "a01", "title": "...", "description": "...", "service": "checkout-api",
+ "env": "prod", "started_at": "2026-09-18T14:03:00Z", "configured_severity": "critical",
+ "expected": {"actionable": true, "severity": "SEV1", "team": "deploy", "duplicate_of": null}}
+```
+
+`expected` is optional and only used for evaluation.
+
+## What v1 got wrong
+
+v1 claimed every miss came back low-confidence and went to human review. Its own
+`results.json` showed 7 alerts with at least one miss. Only 2 got review, and both
+still paged.
+
+| Alert | Miss | v1 action |
+| --- | --- | --- |
+| a04 | SEV1 at 0.85 confidence (label SEV2) | PAGE NOW, no review |
+| a06 | SEV1 at 0.18 confidence (label SEV3) | PAGE NOW; the review tag didn't stop the page |
+| a10 | Duplicate at 0.65, under the 0.70 bar | A second page for the same incident |
+| a12 | Not actionable (label: actionable SEV3) | Dropped; review was skipped for non-actionable alerts |
+| a14 | SEV1 at 0.68 confidence (label SEV2) | PAGE NOW; the review tag didn't stop the page |
+| a02 | Team compute at 0.58 (label deploy) | Deduped, no review |
+| a07 | Team deploy at 0.87 (label compute) | Dropped, no review |
+
+v1 also had these design problems:
+
+- It routed on the top label and threw away the distribution.
+- It dropped alerts at a 0.5 bar, while the less destructive dedup got 0.70.
+- It used a Noul for dedup, which can't name the parent.
+- Its instructions named a test canary, a dev box, and a slow batch job as
+  non-actionable. Those are exactly the three non-actionable test alerts. The one
+  actionable miss, a12, was a deploy *canary* analysis.
+
+## Run it
+
+```
 export TYPESAFE_API_KEY=<your key from console.typesafe.ai/keys>
-python3 triage.py
+python3 triage.py          # routing table + results.json, plus the evaluation if alerts are labeled
+python3 triage.py -v       # also prints the reasons behind every decision
+python3 generate_dashboard.py   # dashboard.html from results.json
+python3 -m unittest -v     # offline tests with a fake Jev: no key, no network
 ```
 
-`triage.py` prints the routing table and writes `results.json` with every
-answer, confidence, timing, and token count. One file, no dependencies beyond
-the standard library.
+The dashboard is one self-contained HTML file. It opens with a sentence saying what
+paged someone and what is waiting for a human. Below that, every judged alert sits as
+a dot on a P(page) scale, drawn against the policy's 0.20 and 0.80 bars. Alerts are
+then grouped by outcome, with linked alerts nested under the incident they joined and
+a "Why" panel holding each decision's reasons and raw probabilities. It ends with run
+facts and, when alerts are labeled, the same outcomes, agreement, and calibration
+numbers `evaluate.py` prints. It follows the system's light or dark setting.
+
+Without a key, every alert takes the fail-open path, which shows the static baseline.
+Standard library only.
 
 ## Files
 
-- `triage.py` — the triage loop (Jev call → routing policy → confidence gate)
-- `alerts.json` — 14 synthetic alerts with the author's expected labels
-- `results.json` — full per-alert answers from the reference run
+- `triage.py`: Jev calls, routing policy, dedup graph, fallback, invariants
+- `evaluate.py`: offline outcomes, agreement, calibration, threshold sweep
+- `generate_dashboard.py`: renders `results.json` as `dashboard.html`
+- `test_triage.py`, `test_dashboard.py`: offline tests with a fake Jev
+- `alerts.json`: 14 synthetic alerts with the author's labels
+- `topology.json`: service → upstream dependencies, used to narrow dedup candidates
+- `results.json`, `dashboard.html`: written by `triage.py` and `generate_dashboard.py`
