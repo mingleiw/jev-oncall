@@ -5,6 +5,8 @@ Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
 anyone. It only judges.
 
+![jev-oncall dashboard: 14 alerts triaged — 6 paged someone, 2 waiting for a human](dashboard.png)
+
 ## How it works
 
 ```
@@ -130,8 +132,6 @@ then grouped by outcome, with linked alerts nested under the incident they joine
 a "Why" panel holding each decision's reasons and raw probabilities. It ends with run
 facts and, when alerts are labeled, the same outcomes, agreement, and calibration
 numbers `evaluate.py` prints. It follows the system's light or dark setting.
-
-![jev-oncall dashboard: 14 alerts triaged — 6 paged someone, 2 waiting for a human](dashboard.png)
 
 Without a key, every alert takes the fail-open path, which shows the static baseline.
 Standard library only.
