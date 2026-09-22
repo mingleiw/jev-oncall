@@ -33,6 +33,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures
 import http.client
 import json
@@ -59,6 +60,27 @@ _connection_pool: list[http.client.HTTPSConnection] = []
 _POOL_MAX = 16
 
 
+def _proxy_for_host(host):
+    """Return the proxy URL for host, or None for a direct connection.
+
+    Honors https_proxy/HTTPS_PROXY (then all_proxy/ALL_PROXY) and no_proxy/
+    NO_PROXY, so the client works behind a corporate egress proxy. Without
+    this, http.client connects directly and TLS fails against the proxy.
+    """
+    proxy = (os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+             or os.environ.get("all_proxy") or os.environ.get("ALL_PROXY"))
+    if not proxy:
+        return None
+    no_proxy = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+    host = host.lower()
+    for pat in (p.strip().lower() for p in no_proxy.split(",")):
+        if not pat:
+            continue
+        if pat == "*" or host == pat or (pat.startswith(".") and host.endswith(pat)):
+            return None
+    return proxy
+
+
 def _get_conn(timeout_s):
     with _pool_lock:
         if _connection_pool:
@@ -66,6 +88,18 @@ def _get_conn(timeout_s):
             conn.timeout = timeout_s
             return conn
     ctx = ssl.create_default_context()
+    proxy = _proxy_for_host(_API_HOST)
+    if proxy:
+        px = urlparse(proxy)
+        conn = http.client.HTTPSConnection(
+            px.hostname, px.port or 8080, timeout=timeout_s, context=ctx)
+        headers = {}
+        if px.username:
+            auth = base64.b64encode(
+                f"{px.username}:{px.password or ''}".encode()).decode()
+            headers["Proxy-Authorization"] = f"Basic {auth}"
+        conn.set_tunnel(_API_HOST, 443, headers)
+        return conn
     return http.client.HTTPSConnection(_API_HOST, timeout=timeout_s, context=ctx)
 
 

@@ -239,6 +239,54 @@ class FakeConn:
         pass
 
 
+class ProxySupport(unittest.TestCase):
+    def _env(self, **kw):
+        env = {k: v for k, v in os.environ.items()
+               if "proxy" not in k.lower()}
+        env.update(kw)
+        return mock.patch.dict(os.environ, env, clear=True)
+
+    def test_direct_when_no_proxy_set(self):
+        with self._env():
+            conn = triage._get_conn(2.0)
+        try:
+            self.assertIsNone(conn._tunnel_host)
+            self.assertEqual(conn.host, triage._API_HOST)
+        finally:
+            conn.close()
+
+    def test_tunnels_through_https_proxy(self):
+        with self._env(https_proxy="http://proxy.internal:3128"):
+            conn = triage._get_conn(2.0)
+        try:
+            self.assertEqual(conn.host, "proxy.internal")
+            self.assertEqual(conn.port, 3128)
+            self.assertEqual(conn._tunnel_host, triage._API_HOST)
+            self.assertEqual(conn._tunnel_port, 443)
+        finally:
+            conn.close()
+
+    def test_proxy_auth_header_sent_on_tunnel(self):
+        with self._env(https_proxy="http://user:pw@proxy.internal:3128"):
+            conn = triage._get_conn(2.0)
+        try:
+            import base64 as _b64
+            want = "Basic " + _b64.b64encode(b"user:pw").decode()
+            self.assertEqual(conn._tunnel_headers.get("Proxy-Authorization"), want)
+        finally:
+            conn.close()
+
+    def test_no_proxy_bypasses_proxy(self):
+        with self._env(https_proxy="http://proxy.internal:3128",
+                       no_proxy="api.typesafe.ai"):
+            conn = triage._get_conn(2.0)
+        try:
+            self.assertIsNone(conn._tunnel_host)
+            self.assertEqual(conn.host, triage._API_HOST)
+        finally:
+            conn.close()
+
+
 @mock.patch("time.sleep")
 class CallJev(unittest.TestCase):
     def _patch_pool(self, conn):
