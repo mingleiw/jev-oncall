@@ -120,7 +120,8 @@ def main():
     if not api_key:
         sys.exit("Set TYPESAFE_API_KEY first "
                  "(get one at console.typesafe.ai/keys).")
-    alerts = json.load(open(os.path.join(BASE, "alerts.json")))
+    with open(os.path.join(BASE, "alerts.json")) as f:
+        alerts = json.load(f)
     results = []
     agree = {"actionable": 0, "severity": 0, "team": 0, "duplicate": 0}
     tot_in, tot_out, tot_ms = 0, 0, 0.0
@@ -167,7 +168,8 @@ def main():
         "agreement_vs_author_labels": {k: f"{v}/{n}" for k, v in agree.items()},
         "results": results,
     }
-    json.dump(summary, open(os.path.join(BASE, "results.json"), "w"), indent=2)
+    with open(os.path.join(BASE, "results.json"), "w") as f:
+        json.dump(summary, f, indent=2)
     print(f"\n{n} alerts | {tot_in} in / {tot_out} out tokens | "
           f"{tot_ms/1000:.1f}s total, {tot_ms/n:.0f}ms avg per alert")
     print("agreement vs author's labels:",

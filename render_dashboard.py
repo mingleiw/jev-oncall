@@ -1,4 +1,5 @@
 import json
+import os
 from PIL import Image, ImageDraw, ImageFont
 
 S = 2  # scale
@@ -17,9 +18,11 @@ f_b = F('DejaVuSans-Bold.ttf', 14); f_t = F('DejaVuSans.ttf', 12.5)
 f_small = F('DejaVuSans.ttf', 11.5); f_mono = F('DejaVuSansMono.ttf', 11.5)
 f_chip = F('DejaVuSans-Bold.ttf', 11); f_chipn = F('DejaVuSansMono-Bold.ttf', 12)
 
-base = '/home/hatch/workspace/jev-incident-triage'
-results = json.load(open(base + '/results.json'))['results']
-alerts = {a['id']: a for a in json.load(open(base + '/alerts.json'))}
+BASE = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(BASE, 'results.json')) as f:
+    results = json.load(f)['results']
+with open(os.path.join(BASE, 'alerts.json')) as f:
+    alerts = {a['id']: a for a in json.load(f)}
 
 img = Image.new('RGB', (W * S, 4000 * S), BG)
 d = ImageDraw.Draw(img)
@@ -169,5 +172,5 @@ txt(W/2 - tw(foot, f_lab)/2, y, foot, f_lab, GRAY)
 y += 30
 
 img = img.crop((0, 0, W*S, int(y*S)))
-img.save(base + '/dashboard.png')
+img.save(os.path.join(BASE, 'dashboard.png'))
 print('saved', img.size)
