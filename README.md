@@ -5,9 +5,9 @@ Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
 anyone. It only judges.
 
-![jev-oncall dashboard: 14 alerts triaged — 6 paged someone, 2 waiting for a human](dashboard.png)
+![jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 flagged for review, each alert a dot on the P(page) scale against the 0.20 and 0.80 policy bars](dashboard.png)
 
-On one 300-alert synthetic run: **p50 418ms, p95 1477ms, $0.0128 total.** The
+That run: 300 synthetic alerts at **p50 418ms, p95 1477ms, $0.0128 total.** The
 slowest call landed 151ms short of the 2-second timeout, and 37% of judged alerts
 fell in the review band. Both numbers, and why the tail matters more than the
 median, are in [one measured run](#one-measured-run). They measure speed on one
@@ -140,6 +140,8 @@ triage runs, not how well it judges.
 ```
 python3 generate_alerts.py --count 300 --out bench_alerts.json
 python3 triage.py --alerts bench_alerts.json --out bench_results.json
+python3 generate_dashboard.py bench_results.json --alerts bench_alerts.json \
+  --out bench_dashboard.html --label "Synthetic benchmark"
 ```
 
 The run prints per-call p50/p95/p99 and total cost, and `bench_results.json`
