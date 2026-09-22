@@ -8,7 +8,6 @@ import json
 import os
 import tempfile
 import unittest
-import urllib.error
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
@@ -75,6 +74,24 @@ class ParseAnswers(unittest.TestCase):
                 triage.parse_answers(broken(mutate), [])
         with self.assertRaises(triage.JevError):  # asked duplicate_of, got no answer
             triage.parse_answers(response(), ["a01"])
+
+    def test_nan_probability_rejected(self):
+        r = response()
+        r["answers"]["actionable"]["noul"] = float("nan")
+        with self.assertRaises(triage.JevError):
+            triage.parse_answers(r, [])
+
+    def test_inf_probability_rejected(self):
+        r = response()
+        r["answers"]["severity"]["probabilities"]["0"] = float("inf")
+        with self.assertRaises(triage.JevError):
+            triage.parse_answers(r, [])
+
+    def test_choice_not_matching_max_rejected(self):
+        r = response(dup={"a01": 0.8, "none": 0.2})
+        r["answers"]["duplicate_of"]["choice"] = "none"
+        with self.assertRaises(triage.JevError):
+            triage.parse_answers(r, ["a01"])
 
 
 class RouteStandalone(unittest.TestCase):
@@ -194,51 +211,84 @@ class Candidates(unittest.TestCase):
         self.assertEqual(len(triage.candidate_causes(other, everything, topology, P)), 3)
 
 
-class FakeHTTP:
-    def __init__(self, body):
-        self.body = body
+class FakeResponse:
+    def __init__(self, status, body=None, headers=None):
+        self.status = status
+        self._body = json.dumps(body).encode() if body is not None else b""
+        self._headers = headers or {}
 
     def read(self):
-        return json.dumps(self.body).encode()
+        return self._body
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
+    def get(self, key, default=None):
+        return self._headers.get(key, default)
 
 
-def http_error(code, retry_after=None):
-    headers = {} if retry_after is None else {"Retry-After": str(retry_after)}
-    return urllib.error.HTTPError(triage.API_URL, code, "error", headers, None)
+class FakeConn:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.call_count = 0
+
+    def request(self, method, path, body=None, headers=None):
+        self.call_count += 1
+
+    def getresponse(self):
+        return self._responses.pop(0)
+
+    def close(self):
+        pass
 
 
 @mock.patch("time.sleep")
 class CallJev(unittest.TestCase):
+    def _patch_pool(self, conn):
+        return mock.patch.object(triage, "_get_conn", return_value=conn), \
+               mock.patch.object(triage, "_put_conn")
+
     def test_retries_a_429_then_succeeds(self, sleep):
-        with mock.patch("urllib.request.urlopen",
-                        side_effect=[http_error(429, 0.1), FakeHTTP({"ok": 1})]) as urlopen:
+        conn = FakeConn([FakeResponse(429, headers={"Retry-After": "0.1"}),
+                         FakeResponse(200, {"ok": 1})])
+        get_patch, put_patch = self._patch_pool(conn)
+        with get_patch, put_patch:
             data, _ = triage.call_jev({}, "key", retries=1)
-        self.assertEqual((data, urlopen.call_count), ({"ok": 1}, 2))
+        self.assertEqual(data, {"ok": 1})
+        self.assertEqual(conn.call_count, 2)
         sleep.assert_called_once_with(0.1)
 
     def test_client_errors_are_not_retried(self, sleep):
-        with mock.patch("urllib.request.urlopen", side_effect=[http_error(400)]) as urlopen:
+        conn = FakeConn([FakeResponse(400)])
+        get_patch, put_patch = self._patch_pool(conn)
+        with get_patch, put_patch:
             with self.assertRaises(triage.JevError):
                 triage.call_jev({}, "key", retries=3)
-        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(conn.call_count, 1)
 
     def test_falls_back_rather_than_wait_out_a_long_retry_after(self, sleep):
-        with mock.patch("urllib.request.urlopen", side_effect=[http_error(429, 30)]):
+        conn = FakeConn([FakeResponse(429, headers={"Retry-After": "30"})])
+        get_patch, put_patch = self._patch_pool(conn)
+        with get_patch, put_patch:
             with self.assertRaises(triage.JevError):
                 triage.call_jev({}, "key", retries=3, max_wait_s=1.0)
         sleep.assert_not_called()
 
     def test_network_errors_exhaust_retries(self, sleep):
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")) as urlopen:
+        def fail_conn(timeout):
+            c = mock.Mock()
+            c.request.side_effect = OSError("down")
+            return c
+        with mock.patch.object(triage, "_get_conn", side_effect=fail_conn), \
+             mock.patch.object(triage, "_put_conn"):
             with self.assertRaises(triage.JevError):
                 triage.call_jev({}, "key", retries=2)
-        self.assertEqual(urlopen.call_count, 3)
+
+    def test_connection_reused_on_success(self, sleep):
+        conn = FakeConn([FakeResponse(200, {"ok": 1})])
+        put_calls = []
+        with mock.patch.object(triage, "_get_conn", return_value=conn), \
+             mock.patch.object(triage, "_put_conn", side_effect=lambda c: put_calls.append(c)):
+            triage.call_jev({}, "key")
+        self.assertEqual(len(put_calls), 1)
+        self.assertIs(put_calls[0], conn)
 
 
 def label_oracle(alerts):

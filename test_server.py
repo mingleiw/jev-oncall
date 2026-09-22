@@ -208,12 +208,72 @@ class NormalizerTests(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
+class ValidationTests(unittest.TestCase):
+    def test_valid_alert_passes(self):
+        a = server.validate_alert({"id": "x1", "title": "down", "configured_severity": "critical",
+                                   "started_at": "2024-01-15T10:30:00Z"})
+        self.assertEqual(a["id"], "x1")
+        self.assertEqual(a["configured_severity"], "critical")
+
+    def test_invalid_severity_defaults_to_critical(self):
+        a = server.validate_alert({"id": "x1", "title": "down", "configured_severity": "banana"})
+        self.assertEqual(a["configured_severity"], "critical")
+
+    def test_invalid_timestamp_replaced(self):
+        a = server.validate_alert({"id": "x1", "title": "down", "started_at": "not-a-date"})
+        self.assertRegex(a["started_at"], r"^\d{4}-\d{2}-\d{2}T")
+
+    def test_long_fields_clamped(self):
+        a = server.validate_alert({"id": "x1", "title": "a" * 5000, "description": "b" * 10000})
+        self.assertLessEqual(len(a["title"]), server.MAX_FIELD_LEN)
+        self.assertLessEqual(len(a["description"]), 5000)
+
+    def test_empty_id_rejected(self):
+        with self.assertRaises(ValueError):
+            server.validate_alert({"id": "", "title": "down"})
+
+    def test_empty_title_rejected(self):
+        with self.assertRaises(ValueError):
+            server.validate_alert({"id": "x1", "title": "  "})
+
+
+class RateLimitTests(unittest.TestCase):
+    def test_allows_up_to_limit(self):
+        limiter = server.RateLimiter(max_per_minute=3)
+        self.assertTrue(limiter.allow())
+        self.assertTrue(limiter.allow())
+        self.assertTrue(limiter.allow())
+        self.assertFalse(limiter.allow())
+
+    def test_window_expires(self):
+        limiter = server.RateLimiter(max_per_minute=1)
+        limiter.allow()
+        limiter._timestamps[0] = time.monotonic() - 61
+        self.assertTrue(limiter.allow())
+
+
+class StalenessTests(unittest.TestCase):
+    def test_stale_alerts_pruned(self):
+        runner = server.TriageRunner(topology={}, api_key=None)
+        runner._active_alerts = [{"id": "old", "title": "old"}]
+        runner._alert_times = {"old": time.monotonic() - server.ALERT_TTL_S - 1}
+        runner._prune_stale()
+        self.assertEqual(len(runner._active_alerts), 0)
+
+    def test_fresh_alerts_kept(self):
+        runner = server.TriageRunner(topology={}, api_key=None)
+        runner._active_alerts = [{"id": "new", "title": "new"}]
+        runner._alert_times = {"new": time.monotonic()}
+        runner._prune_stale()
+        self.assertEqual(len(runner._active_alerts), 1)
+
+
 class HTTPTests(unittest.TestCase):
     """Spin up the server on a random port and test the HTTP layer."""
 
     @classmethod
     def setUpClass(cls):
-        cls.runner = server.TriageRunner(topology={}, api_key=None)
+        cls.runner = server.TriageRunner(topology={}, api_key=None, rate_limit=1000)
         server.Handler.runner = cls.runner
         from http.server import HTTPServer
         cls.httpd = HTTPServer(("127.0.0.1", 0), server.Handler)
@@ -307,6 +367,38 @@ class HTTPTests(unittest.TestCase):
         body = json.loads(conn2.getresponse().read())
         ids = [d["id"] for d in body["decisions"]]
         self.assertIn("recent-1", ids)
+
+    def test_recent_includes_latency_percentiles(self):
+        conn = self._conn()
+        conn.request("GET", "/recent")
+        body = json.loads(conn.getresponse().read())
+        for key in ("latency_ms_p50", "latency_ms_p95", "latency_ms_p99", "active_alerts"):
+            self.assertIn(key, body)
+
+    def test_validation_rejects_empty_id_over_http(self):
+        conn = self._conn()
+        status, body = post(conn, "/ingest/generic", {"id": "", "title": "x"})
+        self.assertEqual(status, 422)
+        self.assertIn("validation failed", body["error"])
+
+    def test_invalid_severity_normalized_over_http(self):
+        conn = self._conn()
+        alert = {"id": "sev-test", "title": "bad sev", "configured_severity": "banana"}
+        status, body = post(conn, "/ingest/generic", alert)
+        self.assertEqual(status, 200)
+
+    def test_rate_limit_returns_429(self):
+        limited_runner = server.TriageRunner(topology={}, api_key=None, rate_limit=1)
+        old_runner = server.Handler.runner
+        server.Handler.runner = limited_runner
+        try:
+            conn = self._conn()
+            post(conn, "/ingest/generic", {"id": "rl1", "title": "first"})
+            conn2 = self._conn()
+            status, body = post(conn2, "/ingest/generic", {"id": "rl2", "title": "second"})
+            self.assertEqual(status, 429)
+        finally:
+            server.Handler.runner = old_runner
 
 
 if __name__ == "__main__":

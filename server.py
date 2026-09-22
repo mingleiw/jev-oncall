@@ -29,17 +29,24 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import threading
 import time
 from collections import deque
-from dataclasses import asdict
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import triage
 
 PROVIDERS = {}
+
+VALID_SEVERITIES = {"critical", "warning", "info"}
+MAX_FIELD_LEN = 1000
+_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+
+DEFAULT_RATE_LIMIT = 120
+ALERT_TTL_S = 3600
 
 
 def provider(name):
@@ -56,6 +63,32 @@ def _now_iso():
 def _stable_id(provider_name, raw_id):
     """Deterministic alert id from provider + their id."""
     return hashlib.sha256(f"{provider_name}:{raw_id}".encode()).hexdigest()[:12]
+
+
+def _clamp(value, max_len=MAX_FIELD_LEN):
+    if not isinstance(value, str):
+        return value
+    return value[:max_len]
+
+
+def validate_alert(alert):
+    """Enforce schema constraints on a normalized alert before triage."""
+    if not isinstance(alert.get("id"), str) or not alert["id"].strip():
+        raise ValueError("alert 'id' must be a non-empty string")
+    if not isinstance(alert.get("title"), str) or not alert["title"].strip():
+        raise ValueError("alert 'title' must be a non-empty string")
+    alert["id"] = _clamp(alert["id"], 64)
+    alert["title"] = _clamp(alert["title"])
+    alert["description"] = _clamp(alert.get("description", ""), 5000)
+    if alert.get("service"):
+        alert["service"] = _clamp(alert["service"], 200)
+    sev = alert.get("configured_severity", "critical")
+    if sev not in VALID_SEVERITIES:
+        alert["configured_severity"] = "critical"
+    ts = alert.get("started_at", "")
+    if ts and not _ISO_RE.match(str(ts)):
+        alert["started_at"] = _now_iso()
+    return alert
 
 
 # --------------------------------------------------------------------------
@@ -207,20 +240,61 @@ def normalize_grafana(body):
 # --------------------------------------------------------------------------
 # Triage runner
 
+class RateLimiter:
+    def __init__(self, max_per_minute=DEFAULT_RATE_LIMIT):
+        self.max_per_minute = max_per_minute
+        self._timestamps: deque = deque()
+        self._lock = threading.Lock()
+
+    def allow(self):
+        now = time.monotonic()
+        cutoff = now - 60
+        with self._lock:
+            while self._timestamps and self._timestamps[0] < cutoff:
+                self._timestamps.popleft()
+            if len(self._timestamps) >= self.max_per_minute:
+                return False
+            self._timestamps.append(now)
+            return True
+
+
+def _percentile(values, q):
+    if not values:
+        return None
+    s = sorted(values)
+    return s[min(len(s) - 1, int(q * len(s)))]
+
+
 class TriageRunner:
-    def __init__(self, topology=None, api_key=None):
+    def __init__(self, topology=None, api_key=None, rate_limit=DEFAULT_RATE_LIMIT):
         self.topology = topology or {}
         self.api_key = api_key
         self.policy = triage.Policy()
         self.lock = threading.Lock()
         self.recent = deque(maxlen=200)
         self._active_alerts = []
+        self._alert_times: dict[str, float] = {}
+        self.limiter = RateLimiter(rate_limit)
+
+    def _prune_stale(self):
+        cutoff = time.monotonic() - ALERT_TTL_S
+        stale = [aid for aid, t in self._alert_times.items() if t < cutoff]
+        for aid in stale:
+            del self._alert_times[aid]
+        self._active_alerts = [a for a in self._active_alerts
+                               if a["id"] not in stale]
 
     def triage(self, alerts):
+        now = time.monotonic()
         with self.lock:
-            self._active_alerts = list(alerts)
+            self._prune_stale()
+            existing_ids = {a["id"] for a in self._active_alerts}
+            for a in alerts:
+                self._alert_times[a["id"]] = now
+                if a["id"] not in existing_ids:
+                    self._active_alerts.append(a)
             candidates = {a["id"]: triage.candidate_causes(a, self._active_alerts, self.topology, self.policy)
-                          for a in self._active_alerts}
+                          for a in alerts}
         t0 = time.monotonic()
         judgments, errors, calls = triage.judge_all(
             alerts, candidates, self.api_key, timeout_s=2.0, retries=1, max_wait_s=1.0)
@@ -256,6 +330,19 @@ class TriageRunner:
             "invariant_violations": problems,
         }
 
+    def stats(self):
+        with self.lock:
+            items = list(self.recent)
+        latencies = [d["ms"] for d in items if d.get("ms") is not None]
+        return {
+            "decisions": items,
+            "count": len(items),
+            "active_alerts": len(self._active_alerts),
+            "latency_ms_p50": _percentile(latencies, 0.50),
+            "latency_ms_p95": _percentile(latencies, 0.95),
+            "latency_ms_p99": _percentile(latencies, 0.99),
+        }
+
 
 # --------------------------------------------------------------------------
 # HTTP handler
@@ -282,9 +369,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._send_json(200, {"ok": True})
         elif self.path.startswith("/recent"):
-            with self.runner.lock:
-                items = list(self.runner.recent)
-            self._send_json(200, {"decisions": items, "count": len(items)})
+            self._send_json(200, self.runner.stats())
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -312,6 +397,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": f"invalid JSON: {e}"})
             return
 
+        if not self.runner.limiter.allow():
+            self._send_json(429, {"error": "rate limit exceeded"})
+            return
+
         try:
             alerts = PROVIDERS[provider_name](body)
         except (KeyError, ValueError, TypeError) as e:
@@ -320,6 +409,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if not alerts:
             self._send_json(200, {"decisions": [], "wall_ms": 0, "invariant_violations": []})
+            return
+
+        try:
+            alerts = [validate_alert(a) for a in alerts]
+        except (ValueError, TypeError) as e:
+            self._send_json(422, {"error": f"validation failed: {e}"})
             return
 
         result = self.runner.triage(alerts)
@@ -334,6 +429,8 @@ def main(argv=None):
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--topology", default=os.path.join(triage.BASE, "topology.json"))
+    ap.add_argument("--rate-limit", type=int, default=DEFAULT_RATE_LIMIT,
+                    help=f"max ingests per minute (default: {DEFAULT_RATE_LIMIT})")
     args = ap.parse_args(argv)
 
     api_key = os.environ.get("TYPESAFE_API_KEY")
@@ -342,7 +439,7 @@ def main(argv=None):
               file=sys.stderr)
 
     topology = triage.load_json(args.topology) if os.path.exists(args.topology) else {}
-    runner = TriageRunner(topology, api_key)
+    runner = TriageRunner(topology, api_key, args.rate_limit)
     Handler.runner = runner
 
     httpd = HTTPServer((args.host, args.port), Handler)
