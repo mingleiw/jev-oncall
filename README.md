@@ -140,6 +140,36 @@ The run prints per-call p50/p95/p99 and total cost, and `bench_results.json`
 stores them under `summary`. Latency depends on your network path to the API, so
 the number is yours, not a published claim.
 
+#### One measured run
+
+300 synthetic alerts, 16 workers, default 2-second timeout. 233 reached Jev; the
+other 67 were non-prod and never called the model.
+
+| | |
+| --- | --- |
+| Per-call latency | min 204ms, p50 418ms, p90 674ms, p95 1477ms, p99 1748ms, max 1849ms |
+| Wall clock | 7,642ms for all 300 |
+| Cost | $0.0128 total, about $0.04 per 1,000 alerts |
+| Payload | 304,175 input tokens, ~1,305 per call |
+| Fallbacks | 0 |
+
+Two things in that run matter more than the median.
+
+**The tail nearly reaches the timeout.** The slowest call took 1,849ms against a
+2,000ms limit — 151ms of margin. Nothing fell back this time, but a slower
+network path would push the top of the distribution over the line, and those
+alerts would route on configured severity instead. Latency between p90 and p95
+jumps 2.2x, so the tail is where the risk lives, not the middle. Raise
+`--timeout` or accept that the fail-open path is load-bearing.
+
+**37% of judged alerts landed in REVIEW.** 86 of 233 fell between the 0.20 and
+0.80 bars. That is the band working as designed, but it is also a lot of human
+attention, and it says the default bars are wide for this alert mix. Tuning them
+is what `evaluate.py --sweep` is for.
+
+Both numbers come from one machine on one network path against synthetic alerts.
+They say nothing about whether the routing was correct.
+
 Accuracy and calibration are not measurable this way. Synthetic alerts carry the
 author's guesses as labels, which is the same circularity the smoke test has. Use
 replayed history for those.
