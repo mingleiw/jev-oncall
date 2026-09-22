@@ -124,6 +124,26 @@ python3 evaluate.py replay.json --sweep
 - **`--sweep`:** re-routes the stored answers under other thresholds, so you can
   choose them from data.
 
+### Benchmarking latency
+
+Latency is the one thing measurable without labeled history. `generate_alerts.py`
+writes synthetic alerts — incident clusters with a root cause and downstream
+alerts, plus noise — carrying no `expected` labels, because they measure how fast
+triage runs, not how well it judges.
+
+```
+python3 generate_alerts.py --count 300 --out bench_alerts.json
+python3 triage.py --alerts bench_alerts.json --out bench_results.json
+```
+
+The run prints per-call p50/p95/p99 and total cost, and `bench_results.json`
+stores them under `summary`. Latency depends on your network path to the API, so
+the number is yours, not a published claim.
+
+Accuracy and calibration are not measurable this way. Synthetic alerts carry the
+author's guesses as labels, which is the same circularity the smoke test has. Use
+replayed history for those.
+
 Alert format (JSON list or JSONL):
 
 ```json
@@ -220,6 +240,7 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [triage.py](triage.py) | Jev calls, routing policy, dedup graph, fallback, invariants |
 | [evaluate.py](evaluate.py) | Offline outcomes, agreement, calibration, threshold sweep |
 | [generate_dashboard.py](generate_dashboard.py) | Renders `results.json` as `dashboard.html` |
+| [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
 | [server.py](server.py) | Webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |

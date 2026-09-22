@@ -645,6 +645,7 @@ def summarize(alerts, decisions, judgments, calls, wall_ms, problems):
         "cost_usd": round(tokens_in * USD_PER_M_INPUT_TOKENS / 1e6, 6),
         "latency_ms_p50": _percentile(ms, 0.50),
         "latency_ms_p95": _percentile(ms, 0.95),
+        "latency_ms_p99": _percentile(ms, 0.99),
         "wall_ms": round(wall_ms),
         "actions": dict(sorted(actions.items(), key=lambda kv: -RANK.get(kv[0], -1))),
         "invariant_violations": problems,
@@ -736,7 +737,8 @@ def main(argv=None):
           f"fallback {s['fallback']}")
     if calls:
         print(f"{s['input_tokens']} input tokens = ${s['cost_usd']:.5f} | per call "
-              f"p50 {s['latency_ms_p50']}ms, p95 {s['latency_ms_p95']}ms | "
+              f"p50 {s['latency_ms_p50']}ms, p95 {s['latency_ms_p95']}ms, "
+              f"p99 {s['latency_ms_p99']}ms | "
               f"wall {s['wall_ms']}ms with {args.workers} workers")
     print("actions: " + ", ".join(f"{k} {v}" for k, v in s["actions"].items()))
     print(f"wrote {args.out}")
