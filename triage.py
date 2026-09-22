@@ -34,17 +34,50 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import http.client
 import json
+import math
 import os
+import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 API_URL = "https://api.typesafe.ai/v1/systemone"
+_API_PARSED = urlparse(API_URL)
+_API_HOST = _API_PARSED.hostname
+_API_PATH = _API_PARSED.path
+
+_pool_lock = threading.Lock()
+_connection_pool: list[http.client.HTTPSConnection] = []
+_POOL_MAX = 16
+
+
+def _get_conn(timeout_s):
+    with _pool_lock:
+        if _connection_pool:
+            conn = _connection_pool.pop()
+            conn.timeout = timeout_s
+            return conn
+    ctx = ssl.create_default_context()
+    return http.client.HTTPSConnection(_API_HOST, timeout=timeout_s, context=ctx)
+
+
+def _put_conn(conn):
+    with _pool_lock:
+        if len(_connection_pool) < _POOL_MAX:
+            _connection_pool.append(conn)
+            return
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 # Pinned rather than "jev-latest": an alias moves when TypeSafe ships a
 # release, which can shift probabilities under the thresholds in Policy.
@@ -244,41 +277,69 @@ def build_payload(alert, candidates, model=MODEL):
     }
 
 
-def _retry_after(err):
+def _retry_after(headers):
     try:
-        return float(err.headers.get("Retry-After"))
+        return float(headers.get("Retry-After"))
     except (TypeError, ValueError, AttributeError):
         return None
 
 
 def call_jev(payload, api_key, timeout_s=2.0, retries=1, max_wait_s=1.0):
-    """POST one request. Retries 429s, 5xx and network errors, but raises
-    JevError rather than wait longer than max_wait_s between attempts: on a
-    paging path, falling back beats waiting."""
+    """POST one request using a pooled HTTPS connection. Retries 429s, 5xx
+    and network errors with escalating backoff (rate-limit 429s use
+    Retry-After when available). Raises JevError rather than wait longer
+    than max_wait_s between attempts: on a paging path, falling back beats
+    waiting."""
     body = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Connection": "keep-alive",
+    }
     last = "no attempt made"
     for attempt in range(retries + 1):
-        wait = 0.2 * 2 ** attempt
+        base_wait = 0.5 * 2 ** attempt
         t0 = time.monotonic()
+        conn = _get_conn(timeout_s)
         try:
-            req = urllib.request.Request(API_URL, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            return data, (time.monotonic() - t0) * 1000
-        except urllib.error.HTTPError as e:
-            last = f"HTTP {e.code}"
-            if e.code != 429 and e.code < 500:
-                break  # other 4xx errors won't fix themselves
-            wait = _retry_after(e) or wait
-        except (urllib.error.URLError, OSError, ValueError) as e:
+            conn.request("POST", _API_PATH, body=body, headers=headers)
+            resp = conn.getresponse()
+            resp_body = resp.read()
+            if 200 <= resp.status < 300:
+                data = json.loads(resp_body.decode("utf-8"))
+                _put_conn(conn)
+                return data, (time.monotonic() - t0) * 1000
+            last = f"HTTP {resp.status}"
+            if resp.status == 429:
+                wait = _retry_after(resp) or base_wait
+            elif resp.status >= 500:
+                wait = base_wait
+            else:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                break
+            _put_conn(conn)
+        except Exception as e:
             last = f"{type(e).__name__}: {e}"
+            wait = base_wait
+            try:
+                conn.close()
+            except Exception:
+                pass
         if attempt < retries:
             if wait > max_wait_s:
                 last += f" (retry would wait {wait:g}s)"
                 break
             time.sleep(wait)
     raise JevError(last)
+
+
+def _validate_finite(value, what):
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise JevError(f"{what}: non-finite value {value!r}")
+    return float(value)
 
 
 def _distribution(raw, options, what):
@@ -288,7 +349,7 @@ def _distribution(raw, options, what):
     for key, value in raw.items():
         if key not in dist:
             raise JevError(f"{what}: unexpected option {key!r}")
-        p = float(value)
+        p = _validate_finite(value, what)
         if not 0.0 <= p <= 1.0:
             raise JevError(f"{what}: probability {p} out of range")
         dist[key] = p
@@ -298,12 +359,21 @@ def _distribution(raw, options, what):
     return {k: v / total for k, v in dist.items()}
 
 
+def _validate_choice_max(answer, dist, what):
+    """If the response includes a 'choice' field, verify it matches the max probability."""
+    choice = answer.get("choice")
+    if choice is not None and choice in dist:
+        max_p = max(dist.values())
+        if dist[choice] < max_p - 1e-6:
+            raise JevError(f"{what}: choice {choice!r} is not the most probable option")
+
+
 def parse_answers(resp, candidate_ids):
     """Validate a response and normalize it into a Judgment, or raise JevError.
     Jev guarantees the schema; checking anyway is cheap on a paging path."""
     try:
         answers = resp["answers"]
-        p_act = float(answers["actionable"]["noul"])
+        p_act = _validate_finite(answers["actionable"]["noul"], "actionable")
         if not 0.0 <= p_act <= 1.0:
             raise JevError(f"actionable: probability {p_act} out of range")
         severity = {}
@@ -311,16 +381,21 @@ def parse_answers(resp, candidate_ids):
             level = int(key)
             if not 0 <= level < len(SEV_LEVELS):
                 raise JevError(f"severity: unexpected level {key!r}")
-            severity[SEV_LEVELS[level]] = value
+            severity[SEV_LEVELS[level]] = _validate_finite(value, "severity")
         duplicate_of = None
         if candidate_ids:
-            duplicate_of = _distribution(answers["duplicate_of"]["probabilities"],
-                                         [*candidate_ids, NONE], "duplicate_of")
+            dup_raw = answers["duplicate_of"]["probabilities"]
+            duplicate_of = _distribution(dup_raw, [*candidate_ids, NONE], "duplicate_of")
+            _validate_choice_max(answers["duplicate_of"], duplicate_of, "duplicate_of")
+        sev_dist = _distribution(severity, SEV_LEVELS, "severity")
+        team_raw = answers["team"]["probabilities"]
+        team_dist = _distribution(team_raw, list(TEAM_CRITERIA), "team")
+        _validate_choice_max(answers["team"], team_dist, "team")
         return Judgment(
             model=str(resp.get("model", "unknown")),
             p_actionable=p_act,
-            severity=_distribution(severity, SEV_LEVELS, "severity"),
-            team=_distribution(answers["team"]["probabilities"], list(TEAM_CRITERIA), "team"),
+            severity=sev_dist,
+            team=team_dist,
             duplicate_of=duplicate_of,
         )
     except (KeyError, TypeError, ValueError, AttributeError) as e:
