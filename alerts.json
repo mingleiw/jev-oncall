@@ -3,84 +3,98 @@
     "id": "a01",
     "title": "Firing: checkout-api error rate 98% for 6m (us-west-2)",
     "description": "5xx rate on checkout-api climbed from 0.1% to 98% starting 14:03 UTC, 2 minutes after deploy v2.14.3 rolled to us-west-2. Payment authorization failures spiking in parallel.",
-    "expected": {"actionable": true, "severity": "SEV1", "team": "deploy", "duplicate": false}
+    "service": "checkout-api", "env": "prod", "started_at": "2026-09-18T14:03:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV1", "team": "deploy", "duplicate_of": null}
   },
   {
     "id": "a02",
     "title": "Firing: payment-service 5xx rate 91% (us-west-2)",
     "description": "payment-service returning 503s at 91% rate since 14:04 UTC. Upstream dependency checkout-api is in full outage since 14:03 UTC.",
-    "expected": {"actionable": true, "severity": "SEV1", "team": "deploy", "duplicate": true}
+    "service": "payment-service", "env": "prod", "started_at": "2026-09-18T14:04:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV1", "team": "deploy", "duplicate_of": "a01"}
   },
   {
     "id": "a03",
     "title": "Firing: p99 latency on search-api above 2s for 15m",
     "description": "p99 latency on search-api has exceeded the 800ms SLO for 15 minutes, currently 2.3s. Error rate normal, traffic normal, no deploy in the last 4 hours.",
-    "expected": {"actionable": true, "severity": "SEV2", "team": "compute", "duplicate": false}
+    "service": "search-api", "env": "prod", "started_at": "2026-09-18T13:54:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV2", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a04",
     "title": "Firing: orders-db replica lag 45s and growing after failover",
     "description": "Automatic failover of orders-db primary completed at 13:51 UTC. New replica lag is 45 seconds and growing 5s/min. Read-your-write complaints starting in support queue.",
-    "expected": {"actionable": true, "severity": "SEV2", "team": "database", "duplicate": false}
+    "service": "orders-db", "env": "prod", "started_at": "2026-09-18T13:52:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV2", "team": "database", "duplicate_of": null}
   },
   {
     "id": "a05",
     "title": "Warning: disk usage 82% on log-aggregator-03",
     "description": "Disk usage on log-aggregator-03 at 82%, growing ~2%/day for the past week. At current rate fills in ~9 days.",
-    "expected": {"actionable": true, "severity": "SEV3", "team": "compute", "duplicate": false}
+    "service": "log-aggregator", "env": "prod", "started_at": "2026-09-18T11:20:00Z", "configured_severity": "warning",
+    "expected": {"actionable": true, "severity": "SEV3", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a06",
     "title": "Warning: TLS cert for api.example.com expires in 13 days",
     "description": "Public TLS certificate for api.example.com expires in 13 days. Auto-renewal job last succeeded 60 days ago.",
-    "expected": {"actionable": true, "severity": "SEV3", "team": "network", "duplicate": false}
+    "service": "api-edge", "env": "prod", "started_at": "2026-09-18T06:00:00Z", "configured_severity": "warning",
+    "expected": {"actionable": true, "severity": "SEV3", "team": "network", "duplicate_of": null}
   },
   {
     "id": "a07",
     "title": "Firing: test-alert-heartbeat missing for 2m",
     "description": "Synthetic heartbeat canary in the staging environment has not reported for 2 minutes. Production canaries healthy.",
-    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate": false}
+    "service": "heartbeat-canary", "env": "staging", "started_at": "2026-09-18T14:07:00Z", "configured_severity": "critical",
+    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a08",
     "title": "Info: nightly-report cron took 42m (usual 35m)",
     "description": "The nightly-report batch job completed successfully in 42 minutes vs a 35-minute trailing average. No errors, output validated.",
-    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate": false}
+    "service": "nightly-report", "env": "prod", "started_at": "2026-09-18T03:12:00Z", "configured_severity": "info",
+    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a09",
     "title": "Firing: all edge PoPs returning 503",
     "description": "Global edge outage: all PoPs returning 503 since 14:02 UTC, correlating exactly with the CDN config push at 14:02 UTC. Origin healthy.",
-    "expected": {"actionable": true, "severity": "SEV1", "team": "network", "duplicate": false}
+    "service": "edge", "env": "prod", "started_at": "2026-09-18T14:02:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV1", "team": "network", "duplicate_of": null}
   },
   {
     "id": "a10",
     "title": "Firing: homepage health check failing from 3 regions",
     "description": "Synthetic homepage checks failing from us-west, us-east, and eu-west since 14:03 UTC. Edge PoPs are globally returning 503 since 14:02 UTC.",
-    "expected": {"actionable": true, "severity": "SEV1", "team": "network", "duplicate": true}
+    "service": "homepage", "env": "prod", "started_at": "2026-09-18T14:03:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV1", "team": "network", "duplicate_of": "a09"}
   },
   {
     "id": "a11",
     "title": "Firing: Kafka consumer lag above 500k on billing-events",
     "description": "Consumer lag on the billing-events topic exceeded 500k messages and is growing at 20k/min. Consumers running, no errors, just slow. Billing pipeline delayed ~25 min.",
-    "expected": {"actionable": true, "severity": "SEV2", "team": "compute", "duplicate": false}
+    "service": "billing-events", "env": "prod", "started_at": "2026-09-18T13:44:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV2", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a12",
     "title": "Warning: deploy v2.14.4 canary analysis paused in eu-west-1",
     "description": "Automated canary analysis for deploy v2.14.4 paused: insufficient traffic in eu-west-1 to reach statistical significance. No errors detected so far.",
-    "expected": {"actionable": true, "severity": "SEV3", "team": "deploy", "duplicate": false}
+    "service": "deploy-canary", "env": "prod", "started_at": "2026-09-18T13:58:00Z", "configured_severity": "warning",
+    "expected": {"actionable": true, "severity": "SEV3", "team": "deploy", "duplicate_of": null}
   },
   {
     "id": "a13",
     "title": "Firing: CPU above 90% for 5m on dev-jumpbox-01",
     "description": "CPU on dev-jumpbox-01 (development bastion host, no production traffic) above 90% for 5 minutes. Owner ran a load test and forgot to stop it.",
-    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate": false}
+    "service": "dev-jumpbox", "env": "dev", "started_at": "2026-09-18T14:04:00Z", "configured_severity": "critical",
+    "expected": {"actionable": false, "severity": "SEV4", "team": "compute", "duplicate_of": null}
   },
   {
     "id": "a14",
     "title": "Firing: Redis evictions spiking on session-store",
     "description": "Evicted keys/sec on the session-store Redis cluster up 40x in 10 minutes. Cache hit rate dropped from 99% to 61%. Users being logged out intermittently.",
-    "expected": {"actionable": true, "severity": "SEV2", "team": "database", "duplicate": false}
+    "service": "session-store", "env": "prod", "started_at": "2026-09-18T13:59:00Z", "configured_severity": "critical",
+    "expected": {"actionable": true, "severity": "SEV2", "team": "database", "duplicate_of": null}
   }
 ]

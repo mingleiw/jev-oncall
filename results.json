@@ -1,183 +1,631 @@
 {
-  "alerts": 14,
-  "total_input_tokens": 12625,
-  "total_output_tokens": 1848,
-  "total_ms": 9205,
-  "avg_ms_per_alert": 658,
-  "agreement_vs_author_labels": {
-    "actionable": "13/14",
-    "severity": "10/14",
-    "team": "12/14",
-    "duplicate": "13/14"
+  "meta": {
+    "version": 2,
+    "model_requested": "jev-1.13.0",
+    "models_answered": [
+      "jev-1.13.0"
+    ],
+    "policy": {
+      "page_bar": 0.8,
+      "no_page_bar": 0.2,
+      "drop_bar": 0.05,
+      "dedup_bar": 0.7,
+      "team_bar": 0.6,
+      "window_min": 30.0,
+      "skew_min": 2.0,
+      "max_candidates": 50,
+      "review_ack_min": 15
+    },
+    "alerts_path": "/home/hatch/workspace/jev-incident-triage/alerts.json",
+    "topology": {
+      "payment-service": [
+        "checkout-api"
+      ],
+      "homepage": [
+        "edge"
+      ]
+    },
+    "generated_at": "2026-09-21T21:25:22+00:00"
   },
-  "results": [
+  "summary": {
+    "alerts": 14,
+    "jev_answered": 12,
+    "rule": 2,
+    "fallback": 0,
+    "input_tokens": 9551,
+    "output_tokens": 1364,
+    "cost_usd": 0.000401,
+    "latency_ms_p50": 0,
+    "latency_ms_p95": 0,
+    "wall_ms": 2238,
+    "actions": {
+      "PAGE_NOW": 2,
+      "PAGE": 4,
+      "REVIEW": 2,
+      "TICKET": 3,
+      "LOG": 2,
+      "DEDUP": 1
+    },
+    "invariant_violations": []
+  },
+  "alerts": [
     {
       "id": "a01",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 0.99,
+      "action": "PAGE_NOW",
+      "standalone": "PAGE_NOW",
       "team": "deploy",
-      "team_conf": 0.77,
-      "duplicate": false,
-      "dup_p": 0.31,
-      "action": "PAGE NOW",
-      "ms": 607
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.98 team=deploy@0.98"
+      ],
+      "candidates": [
+        "a10",
+        "a02",
+        "a09",
+        "a14",
+        "a12",
+        "a03",
+        "a04",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.98,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.01,
+          "SEV1": 0.99
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 0.02,
+          "network": 0.0,
+          "deploy": 0.98
+        },
+        "duplicate_of": {
+          "a10": 0.0,
+          "a02": 0.65,
+          "a09": 0.0,
+          "a14": 0.0,
+          "a12": 0.0,
+          "a03": 0.0,
+          "a04": 0.0,
+          "a11": 0.0,
+          "none": 0.35
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 1070,
+          "output_tokens": 172
+        }
+      }
     },
     {
       "id": "a02",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 1.0,
+      "action": "REVIEW",
+      "standalone": "PAGE_NOW",
       "team": "compute",
-      "team_conf": 0.58,
-      "duplicate": true,
-      "dup_p": 0.94,
-      "action": "DEDUP (link to primary)",
-      "ms": 454
+      "source": "jev",
+      "linked_to": "a01",
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.96 team=compute@0.71",
+        "duplicate_of a01 (0.94); incident root a01",
+        "root is owned by deploy, so compute gets a REVIEW, not silence"
+      ],
+      "candidates": [
+        "a01"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.96,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.0,
+          "SEV1": 1.0
+        },
+        "team": {
+          "database": 0.18,
+          "compute": 0.71,
+          "network": 0.03,
+          "deploy": 0.08
+        },
+        "duplicate_of": {
+          "a01": 0.94,
+          "none": 0.06
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 765,
+          "output_tokens": 109
+        }
+      }
     },
     {
       "id": "a03",
-      "actionable": true,
-      "severity": "SEV2",
-      "sev_conf": 0.62,
-      "team": "compute",
-      "team_conf": 0.81,
-      "duplicate": false,
-      "dup_p": 0.41,
-      "action": "PAGE + HUMAN REVIEW (low conf)",
-      "ms": 740
+      "action": "PAGE",
+      "standalone": "PAGE",
+      "team": "database",
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.96 P(actionable)=0.93 team=database@0.63"
+      ],
+      "candidates": [
+        "a04",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.93,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.04,
+          "SEV2": 0.96,
+          "SEV1": 0.0
+        },
+        "team": {
+          "database": 0.63,
+          "compute": 0.37,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": {
+          "a04": 0.04,
+          "a11": 0.0,
+          "none": 0.96
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 807,
+          "output_tokens": 116
+        }
+      }
     },
     {
       "id": "a04",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 0.85,
+      "action": "PAGE",
+      "standalone": "PAGE",
       "team": "database",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.26,
-      "action": "PAGE NOW",
-      "ms": 823
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.96 team=database@1.00"
+      ],
+      "candidates": [
+        "a03",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.96,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.82,
+          "SEV1": 0.18
+        },
+        "team": {
+          "database": 1.0,
+          "compute": 0.0,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": {
+          "a03": 0.0,
+          "a11": 0.0,
+          "none": 1.0
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 803,
+          "output_tokens": 116
+        }
+      }
     },
     {
       "id": "a05",
-      "actionable": true,
-      "severity": "SEV3",
-      "sev_conf": 0.13,
-      "team": "compute",
-      "team_conf": 0.61,
-      "duplicate": false,
-      "dup_p": 0.11,
-      "action": "TICKET + HUMAN REVIEW (low conf)",
-      "ms": 627
+      "action": "TICKET",
+      "standalone": "TICKET",
+      "team": "database",
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.20 P(actionable)=0.91 team=database@0.57"
+      ],
+      "candidates": [],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.91,
+        "severity": {
+          "SEV4": 0.23,
+          "SEV3": 0.57,
+          "SEV2": 0.12,
+          "SEV1": 0.08
+        },
+        "team": {
+          "database": 0.57,
+          "compute": 0.43,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": null
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 638,
+          "output_tokens": 76
+        }
+      }
     },
     {
       "id": "a06",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 0.18,
+      "action": "REVIEW",
+      "standalone": "REVIEW",
       "team": "network",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.11,
-      "action": "PAGE NOW + HUMAN REVIEW (low conf)",
-      "ms": 908
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.25 P(actionable)=0.91 team=network@1.00",
+        "unsure whether to page (0.2 < P(page) < 0.8): a human decides within 15m or it pages"
+      ],
+      "candidates": [],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.91,
+        "severity": {
+          "SEV4": 0.18,
+          "SEV3": 0.57,
+          "SEV2": 0.2,
+          "SEV1": 0.05
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 0.0,
+          "network": 1.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": null
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 623,
+          "output_tokens": 76
+        }
+      }
     },
     {
       "id": "a07",
-      "actionable": false,
-      "severity": "SEV4",
-      "sev_conf": 0.32,
-      "team": "deploy",
-      "team_conf": 0.87,
-      "duplicate": false,
-      "dup_p": 0.17,
-      "action": "DROP (noise)",
-      "ms": 501
+      "action": "LOG",
+      "standalone": "LOG",
+      "team": "triage-rotation",
+      "source": "rule",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "env=staging: non-production never pages (rule, no model call)"
+      ],
+      "candidates": [],
+      "judgment": null,
+      "error": null,
+      "call": null
     },
     {
       "id": "a08",
-      "actionable": false,
-      "severity": "SEV4",
-      "sev_conf": 0.77,
+      "action": "TICKET",
+      "standalone": "TICKET",
       "team": "compute",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.06,
-      "action": "DROP (noise)",
-      "ms": 528
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.00 P(actionable)=0.08 team=compute@1.00",
+        "probably noise, but P(actionable) > 0.05: ticket, not drop"
+      ],
+      "candidates": [],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.08,
+        "severity": {
+          "SEV4": 1.0,
+          "SEV3": 0.0,
+          "SEV2": 0.0,
+          "SEV1": 0.0
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 1.0,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": null
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 628,
+          "output_tokens": 76
+        }
+      }
     },
     {
       "id": "a09",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 1.0,
+      "action": "PAGE_NOW",
+      "standalone": "PAGE_NOW",
       "team": "network",
-      "team_conf": 0.99,
-      "duplicate": false,
-      "dup_p": 0.16,
-      "action": "PAGE NOW",
-      "ms": 721
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.98 team=network@0.94"
+      ],
+      "candidates": [
+        "a01",
+        "a10",
+        "a02",
+        "a14",
+        "a12",
+        "a03",
+        "a04",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.98,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.0,
+          "SEV1": 1.0
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 0.0,
+          "network": 0.94,
+          "deploy": 0.06
+        },
+        "duplicate_of": {
+          "a01": 0.0,
+          "a10": 0.0,
+          "a02": 0.0,
+          "a14": 0.0,
+          "a12": 0.03,
+          "a03": 0.0,
+          "a04": 0.0,
+          "a11": 0.0,
+          "none": 0.97
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 1058,
+          "output_tokens": 170
+        }
+      }
     },
     {
       "id": "a10",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 1.0,
+      "action": "DEDUP",
+      "standalone": "PAGE_NOW",
       "team": "network",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.65,
-      "action": "PAGE NOW",
-      "ms": 724
+      "source": "jev",
+      "linked_to": "a09",
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.97 team=network@1.00",
+        "duplicate_of a09 (0.93); incident root a09"
+      ],
+      "candidates": [
+        "a09"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.97,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.0,
+          "SEV1": 1.0
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 0.0,
+          "network": 1.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": {
+          "a09": 0.93,
+          "none": 0.07
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 748,
+          "output_tokens": 109
+        }
+      }
     },
     {
       "id": "a11",
-      "actionable": true,
-      "severity": "SEV2",
-      "sev_conf": 0.52,
+      "action": "PAGE",
+      "standalone": "PAGE",
       "team": "compute",
-      "team_conf": 0.38,
-      "duplicate": false,
-      "dup_p": 0.32,
-      "action": "PAGE + HUMAN REVIEW (low conf)",
-      "ms": 562
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.95 P(actionable)=0.91 team=compute@0.83"
+      ],
+      "candidates": [],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.91,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.05,
+          "SEV2": 0.9,
+          "SEV1": 0.05
+        },
+        "team": {
+          "database": 0.17,
+          "compute": 0.83,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": null
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 638,
+          "output_tokens": 76
+        }
+      }
     },
     {
       "id": "a12",
-      "actionable": false,
-      "severity": "SEV4",
-      "sev_conf": 0.67,
+      "action": "TICKET",
+      "standalone": "TICKET",
       "team": "deploy",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.12,
-      "action": "DROP (noise)",
-      "ms": 757
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=0.00 P(actionable)=0.20 team=deploy@1.00",
+        "probably noise, but P(actionable) > 0.05: ticket, not drop"
+      ],
+      "candidates": [
+        "a14",
+        "a03",
+        "a04",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.2,
+        "severity": {
+          "SEV4": 0.97,
+          "SEV3": 0.03,
+          "SEV2": 0.0,
+          "SEV1": 0.0
+        },
+        "team": {
+          "database": 0.0,
+          "compute": 0.0,
+          "network": 0.0,
+          "deploy": 1.0
+        },
+        "duplicate_of": {
+          "a14": 0.0,
+          "a03": 0.0,
+          "a04": 0.0,
+          "a11": 0.0,
+          "none": 1.0
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 881,
+          "output_tokens": 134
+        }
+      }
     },
     {
       "id": "a13",
-      "actionable": false,
-      "severity": "SEV4",
-      "sev_conf": 0.9,
-      "team": "compute",
-      "team_conf": 0.99,
-      "duplicate": false,
-      "dup_p": 0.04,
-      "action": "DROP (noise)",
-      "ms": 739
+      "action": "LOG",
+      "standalone": "LOG",
+      "team": "triage-rotation",
+      "source": "rule",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "env=dev: non-production never pages (rule, no model call)"
+      ],
+      "candidates": [],
+      "judgment": null,
+      "error": null,
+      "call": null
     },
     {
       "id": "a14",
-      "actionable": true,
-      "severity": "SEV1",
-      "sev_conf": 0.68,
+      "action": "PAGE",
+      "standalone": "PAGE",
       "team": "database",
-      "team_conf": 1.0,
-      "duplicate": false,
-      "dup_p": 0.28,
-      "action": "PAGE NOW + HUMAN REVIEW (low conf)",
-      "ms": 515
+      "source": "jev",
+      "linked_to": null,
+      "notify": [],
+      "reasons": [
+        "P(page)=1.00 P(actionable)=0.97 team=database@1.00"
+      ],
+      "candidates": [
+        "a12",
+        "a03",
+        "a04",
+        "a11"
+      ],
+      "judgment": {
+        "model": "jev-1.13.0",
+        "p_actionable": 0.97,
+        "severity": {
+          "SEV4": 0.0,
+          "SEV3": 0.0,
+          "SEV2": 0.92,
+          "SEV1": 0.08
+        },
+        "team": {
+          "database": 1.0,
+          "compute": 0.0,
+          "network": 0.0,
+          "deploy": 0.0
+        },
+        "duplicate_of": {
+          "a12": 0.0,
+          "a03": 0.0,
+          "a04": 0.0,
+          "a11": 0.0,
+          "none": 1.0
+        }
+      },
+      "error": null,
+      "call": {
+        "ms": 0,
+        "usage": {
+          "input_tokens": 892,
+          "output_tokens": 134
+        }
+      }
     }
   ]
 }

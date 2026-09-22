@@ -1,0 +1,4 @@
+{
+  "payment-service": ["checkout-api"],
+  "homepage": ["edge"]
+}
