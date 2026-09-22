@@ -66,7 +66,9 @@ TITLE_PREFIX = re.compile(r"^(Firing|Warning|Info|Critical|Alert):\s*", re.IGNOR
 # Dots closer than the gap (in P(page) units) stack upward. Wide screens need a
 # smaller gap than phones; each dot gets a row for both and CSS picks one.
 RAIL_GAPS = {"d": 0.018, "m": 0.035}
-MAX_STACK = 6  # dots that don't fit in six rows are counted in a "+n"
+MAX_STACK = 10  # dots above this in one column are counted in a "+n"
+STAGGER_TOTAL_MS = 900  # the whole dot entry animation finishes within this
+LABEL_GAP = 0.055  # "+n" labels closer than this share one merged label
 
 CSS = """
 :root {
@@ -109,6 +111,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   font-stretch: 90%; font-variant-numeric: tabular-nums; }
 .note { margin: 16px 0 0; padding: 10px 14px; border-radius: var(--radius); background: var(--face);
   font-size: 14px; max-width: 80ch; }
+.tag { display: inline-block; margin: 16px 0 0; padding: 4px 11px; border-radius: 999px;
+  background: var(--face); border: 1px solid var(--rule); font-size: 13px; font-weight: 600;
+  font-stretch: 105%; letter-spacing: .02em; text-transform: uppercase; color: var(--graphite); }
+.stats { margin: 20px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap;
+  gap: 10px 28px; font-variant-numeric: tabular-nums; }
+.stats li { display: flex; flex-direction: column; gap: 2px; }
+.stats b { font-size: 25px; font-weight: 680; font-stretch: 112%; letter-spacing: -.015em; }
+.stats span { font-size: 13px; color: var(--graphite); font-stretch: 90%; }
 
 /* The thesis: one sentence about who got woken up */
 .hero { padding-top: 40px; }
@@ -120,10 +130,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .rail { margin: 36px 0 0; }
 .instrument { margin: 0 calc(var(--dot) / 2 + 2px); }
 .rail-plot { --rows: var(--rows-d); position: relative; height: calc(var(--rows) * var(--step) + 14px); }
-.pin { --k: var(--kd); }
+.pin { --k: var(--kd); --x: var(--xd); }
 .more.only-m, .hide-d { display: none; }
-.pin { position: absolute; bottom: calc(6px + var(--k) * var(--step)); width: var(--dot); height: var(--dot);
-  border-radius: 50%; transform: translateX(-50%); }
+.pin { position: absolute; left: var(--x); bottom: calc(6px + var(--k) * var(--step));
+  width: var(--dot); height: var(--dot); border-radius: 50%; transform: translateX(-50%); }
 .pin::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%;
   transform: translateX(-50%); width: max-content; max-width: 260px; padding: 6px 10px;
   border-radius: var(--radius); background: var(--ink); color: var(--ground); font-size: 13px;
@@ -184,6 +194,7 @@ section > h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.25; font-weight
 .group { padding-top: 26px; }
 .group h3 { margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; font-size: 16px; font-weight: 680; }
 .group h3 .count { font-weight: 500; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.group h3 .count.sub { font-size: 13px; font-stretch: 90%; }
 .rows { list-style: none; margin: 0; padding: 0; }
 .row { padding: 12px 0; scroll-margin-top: 24px; border-radius: var(--radius);
   transition: background-color .6s ease, box-shadow .6s ease; }
@@ -246,7 +257,7 @@ tr.total td { border-top: 1px solid var(--rule); }
 
 @media (max-width: 900px) {
   .rail-plot { --rows: var(--rows-m); }
-  .pin { --k: var(--km); }
+  .pin { --k: var(--km); --x: var(--xm); }
   .hide-d { display: block; } .hide-m, .more.only-d { display: none; } .more.only-m { display: block; }
   .colhead { display: none; }
   .row { grid-template-columns: 14px minmax(0, 1fr) auto auto; row-gap: 8px;
@@ -264,7 +275,8 @@ tr.total td { border-top: 1px solid var(--rule); }
   .follow { font-size: 16px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .pin { animation: settle 520ms cubic-bezier(.16, 1, .3, 1) backwards; animation-delay: calc(var(--i) * 28ms); }
+  .pin { animation: settle 520ms cubic-bezier(.16, 1, .3, 1) backwards;
+    animation-delay: calc(var(--i) * var(--stagger, 28ms)); }
   @keyframes settle { from { opacity: 0; transform: translate(-50%, -16px); } }
 }
 @media (prefers-reduced-motion: reduce) { .row { transition: none; } }
@@ -324,14 +336,13 @@ def thesis(decisions):
         return f"{n} {'is' if n == 1 else 'are'} waiting for a human"
 
     if paged and review:
-        lead = f"{count_word(paged, 'alert')} paged someone, and {waiting(review)}."
+        lead = f"{paged} flagged for paging; {review} flagged for review."
     elif paged:
-        lead = f"{count_word(paged, 'alert')} paged someone. Nothing is waiting for a human."
+        lead = f"{paged} flagged for paging. Nothing was flagged for review."
     elif review:
-        verb = "is" if review == 1 else "are"
-        lead = f"Nothing paged anyone, but {count_word(review, 'alert')} {verb} waiting for a human."
+        lead = f"Nothing was flagged for paging, but {count_word(review, 'alert')} went to review."
     else:
-        lead = "Nothing paged anyone, and nothing is waiting for a human."
+        lead = "Nothing was flagged for paging, and nothing went to review."
     rest = []
     if linked:
         rest.append(f"{linked} more {'was' if linked == 1 else 'were'} linked to an incident that already paged")
@@ -341,50 +352,85 @@ def thesis(decisions):
     return lead, follow[:1].upper() + follow[1:]
 
 
+def rail_bin(x, lo, hi, counts):
+    """Which column an alert falls in, and the column's span.
+
+    Bins never straddle a policy bar: the three regions are binned separately
+    using the same comparisons triage applies, so an alert at 0.79 can never be
+    drawn on the 0.80 side of the mark.
+    """
+    nlo, nmid, nhi = counts
+    if x >= hi:
+        j = min(nhi - 1, int((x - hi) / (1.0 - hi) * nhi)) if hi < 1.0 else 0
+        w = (1.0 - hi) / nhi
+        return nlo + nmid + j, hi + j * w, w
+    if x > lo:
+        j = min(nmid - 1, int((x - lo) / (hi - lo) * nmid))
+        w = (hi - lo) / nmid
+        return nlo + j, lo + j * w, w
+    j = min(nlo - 1, int(x / lo * nlo)) if lo > 0 else 0
+    w = lo / nlo
+    return j, j * w, w
+
+
 def rail(alerts, decisions, judgments, errors, policy):
     lo, hi = policy.no_page_bar, policy.page_bar
     judged = [a for a in alerts if a["id"] in judgments]
     skipped = len(alerts) - len(judged)
 
     if judged:
-        # Every dot sits at its exact P(page). Rounding into bins could draw an
-        # alert at 0.79 on the 0.80 bar, on the wrong side of the policy.
-        # Close dots stack upward (first fit), most urgent at the bottom.
+        # Alerts are stacked into columns, most urgent at the bottom. One "+n"
+        # per column keeps the overflow labels from landing on top of each other
+        # when hundreds of alerts share a probability.
         order = sorted(judged, key=lambda a: (min(1.0, max(0.0, judgments[a["id"]].p_page)),
                                               URGENCY[kind(decisions[a["id"]])], a["id"]))
-        rows, rowvars, more = {}, {}, []
+        rows, rowvars, centers, more = {}, {}, {}, []
         for mode, gap in RAIL_GAPS.items():
-            levels, overflow = [], {}
+            counts = tuple(max(1, round(span / gap)) for span in (lo, hi - lo, 1.0 - hi))
+            columns, spans = {}, {}
             for a in order:
                 x = min(1.0, max(0.0, judgments[a["id"]].p_page))
-                k = next((i for i, last in enumerate(levels) if x - last >= gap), None)
-                if k is None and len(levels) < MAX_STACK:
-                    levels.append(x)
-                    k = len(levels) - 1
-                if k is None:
-                    overflow.setdefault(round(x / gap), []).append(x)
+                b, start, w = rail_bin(x, lo, hi, counts)
+                spans[b] = (start, w)
+                k = len(columns.setdefault(b, []))
+                columns[b].append(a["id"])
+                rowvars.setdefault(a["id"], {})[mode] = k if k < MAX_STACK else None
+                centers.setdefault(a["id"], {})[mode] = start + w / 2
+            rows[mode] = min(MAX_STACK, max(len(c) for c in columns.values()))
+            rows[mode] += 1 if any(len(c) > MAX_STACK for c in columns.values()) else 0
+            # Neighbouring columns can both overflow. Merge their labels when
+            # they would be drawn on top of each other.
+            spill = sorted((spans[b][0] + spans[b][1] / 2, len(ids) - MAX_STACK)
+                           for b, ids in columns.items() if len(ids) > MAX_STACK)
+            merged = []
+            for x, n in spill:
+                if merged and x - merged[-1][0] < LABEL_GAP:
+                    px, pn = merged[-1]
+                    merged[-1] = ((px * pn + x * n) / (pn + n), pn + n)
                 else:
-                    levels[k] = x
-                rowvars.setdefault(a["id"], {})[mode] = k
-            rows[mode] = len(levels) + (1 if overflow else 0)
-            for xs in overflow.values():
-                x = sum(xs) / len(xs)
-                more.append(f'<span class="more only-{mode}" style="left:{x * 100:.2f}%;--k:{MAX_STACK}">'
-                            f'+{len(xs)}</span>')
+                    merged.append((x, n))
+            for x, n in merged:
+                more.append(f'<span class="more only-{mode}" '
+                            f'style="left:{x * 100:.2f}%;--k:{MAX_STACK}">+{n}</span>')
         pins = []
         for a in order:
             x = min(1.0, max(0.0, judgments[a["id"]].p_page))
             d, j, ks = decisions[a["id"]], judgments[a["id"]], rowvars[a["id"]]
+            cs = centers[a["id"]]
             hide = "".join(f" hide-{m}" for m, k in ks.items() if k is None)
             edge = " tip-start" if x < 0.12 else (" tip-end" if x > 0.88 else "")
             label = f"{a['id']}, {ACTION_LABEL[d.action].lower()}, P(page) {fmt(j.p_page)}"
             pins.append(
                 f'<a class="pin m m-{kind(d)}{edge}{hide}" href="#alert-{esc(a["id"])}" '
-                f'style="left:{x * 100:.2f}%;--kd:{ks["d"] or 0};--km:{ks["m"] or 0};--i:{len(pins)}" '
+                f'style="--xd:{cs["d"] * 100:.2f}%;--xm:{cs["m"] * 100:.2f}%;'
+                f'--kd:{ks["d"] or 0};--km:{ks["m"] or 0};--i:{len(pins)}" '
                 f'aria-label="{esc(label)}" data-tip="{esc(a["id"] + ": " + display_title(a))}"></a>')
         pins += more
-        plot = (f'<div class="rail-plot" style="--rows-d:{rows["d"]};--rows-m:{rows["m"]}">'
-                f'{"".join(pins)}</div>')
+        # The dots fade in one after another. The step shrinks as the run grows
+        # so the last dot never waits seconds to appear.
+        step = min(28.0, STAGGER_TOTAL_MS / max(1, len(order)))
+        plot = (f'<div class="rail-plot" style="--rows-d:{rows["d"]};--rows-m:{rows["m"]};'
+                f'--stagger:{step:.2f}ms">{"".join(pins)}</div>')
     else:
         reason = next(iter(errors.values()), "no production alerts")
         plot = (f'<p class="rail-empty">Jev didn\'t judge any alert in this run, so there is nothing to '
@@ -541,19 +587,35 @@ def alert_groups(alerts, decisions, judgments, records, report):
                  if not decisions[a["id"]].linked_to and decisions[a["id"]].action in actions]
         if not roots:
             continue
-        rows, count = [], 0
+        rows, linked = [], 0
         for a in roots:
             rows.append(render(a))
-            count += 1
             for c in children.get(a["id"], []):
                 rows.append(render(c, child=True))
-                count += 1
+                linked += 1
+        tally = f'<span class="count">{len(roots)}</span>'
+        if linked:
+            tally += f'<span class="count sub">+{linked} linked</span>'
         sections.append(f'<section class="group" aria-labelledby="g-{slug}"><h3 id="g-{slug}">{esc(title)}'
-                        f'<span class="count">{count}</span></h3><ul class="rows">{"".join(rows)}</ul></section>')
+                        f'{tally}</h3><ul class="rows">{"".join(rows)}</ul></section>')
     colhead = ('<div class="colhead" aria-hidden="true"><span></span><span>Alert</span><span>Decision</span>'
                '<span>Owner</span><span>Severity, low to high</span><span class="r">P(page)</span>'
                '<span class="r">Actionable</span></div>')
     return f'<section class="alerts" aria-labelledby="alerts-h"><h2 id="alerts-h">Alerts by outcome</h2>{colhead}{"".join(sections)}</section>'
+
+
+def headline_stats(results):
+    """The run's scale, cost, and speed, before any of the routing detail."""
+    s = results["summary"]
+    cells = [(f"{s['alerts']}", "alerts"), (f"{s['jev_answered']}", "Jev calls")]
+    if s.get("cost_usd"):
+        cells.append((f"${s['cost_usd']:.4f}", "total cost"))
+    if s.get("latency_ms_p50") is not None:
+        cells.append((f"{s['latency_ms_p50']}ms", "p50 per call"))
+    if s.get("latency_ms_p95") is not None:
+        cells.append((f"{s['latency_ms_p95']}ms", "p95 per call"))
+    items = "".join(f"<li><b>{esc(v)}</b><span>{esc(k)}</span></li>" for v, k in cells)
+    return f'<ul class="stats">{items}</ul>'
 
 
 def run_facts(results):
@@ -639,7 +701,7 @@ def evaluation(report):
             f'<div class="eval-grid">{outcomes}<div class="eval-side">{"".join(side)}</div></div></section>')
 
 
-def render(results, alerts, results_name="results.json"):
+def render(results, alerts, results_name="results.json", label=None):
     """The whole page as a string."""
     meta = results["meta"]
     policy = triage.Policy(**meta["policy"])
@@ -657,6 +719,8 @@ def render(results, alerts, results_name="results.json"):
     date = run_date(meta.get("generated_at"))
     note = f'<p class="note">{esc(meta["note"])}</p>' if meta.get("note") else ""
     follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
+    tag = f'<p class="tag">{esc(label)}</p>' if label else ""
+    stats_html = headline_stats(results)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -675,9 +739,11 @@ def render(results, alerts, results_name="results.json"):
     <p class="run"><span>Triage run</span><span>{esc(date)}</span></p>
   </header>
   {note}
+  {tag}
   <section class="hero" aria-labelledby="thesis">
     <h1 id="thesis">{esc(lead)}</h1>
     {follow_html}
+    {stats_html}
     {rail(alerts, decisions, judgments, errors, policy)}
   </section>
   {notices(results, decisions, errors, report)}
@@ -697,6 +763,7 @@ def main(argv=None):
     ap.add_argument("results", nargs="?", default=os.path.join(triage.BASE, "results.json"))
     ap.add_argument("--alerts", help="alerts file (default: the one triage.py read)")
     ap.add_argument("--out", default=os.path.join(triage.BASE, "dashboard.html"))
+    ap.add_argument("--label", help="badge above the headline, e.g. 'Synthetic benchmark'")
     args = ap.parse_args(argv)
 
     if not os.path.exists(args.results):
@@ -711,7 +778,7 @@ def main(argv=None):
     if not alerts:
         print("warning: alerts file not found, so alerts are shown by id only", file=sys.stderr)
 
-    page = render(results, alerts, os.path.basename(args.results))
+    page = render(results, alerts, os.path.basename(args.results), args.label)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(page)
     print(f"wrote {args.out}")

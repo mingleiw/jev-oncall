@@ -6,6 +6,7 @@
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -44,7 +45,7 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(page.count('class="pin '), judged)
         for a in alerts:
             self.assertIn(f'id="alert-{a["id"]}"', page)
-        self.assertIn("paged someone", page)
+        self.assertIn("flagged for paging", page)
         self.assertIn("Against the labels", page)
 
     def test_no_em_or_en_dashes_anywhere(self):
@@ -60,16 +61,31 @@ class Dashboard(unittest.TestCase):
         self.assertNotIn("<script>alert(1)", page)
         self.assertIn("&lt;script&gt;alert(1)", page)
 
-    def test_dots_keep_their_exact_position_and_stack_when_close(self):
+    def test_a_dot_never_crosses_a_policy_bar(self):
         alerts = [test_triage.alert("x1"), test_triage.alert("x2")]
         judgments = {"x1": test_triage.judgment(sev={"SEV2": 0.79, "SEV3": 0.21}),
                      "x2": test_triage.judgment(sev={"SEV2": 0.80, "SEV3": 0.20})}
         decisions = triage.route_all(alerts, judgments, {}, triage.Policy())
         html = gd.rail(alerts, decisions, judgments, {}, triage.Policy())
-        # 0.79 stays left of the 0.80 bar instead of being rounded onto it.
-        self.assertIn("left:79.00%", html)
-        self.assertIn("left:80.00%", html)
-        self.assertIn("--km:1", html)
+        # Columns are binned, so a dot sits at its bin's centre rather than its
+        # exact probability. 0.79 must still render left of the 0.80 bar.
+        for mode in ("d", "m"):
+            below = re.search(rf'alert-x1"[^>]*--x{mode}:([\d.]+)%', html)
+            at = re.search(rf'alert-x2"[^>]*--x{mode}:([\d.]+)%', html)
+            self.assertLess(float(below.group(1)), 80.0)
+            self.assertGreaterEqual(float(at.group(1)), 80.0)
+
+    def test_crowded_columns_get_one_overflow_label_each(self):
+        alerts = [test_triage.alert(f"x{i:03d}") for i in range(60)]
+        judgments = {a["id"]: test_triage.judgment(sev={"SEV1": 0.99, "SEV3": 0.01})
+                     for a in alerts}
+        decisions = triage.route_all(alerts, judgments, {}, triage.Policy())
+        html = gd.rail(alerts, decisions, judgments, {}, triage.Policy())
+        # All 60 share a probability, so they land in one column per mode and
+        # must produce exactly one "+n" each instead of a pile of labels.
+        for mode in ("d", "m"):
+            self.assertEqual(html.count(f'class="more only-{mode}"'), 1)
+        self.assertIn(f"+{60 - gd.MAX_STACK}<", html)
 
     def test_fail_open_run_explains_the_empty_scale(self):
         alerts = repo_alerts()
