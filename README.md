@@ -7,6 +7,12 @@ anyone. It only judges.
 
 ![jev-oncall dashboard: 14 alerts triaged — 6 paged someone, 2 waiting for a human](dashboard.png)
 
+On one 300-alert synthetic run: **p50 418ms, p95 1477ms, $0.0128 total.** The
+slowest call landed 151ms short of the 2-second timeout, and 37% of judged alerts
+fell in the review band. Both numbers, and why the tail matters more than the
+median, are in [one measured run](#one-measured-run). They measure speed on one
+network path, not whether the routing was correct.
+
 ## How it works
 
 ```
