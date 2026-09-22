@@ -125,6 +125,54 @@ python3 generate_dashboard.py   # dashboard.html from results.json
 python3 -m unittest -v     # offline tests with a fake Jev: no key, no network
 ```
 
+## Webhook server
+
+`server.py` is an HTTP adapter that receives alerts from monitoring systems,
+normalizes them into the `alerts.json` schema, triages with Jev, and returns
+decisions as JSON. Standard library only.
+
+```
+export TYPESAFE_API_KEY=<your key from console.typesafe.ai/keys>
+python3 server.py                           # localhost:8090
+python3 server.py --host 0.0.0.0 --port 9000
+```
+
+### Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/ingest/<provider>` | Receive a webhook. Providers: `datadog`, `pagerduty`, `grafana`, `generic` |
+| POST | `/ingest` | Same as `/ingest/generic` |
+| GET | `/health` | `{"ok": true}` |
+| GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
+
+### Providers
+
+**Generic** accepts the jev-oncall alert schema directly (`{id, title, description,
+service, env, started_at, configured_severity}`), so any system can integrate by
+posting normalized JSON.
+
+**Datadog** maps monitor webhooks. Service and env are extracted from tags
+(`service:X`, `env:Y`). Priority P1-P2 → critical, P3 → warning, P4-P5 → info.
+
+**PagerDuty** handles v2 and v3 webhook subscriptions. Urgency high → critical,
+low → warning. The `severity` field, if present, takes precedence.
+
+**Grafana** handles both legacy and Unified Alerting webhooks. Severity is read
+from the `severity` or `priority` label. Service is read from `service`, `job`,
+or `namespace` labels.
+
+Each provider generates a stable deterministic alert ID from `sha256(provider:raw_id)`,
+so the same upstream alert always maps to the same triage ID.
+
+### Example
+
+```bash
+curl -X POST http://localhost:8090/ingest/datadog \
+  -H 'Content-Type: application/json' \
+  -d '{"id": 12345, "title": "CPU > 90%", "tags": "service:api,env:prod", "priority": "P1"}'
+```
+
 The dashboard is one self-contained HTML file. It opens with a sentence saying what
 paged someone and what is waiting for a human. Below that, every judged alert sits as
 a dot on a P(page) scale, drawn against the policy's 0.20 and 0.80 bars. Alerts are
@@ -141,7 +189,8 @@ Standard library only.
 - `triage.py`: Jev calls, routing policy, dedup graph, fallback, invariants
 - `evaluate.py`: offline outcomes, agreement, calibration, threshold sweep
 - `generate_dashboard.py`: renders `results.json` as `dashboard.html`
-- `test_triage.py`, `test_dashboard.py`: offline tests with a fake Jev
+- `server.py`: webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts
+- `test_triage.py`, `test_dashboard.py`, `test_server.py`: offline tests with a fake Jev
 - `alerts.json`: 14 synthetic alerts with the author's labels
 - `topology.json`: service → upstream dependencies, used to narrow dedup candidates
 - `results.json`, `dashboard.html`: written by `triage.py` and `generate_dashboard.py`
