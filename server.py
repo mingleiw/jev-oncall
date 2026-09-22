@@ -14,12 +14,22 @@ Endpoints:
 
     POST /ingest               Same as /ingest/generic.
 
+    POST /ack/<alert-id>       Ack a REVIEW so it does not page. Optional
+                               X-Acked-By header names who took it.
+
     GET  /health               Returns {"ok": true}.
 
     GET  /recent               Last N triage decisions (in-memory ring buffer).
 
+    GET  /pending              REVIEWs still waiting on an ack.
+
 The generic provider accepts the jev-oncall alert schema directly, so any
 system can integrate by posting normalized JSON.
+
+Set JEV_WEBHOOK_SECRET to require a signature on every ingest. PagerDuty and
+Grafana sign with their own headers; datadog and generic use X-Jev-Signature,
+set as a custom header on the outgoing webhook. Without the variable, ingest
+is unauthenticated.
 
 Standard library only.
 """
@@ -27,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -40,6 +51,16 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import triage
 
 PROVIDERS = {}
+
+# Each provider signs the raw body with a shared secret. PagerDuty and Grafana
+# have their own header and encoding; datadog and generic use ours, set as a
+# custom header on the outgoing webhook.
+SIGNATURE_HEADERS = {
+    "pagerduty": "X-PagerDuty-Signature",
+    "grafana": "X-Grafana-Alerting-Signature",
+    "datadog": "X-Jev-Signature",
+    "generic": "X-Jev-Signature",
+}
 
 VALID_SEVERITIES = {"critical", "warning", "info"}
 MAX_FIELD_LEN = 1000
@@ -69,6 +90,34 @@ def _clamp(value, max_len=MAX_FIELD_LEN):
     if not isinstance(value, str):
         return value
     return value[:max_len]
+
+
+def verify_signature(provider, raw, headers, secret):
+    """Is this body signed with the shared secret?
+
+    Unsigned ingest is not only a way to inject a fake page: an alert crafted
+    to be chosen as another alert's `duplicate_of` root can DEDUP a real page
+    into silence. Fails closed on anything malformed.
+    """
+    if not secret:
+        return True
+    name = SIGNATURE_HEADERS.get(provider, "X-Jev-Signature")
+    sent = headers.get(name)
+    if not sent:
+        return False
+    want = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+
+    if provider == "pagerduty":
+        # "v1=<hex>[,v1=<hex>]" during key rotation. Anything that is not a v1
+        # element is dropped rather than trusted, so a caller cannot downgrade
+        # the scheme by inventing a weaker one.
+        offered = [p.strip()[3:] for p in sent.split(",") if p.strip().startswith("v1=")]
+    elif provider == "grafana":
+        offered = [sent.strip()]
+    else:
+        offered = [sent.strip()[7:] if sent.strip().startswith("sha256=") else sent.strip()]
+
+    return any(hmac.compare_digest(want, o) for o in offered if o)
 
 
 def validate_alert(alert):
@@ -265,8 +314,68 @@ def _percentile(values, q):
     return s[min(len(s) - 1, int(q * len(s)))]
 
 
+class ReviewQueue:
+    """REVIEW decisions that become pages if nobody acks them in time.
+
+    The middle band only means anything if something escalates: an uncertain
+    alert is supposed to cost a human's attention, never silence. Without this
+    a REVIEW is just a TICKET with a different label.
+    """
+
+    def __init__(self, ack_minutes):
+        self.ack_seconds = ack_minutes * 60
+        self._lock = threading.Lock()
+        self._pending = {}
+
+    def _window(self):
+        if self.ack_seconds >= 60:
+            return f"{self.ack_seconds / 60:g}m"
+        return f"{self.ack_seconds:g}s"
+
+    def add(self, entry, now=None):
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            self._pending[entry["id"]] = {"deadline": now + self.ack_seconds,
+                                          "entry": entry}
+
+    def ack(self, alert_id, who=None):
+        with self._lock:
+            item = self._pending.pop(alert_id, None)
+        if item is None:
+            return None
+        return {"id": alert_id, "acked_by": who or "unknown", "acked_at": _now_iso()}
+
+    def sweep(self, now=None):
+        """Page everything past its deadline. Returns the escalated entries."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            due = [aid for aid, it in self._pending.items() if it["deadline"] <= now]
+            items = [self._pending.pop(aid) for aid in due]
+        escalated = []
+        for it in items:
+            entry = dict(it["entry"])
+            entry["action"] = "PAGE"
+            entry["escalated_from"] = "REVIEW"
+            entry["reasons"] = list(entry.get("reasons") or []) + [
+                f"nobody acked within {self._window()}, so it pages"]
+            entry["triaged_at"] = _now_iso()
+            escalated.append(entry)
+        return escalated
+
+    def pending(self, now=None):
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            items = list(self._pending.values())
+        return [{"id": it["entry"]["id"],
+                 "title": it["entry"].get("title", ""),
+                 "team": it["entry"].get("team"),
+                 "seconds_left": round(it["deadline"] - now, 1)}
+                for it in sorted(items, key=lambda i: i["deadline"])]
+
+
 class TriageRunner:
-    def __init__(self, topology=None, api_key=None, rate_limit=DEFAULT_RATE_LIMIT):
+    def __init__(self, topology=None, api_key=None, rate_limit=DEFAULT_RATE_LIMIT,
+                 secret=None):
         self.topology = topology or {}
         self.api_key = api_key
         self.policy = triage.Policy()
@@ -275,6 +384,9 @@ class TriageRunner:
         self._active_alerts = []
         self._alert_times: dict[str, float] = {}
         self.limiter = RateLimiter(rate_limit)
+        self.secret = secret
+        self.reviews = ReviewQueue(self.policy.review_ack_min)
+        self.escalated = 0
 
     def _prune_stale(self):
         cutoff = time.monotonic() - ALERT_TTL_S
@@ -322,6 +434,8 @@ class TriageRunner:
                 "triaged_at": _now_iso(),
             }
             results.append(entry)
+            if d.action == "REVIEW":
+                self.reviews.add(entry)
             with self.lock:
                 self.recent.append(entry)
         return {
@@ -330,14 +444,30 @@ class TriageRunner:
             "invariant_violations": problems,
         }
 
+    def sweep_reviews(self):
+        """Escalate unacked reviews. Returns what was escalated."""
+        escalated = self.reviews.sweep()
+        if escalated:
+            with self.lock:
+                for entry in escalated:
+                    self.recent.append(entry)
+                    self.escalated += 1
+        return escalated
+
+    def ack(self, alert_id, who=None):
+        return self.reviews.ack(alert_id, who)
+
     def stats(self):
         with self.lock:
             items = list(self.recent)
+            escalated = self.escalated
         latencies = [d["ms"] for d in items if d.get("ms") is not None]
         return {
             "decisions": items,
             "count": len(items),
             "active_alerts": len(self._active_alerts),
+            "pending_reviews": len(self.reviews.pending()),
+            "escalated_reviews": escalated,
             "latency_ms_p50": _percentile(latencies, 0.50),
             "latency_ms_p95": _percentile(latencies, 0.95),
             "latency_ms_p99": _percentile(latencies, 0.99),
@@ -370,11 +500,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
         elif self.path.startswith("/recent"):
             self._send_json(200, self.runner.stats())
+        elif self.path.rstrip("/") == "/pending":
+            pending = self.runner.reviews.pending()
+            self._send_json(200, {"pending": pending, "count": len(pending)})
         else:
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
         path = self.path.rstrip("/")
+        if path.startswith("/ack/"):
+            alert_id = path.split("/ack/", 1)[1]
+            who = self.headers.get("X-Acked-By")
+            record = self.runner.ack(alert_id, who)
+            if record is None:
+                self._send_json(404, {"error": f"no review pending for {alert_id}"})
+            else:
+                self._send_json(200, record)
+            return
         if path == "/ingest":
             provider_name = "generic"
         elif path.startswith("/ingest/"):
@@ -390,6 +532,10 @@ class Handler(BaseHTTPRequestHandler):
 
         raw = self._read_body()
         if raw is None:
+            return
+        if not verify_signature(provider_name, raw, self.headers, self.runner.secret):
+            self._send_json(401, {"error": "bad or missing signature",
+                                  "header": SIGNATURE_HEADERS.get(provider_name)})
             return
         try:
             body = json.loads(raw)
@@ -431,6 +577,8 @@ def main(argv=None):
     ap.add_argument("--topology", default=os.path.join(triage.BASE, "topology.json"))
     ap.add_argument("--rate-limit", type=int, default=DEFAULT_RATE_LIMIT,
                     help=f"max ingests per minute (default: {DEFAULT_RATE_LIMIT})")
+    ap.add_argument("--sweep-interval", type=float, default=10.0,
+                    help="seconds between checks for unacked reviews")
     args = ap.parse_args(argv)
 
     api_key = os.environ.get("TYPESAFE_API_KEY")
@@ -438,19 +586,38 @@ def main(argv=None):
         print("WARNING: TYPESAFE_API_KEY not set. All alerts will take the fail-open path.",
               file=sys.stderr)
 
+    secret = os.environ.get("JEV_WEBHOOK_SECRET")
+    if not secret:
+        print("WARNING: JEV_WEBHOOK_SECRET not set. Ingest is unauthenticated: anyone who "
+              "can reach this port can inject alerts, including one crafted to dedup a real "
+              "page into silence.", file=sys.stderr)
+
     topology = triage.load_json(args.topology) if os.path.exists(args.topology) else {}
-    runner = TriageRunner(topology, api_key, args.rate_limit)
+    runner = TriageRunner(topology, api_key, args.rate_limit, secret)
     Handler.runner = runner
+
+    stop = threading.Event()
+
+    def sweeper():
+        while not stop.wait(args.sweep_interval):
+            for entry in runner.sweep_reviews():
+                print(f"ESCALATED {entry['id']}: unacked review now pages {entry['team']}",
+                      file=sys.stderr)
+
+    threading.Thread(target=sweeper, daemon=True).start()
 
     httpd = HTTPServer((args.host, args.port), Handler)
     print(f"jev-oncall server listening on {args.host}:{args.port}", file=sys.stderr)
     print(f"  POST /ingest/<provider>   providers: {', '.join(sorted(PROVIDERS))}", file=sys.stderr)
+    print(f"  POST /ack/<alert-id>      ack a review before it pages", file=sys.stderr)
     print(f"  GET  /health", file=sys.stderr)
     print(f"  GET  /recent", file=sys.stderr)
+    print(f"  GET  /pending             reviews waiting on an ack", file=sys.stderr)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    stop.set()
     httpd.server_close()
 
 

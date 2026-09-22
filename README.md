@@ -76,6 +76,9 @@ urgent than the alert itself, or if anything was dropped without a model judgmen
   different version.
 - Each call gets a 2-second timeout and one retry. A retry that would wait more than
   1 second falls back instead: on a paging path, falling back beats waiting.
+- Every call carries one `Idempotency-Key`, reused by its retry. A client-side
+  timeout does not mean Jev failed to answer, so retrying under a fresh key would
+  judge the alert twice and be billed twice.
 - `results.json` keeps every raw probability, so any decision, including every DROP,
   can be audited and re-routed offline.
 
@@ -220,8 +223,39 @@ python3 server.py --host 0.0.0.0 --port 9000
 | --- | --- | --- |
 | POST | `/ingest/<provider>` | Receive a webhook. Providers: `datadog`, `pagerduty`, `grafana`, `generic` |
 | POST | `/ingest` | Same as `/ingest/generic` |
+| POST | `/ack/<alert-id>` | Ack a REVIEW so it does not page. `X-Acked-By` names who took it |
 | GET | `/health` | `{"ok": true}` |
 | GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
+| GET | `/pending` | REVIEWs still waiting on an ack, with seconds left |
+
+### The review clock
+
+A REVIEW is only meaningful if something escalates it. The server holds every
+REVIEW for `Policy.review_ack_min` (15 minutes). Ack it and it closes; ignore it
+and a sweeper turns it into a PAGE, records it in `/recent` with the reason, and
+counts it under `escalated_reviews`.
+
+```
+curl -X POST http://localhost:8090/ack/a07 -H 'X-Acked-By: alice'
+curl http://localhost:8090/pending
+```
+
+The queue is in memory, so a restart drops pending reviews rather than paging
+them. `--sweep-interval` controls how often the deadline is checked.
+
+### Signing webhooks
+
+Set `JEV_WEBHOOK_SECRET` and every ingest must carry an HMAC-SHA256 of the raw
+body. Without it the server starts, warns, and accepts anything: unsigned ingest
+lets anyone who can reach the port inject a page, or inject an alert crafted to
+be chosen as a real incident's `duplicate_of` root and dedup that page into
+silence.
+
+| Provider | Header | Format |
+| --- | --- | --- |
+| `pagerduty` | `X-PagerDuty-Signature` | `v1=<hex>`, comma-separated during key rotation. Non-`v1` elements are ignored, never trusted |
+| `grafana` | `X-Grafana-Alerting-Signature` | bare hex. Grafana's optional timestamped variant is not supported |
+| `datadog`, `generic` | `X-Jev-Signature` | `sha256=<hex>` or bare hex, set as a custom header on the outgoing webhook |
 
 ### Providers
 
