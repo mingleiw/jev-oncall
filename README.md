@@ -73,6 +73,25 @@ urgent than the alert itself, or if anything was dropped without a model judgmen
 - `results.json` keeps every raw probability, so any decision, including every DROP,
   can be audited and re-routed offline.
 
+### Hardening
+
+- **Connection pooling.** `triage.py` keeps a thread-safe pool of `HTTPSConnection`
+  objects (up to 16) with keep-alive, avoiding a TLS handshake on every Jev call.
+  Connections are returned to the pool on success and discarded on error.
+- **Response validation.** Probabilities are checked for NaN and Inf. Choice answers
+  (`team`, `duplicate_of`) are verified to match the max-probability entry in their
+  distribution. Malformed answers trigger fail-open.
+- **Rate limiting.** The webhook server enforces a sliding-window rate limit (default
+  120 requests per minute, configurable with `--rate-limit`). Excess requests get a
+  429 response.
+- **Input validation.** `validate_alert()` enforces non-empty `id` and `title`,
+  clamps field lengths, normalizes unknown severities to `critical`, and replaces
+  malformed timestamps with the current time.
+- **Alert staleness.** Active alerts older than one hour are pruned from the server's
+  in-memory set, preventing unbounded memory growth on long-running instances.
+- **Backoff.** Retries use escalating `0.5 * 2^attempt` delays. 429 responses honor
+  the `Retry-After` header when present.
+
 ## Evaluating it
 
 The 14 synthetic alerts in `alerts.json` are a smoke test, not an evaluation. At that
@@ -184,13 +203,27 @@ numbers `evaluate.py` prints. It follows the system's light or dark setting.
 Without a key, every alert takes the fail-open path, which shows the static baseline.
 Standard library only.
 
+## Development
+
+```bash
+python3 -m unittest test_triage test_server test_dashboard -v   # all offline tests
+python3 -m unittest test_triage -v                              # triage engine only
+python3 -m unittest test_server -v                              # webhook adapter only
+```
+
+Tests use a fake Jev that returns canned probabilities. No API key, no network.
+
 ## Files
 
-- `triage.py`: Jev calls, routing policy, dedup graph, fallback, invariants
-- `evaluate.py`: offline outcomes, agreement, calibration, threshold sweep
-- `generate_dashboard.py`: renders `results.json` as `dashboard.html`
-- `server.py`: webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts
-- `test_triage.py`, `test_dashboard.py`, `test_server.py`: offline tests with a fake Jev
-- `alerts.json`: 14 synthetic alerts with the author's labels
-- `topology.json`: service → upstream dependencies, used to narrow dedup candidates
-- `results.json`, `dashboard.html`: written by `triage.py` and `generate_dashboard.py`
+| File | Job |
+| --- | --- |
+| [triage.py](triage.py) | Jev calls, routing policy, dedup graph, fallback, invariants |
+| [evaluate.py](evaluate.py) | Offline outcomes, agreement, calibration, threshold sweep |
+| [generate_dashboard.py](generate_dashboard.py) | Renders `results.json` as `dashboard.html` |
+| [server.py](server.py) | Webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts |
+| [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
+| [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
+| [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |
+| [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
+| [topology.json](topology.json) | Service → upstream dependencies, used to narrow dedup candidates |
+| `results.json`, `dashboard.html` | Written by `triage.py` and `generate_dashboard.py` |
