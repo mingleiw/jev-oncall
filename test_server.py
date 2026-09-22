@@ -3,6 +3,8 @@
 
     python3 -m unittest test_server -v
 """
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -237,6 +239,115 @@ class ValidationTests(unittest.TestCase):
             server.validate_alert({"id": "x1", "title": "  "})
 
 
+class SignatureTests(unittest.TestCase):
+    BODY = b'{"id":"x","title":"y"}'
+    SECRET = "topsecret"
+
+    def _hex(self, body=None, secret=None):
+        return hmac.new((secret or self.SECRET).encode(),
+                        body or self.BODY, hashlib.sha256).hexdigest()
+
+    def test_no_secret_configured_allows_everything(self):
+        self.assertTrue(server.verify_signature("generic", self.BODY, {}, None))
+
+    def test_missing_header_is_rejected(self):
+        self.assertFalse(server.verify_signature("generic", self.BODY, {}, self.SECRET))
+
+    def test_generic_accepts_sha256_prefix_and_bare_hex(self):
+        for sent in (f"sha256={self._hex()}", self._hex()):
+            self.assertTrue(server.verify_signature(
+                "generic", self.BODY, {"X-Jev-Signature": sent}, self.SECRET))
+
+    def test_wrong_secret_is_rejected(self):
+        bad = self._hex(secret="wrong")
+        self.assertFalse(server.verify_signature(
+            "generic", self.BODY, {"X-Jev-Signature": bad}, self.SECRET))
+
+    def test_tampered_body_is_rejected(self):
+        sig = self._hex()
+        self.assertFalse(server.verify_signature(
+            "generic", b'{"id":"evil"}', {"X-Jev-Signature": sig}, self.SECRET))
+
+    def test_pagerduty_v1_format(self):
+        h = {"X-PagerDuty-Signature": f"v1={self._hex()}"}
+        self.assertTrue(server.verify_signature("pagerduty", self.BODY, h, self.SECRET))
+
+    def test_pagerduty_accepts_any_v1_during_key_rotation(self):
+        h = {"X-PagerDuty-Signature": f"v1=dead{'0' * 60},v1={self._hex()}"}
+        self.assertTrue(server.verify_signature("pagerduty", self.BODY, h, self.SECRET))
+
+    def test_pagerduty_ignores_non_v1_elements(self):
+        # A caller must not be able to downgrade the scheme by offering one.
+        h = {"X-PagerDuty-Signature": f"v0={self._hex()}"}
+        self.assertFalse(server.verify_signature("pagerduty", self.BODY, h, self.SECRET))
+
+    def test_grafana_bare_hex_header(self):
+        h = {"X-Grafana-Alerting-Signature": self._hex()}
+        self.assertTrue(server.verify_signature("grafana", self.BODY, h, self.SECRET))
+
+    def test_a_providers_signature_does_not_work_on_another(self):
+        h = {"X-Jev-Signature": self._hex()}
+        self.assertFalse(server.verify_signature("pagerduty", self.BODY, h, self.SECRET))
+
+
+class ReviewQueueTests(unittest.TestCase):
+    def _entry(self, alert_id="r1"):
+        return {"id": alert_id, "title": "t", "team": "compute",
+                "action": "REVIEW", "reasons": ["unsure"]}
+
+    def test_a_review_is_pending_until_acked(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        q.add(self._entry())
+        self.assertEqual(len(q.pending()), 1)
+        self.assertIsNotNone(q.ack("r1", "alice"))
+        self.assertEqual(len(q.pending()), 0)
+
+    def test_acking_an_unknown_alert_reports_nothing(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        self.assertIsNone(q.ack("nope"))
+
+    def test_nothing_escalates_before_the_deadline(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        q.add(self._entry())
+        self.assertEqual(q.sweep(), [])
+        self.assertEqual(len(q.pending()), 1)
+
+    def test_an_unacked_review_pages(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        now = time.monotonic()
+        q.add(self._entry(), now=now)
+        escalated = q.sweep(now=now + 15 * 60 + 1)
+        self.assertEqual(len(escalated), 1)
+        self.assertEqual(escalated[0]["action"], "PAGE")
+        self.assertEqual(escalated[0]["escalated_from"], "REVIEW")
+        self.assertIn("nobody acked within 15m", " ".join(escalated[0]["reasons"]))
+        self.assertEqual(len(q.pending()), 0)
+
+    def test_an_acked_review_never_pages(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        now = time.monotonic()
+        q.add(self._entry(), now=now)
+        q.ack("r1", "alice")
+        self.assertEqual(q.sweep(now=now + 15 * 60 + 1), [])
+
+    def test_pending_reports_time_left(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        now = time.monotonic()
+        q.add(self._entry(), now=now)
+        left = q.pending(now=now)[0]["seconds_left"]
+        self.assertAlmostEqual(left, 900, delta=1)
+
+    def test_runner_escalation_lands_in_recent_and_stats(self):
+        runner = server.TriageRunner(topology={}, api_key=None)
+        runner.reviews.add(self._entry(), now=time.monotonic() - 10 ** 6)
+        escalated = runner.sweep_reviews()
+        self.assertEqual(len(escalated), 1)
+        stats = runner.stats()
+        self.assertEqual(stats["escalated_reviews"], 1)
+        self.assertEqual(stats["pending_reviews"], 0)
+        self.assertEqual(stats["decisions"][-1]["action"], "PAGE")
+
+
 class RateLimitTests(unittest.TestCase):
     def test_allows_up_to_limit(self):
         limiter = server.RateLimiter(max_per_minute=3)
@@ -386,6 +497,59 @@ class HTTPTests(unittest.TestCase):
         alert = {"id": "sev-test", "title": "bad sev", "configured_severity": "banana"}
         status, body = post(conn, "/ingest/generic", alert)
         self.assertEqual(status, 200)
+
+    def test_ack_clears_a_pending_review_over_http(self):
+        self.runner.reviews.add({"id": "http-ack", "title": "t", "team": "compute",
+                                 "action": "REVIEW", "reasons": []})
+        conn = self._conn()
+        conn.request("GET", "/pending")
+        body = json.loads(conn.getresponse().read())
+        self.assertIn("http-ack", [p["id"] for p in body["pending"]])
+
+        conn2 = self._conn()
+        conn2.request("POST", "/ack/http-ack", body=b"",
+                      headers={"Content-Length": "0", "X-Acked-By": "alice"})
+        resp = conn2.getresponse()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(json.loads(resp.read())["acked_by"], "alice")
+
+        conn3 = self._conn()
+        conn3.request("GET", "/pending")
+        body = json.loads(conn3.getresponse().read())
+        self.assertNotIn("http-ack", [p["id"] for p in body["pending"]])
+
+    def test_acking_an_unknown_review_is_404(self):
+        conn = self._conn()
+        conn.request("POST", "/ack/never-seen", body=b"", headers={"Content-Length": "0"})
+        self.assertEqual(conn.getresponse().status, 404)
+
+    def test_ingest_without_a_signature_is_401_when_a_secret_is_set(self):
+        old = self.runner.secret
+        self.runner.secret = "topsecret"
+        try:
+            conn = self._conn()
+            status, body = post(conn, "/ingest/generic", {"id": "s1", "title": "x"})
+            self.assertEqual(status, 401)
+            self.assertIn("signature", body["error"])
+        finally:
+            self.runner.secret = old
+
+    def test_a_correctly_signed_ingest_is_accepted(self):
+        old = self.runner.secret
+        self.runner.secret = "topsecret"
+        try:
+            raw = json.dumps({"id": "s2", "title": "signed"}).encode()
+            sig = hmac.new(b"topsecret", raw, hashlib.sha256).hexdigest()
+            conn = self._conn()
+            conn.request("POST", "/ingest/generic", body=raw,
+                         headers={"Content-Type": "application/json",
+                                  "Content-Length": str(len(raw)),
+                                  "X-Jev-Signature": f"sha256={sig}"})
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(json.loads(resp.read())["decisions"][0]["id"], "s2")
+        finally:
+            self.runner.secret = old
 
     def test_rate_limit_returns_429(self):
         limited_runner = server.TriageRunner(topology={}, api_key=None, rate_limit=1)

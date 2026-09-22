@@ -228,9 +228,11 @@ class FakeConn:
     def __init__(self, responses):
         self._responses = list(responses)
         self.call_count = 0
+        self.sent_headers = []
 
     def request(self, method, path, body=None, headers=None):
         self.call_count += 1
+        self.sent_headers.append(dict(headers or {}))
 
     def getresponse(self):
         return self._responses.pop(0)
@@ -302,6 +304,27 @@ class CallJev(unittest.TestCase):
         self.assertEqual(data, {"ok": 1})
         self.assertEqual(conn.call_count, 2)
         sleep.assert_called_once_with(0.1)
+
+    def test_a_retry_reuses_one_idempotency_key(self, sleep):
+        # A timeout does not mean the server didn't answer. Retrying under a
+        # fresh key would judge the alert twice and be billed twice.
+        conn = FakeConn([FakeResponse(503), FakeResponse(200, {"ok": 1})])
+        get_patch, put_patch = self._patch_pool(conn)
+        with get_patch, put_patch:
+            triage.call_jev({}, "key", retries=1)
+        self.assertEqual(conn.call_count, 2)
+        keys = {h["Idempotency-Key"] for h in conn.sent_headers}
+        self.assertEqual(len(keys), 1)
+
+    def test_separate_calls_get_separate_idempotency_keys(self, sleep):
+        seen = set()
+        for _ in range(2):
+            conn = FakeConn([FakeResponse(200, {"ok": 1})])
+            get_patch, put_patch = self._patch_pool(conn)
+            with get_patch, put_patch:
+                triage.call_jev({}, "key")
+            seen.add(conn.sent_headers[0]["Idempotency-Key"])
+        self.assertEqual(len(seen), 2)
 
     def test_client_errors_are_not_retried(self, sleep):
         conn = FakeConn([FakeResponse(400)])

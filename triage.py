@@ -45,6 +45,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -325,10 +326,14 @@ def call_jev(payload, api_key, timeout_s=2.0, retries=1, max_wait_s=1.0):
     than max_wait_s between attempts: on a paging path, falling back beats
     waiting."""
     body = json.dumps(payload).encode("utf-8")
+    # One key for the whole call, reused by every retry. A timeout does not
+    # mean the server didn't answer: without this, retrying a request that
+    # actually succeeded judges the alert twice and is billed twice.
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
         "Connection": "keep-alive",
+        "Idempotency-Key": uuid.uuid4().hex,
     }
     last = "no attempt made"
     for attempt in range(retries + 1):
