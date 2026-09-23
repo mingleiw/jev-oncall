@@ -1,0 +1,79 @@
+# A staged incident, keyed to how long Prometheus has been up, so alerts fire
+# in order over the first minute: a database root cause, two services that
+# fail because of it, and the noise that usually arrives alongside.
+#
+# The severity labels are what a real team might have configured, including
+# a couple that are wrong. That's where Jev earns its keep over routing by label.
+
+groups:
+  - name: demo-incident
+    rules:
+      # t+10s  The root cause.
+      - alert: OrdersDbPoolExhausted
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 10
+        labels: {severity: critical, service: orders-db, region: us-west-2}
+        annotations:
+          summary: "connection pool 100% used (500/500) on the orders-db primary"
+          description: "Active connections hit the pool limit at 14:03 UTC and
+            queries are queueing; p99 query wait is 8.2s. Started 2 minutes after
+            a migration added an unindexed lookup on orders.customer_id."
+
+      # t+20s  Fails because of the database.
+      - alert: CheckoutApiErrorRate
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 20
+        labels: {severity: critical, service: checkout-api, region: us-west-2}
+        annotations:
+          summary: "5xx rate 31% for 5m"
+          description: "checkout-api 5xx climbed from 0.1% to 31%. Most errors are
+            timeouts acquiring an orders-db connection."
+
+      # t+25s  Fails because of checkout-api.
+      - alert: PaymentServiceErrors
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 25
+        labels: {severity: critical, service: payment-service, region: us-west-2}
+        annotations:
+          summary: "payment authorization failures 18%"
+          description: "Authorization calls failing with upstream 503 from
+            checkout-api."
+
+      # t+15s  Noise: not production. Routed by rule, never sent to Jev.
+      - alert: StagingDiskFull
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 15
+        labels: {severity: critical, service: ci-runner, env: staging}
+        annotations:
+          summary: "disk 97% full on staging CI runner"
+
+      # t+30s  Real, but not urgent.
+      - alert: TlsCertExpiringSoon
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 30
+        labels: {severity: warning, service: edge}
+        annotations:
+          summary: "TLS certificate for api.example.com expires in 25 days"
+          description: "Auto-renewal has failed twice; the ACME challenge returns 404."
+
+      # t+35s  Configured as critical, but nothing is broken.
+      - alert: ReportJobSlow
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 35
+        labels: {severity: critical, service: report-batch}
+        annotations:
+          summary: "nightly revenue report finished 12 minutes later than usual"
+          description: "The job completed successfully and the report was
+            delivered. Runtime 41m against a 29m median. No customer-facing impact."
+
+      # t+40s  Configured as a warning, but customers are feeling it.
+      - alert: HomepageLatencyHigh
+        expr: time() - max(process_start_time_seconds{job="prometheus"}) > 40
+        labels: {severity: warning, service: homepage}
+        annotations:
+          summary: "p99 latency 2.4s against a 400ms SLO"
+          description: "30% of homepage requests are over the SLO for the last
+            10 minutes and the checkout conversion rate dropped 22%."
+
+      # t+15s to t+75s  Fires, then clears on its own, so its resolve is sent too.
+      - alert: SearchApiHighMemory
+        expr: (time() - max(process_start_time_seconds{job="prometheus"}) > 15)
+          and (time() - max(process_start_time_seconds{job="prometheus"}) < 75)
+        labels: {severity: warning, service: search-api}
+        annotations:
+          summary: "memory 88% of limit on search-api"
+          description: "Heap usage rising after a cache warm-up; GC is keeping up."

@@ -1,5 +1,7 @@
 # jev-oncall
 
+[![CI](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml/badge.svg)](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml)
+
 Incident triage with [Jev](https://typesafe.ai), TypeSafe's System One decision model.
 Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
@@ -12,6 +14,31 @@ slowest call landed 151ms short of the 2-second timeout, and 37% of judged alert
 fell in the review band. Both numbers, and why the tail matters more than the
 median, are in [one measured run](#one-measured-run). They measure speed on one
 network path, not whether the routing was correct.
+
+## Try it in five minutes
+
+The demo runs Prometheus, Alertmanager, and jev-oncall with Docker Compose.
+Prometheus fires a staged incident over the first minute: a database root cause, two
+services that fail because of it, and the noise that comes with it, including two
+alerts whose configured severity is wrong.
+
+```
+git clone https://github.com/mingleiw/jev-oncall && cd jev-oncall/demo
+export TYPESAFE_API_KEY=<your key from console.typesafe.ai/keys>   # optional
+docker compose up --build
+```
+
+Open <http://localhost:8090/dashboard> and watch the alerts arrive. It refreshes
+every 15 seconds. Without a key, every alert takes the fail-open path and is routed
+by its configured severity. That's the baseline: the slow report job pages someone
+and the homepage slowdown only gets a ticket. Set the key and restart to see what Jev
+changes: `docker compose down && docker compose up`.
+
+| File | What it sets up |
+| --- | --- |
+| [demo/rules.yml](demo/rules.yml) | The incident, keyed to Prometheus uptime so alerts fire in order |
+| [demo/alertmanager.yml](demo/alertmanager.yml) | Sends every group to jev-oncall, with resolved notifications and a bearer token |
+| [demo/jev-oncall.toml](demo/jev-oncall.toml) | Teams, and the topology that lets dedup link the cascade |
 
 ## How it works
 
@@ -250,6 +277,18 @@ python3 server.py                           # localhost:8090
 python3 server.py --host 0.0.0.0 --port 9000
 ```
 
+### Docker
+
+```
+docker build -t jev-oncall .
+docker run -p 8090:8090 -e TYPESAFE_API_KEY -e JEV_WEBHOOK_SECRET \
+  -v $PWD/jev-oncall.toml:/config/jev-oncall.toml -e JEV_ONCALL_CONFIG=/config/jev-oncall.toml \
+  jev-oncall
+```
+
+The image is `python:3.12-slim` plus the scripts: no dependencies to install. It
+runs as a non-root user and has a health check on `/health`.
+
 ### Endpoints
 
 | Method | Path | Description |
@@ -260,6 +299,7 @@ python3 server.py --host 0.0.0.0 --port 9000
 | GET | `/health` | `{"ok": true}` |
 | GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
 | GET | `/pending` | REVIEWs still waiting on an ack, with seconds left |
+| GET | `/dashboard` | The last 500 alerts as the HTML dashboard, refreshing every 15 seconds. Each shows the decision it got on arrival |
 
 ### The review clock
 
@@ -383,7 +423,9 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [evaluate.py](evaluate.py) | Offline outcomes, agreement, calibration, threshold sweep |
 | [generate_dashboard.py](generate_dashboard.py) | Renders `results.json` as `dashboard.html` |
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
-| [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts |
+| [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts, plus a live dashboard |
+| [Dockerfile](Dockerfile) | Image for the webhook server |
+| [demo/](demo) | Docker Compose demo: Prometheus, Alertmanager, and jev-oncall |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
 | [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |

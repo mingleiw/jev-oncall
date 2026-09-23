@@ -25,6 +25,9 @@ Endpoints:
 
     GET  /pending              REVIEWs still waiting on an ack.
 
+    GET  /dashboard            The last alerts received, as the HTML
+                               dashboard generate_dashboard.py renders.
+
 The generic provider accepts the jev-oncall alert schema directly, so any
 system can integrate by posting normalized JSON.
 
@@ -48,6 +51,7 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import asdict
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -76,6 +80,7 @@ MAX_FIELD_LEN = 1000
 _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 
 DEFAULT_RATE_LIMIT = 120
+DASHBOARD_ALERTS = 500
 ALERT_TTL_S = 3600
 
 
@@ -462,6 +467,9 @@ class TriageRunner:
         self.secret = secret
         self.reviews = ReviewQueue(self.policy.review_ack_min)
         self.escalated = 0
+        # Full records, in triage.py's results.json shape, for /dashboard.
+        self.records = deque(maxlen=DASHBOARD_ALERTS)
+        self.calls = deque(maxlen=DASHBOARD_ALERTS)
 
     def _prune_stale(self):
         cutoff = time.monotonic() - ALERT_TTL_S
@@ -499,6 +507,16 @@ class TriageRunner:
         wall_ms = (time.monotonic() - t0) * 1000
         decisions = triage.route_all(alerts, judgments, errors, self.policy)
         problems = triage.check_invariants(decisions)
+        with self.lock:
+            for a in alerts:
+                aid, j = a["id"], judgments.get(a["id"])
+                self.records.append((a, {
+                    **asdict(decisions[aid]),
+                    "candidates": [c["id"] for c in candidates[aid]],
+                    "judgment": asdict(j) if j else None,
+                    "error": errors.get(aid),
+                    "call": calls.get(aid),
+                }))
         results = []
         for a in alerts:
             d = decisions[a["id"]]
@@ -539,6 +557,39 @@ class TriageRunner:
         caused can still arrive after it clears."""
         return [r for r in (self.reviews.ack(aid, "resolved upstream")
                             for aid in alert_ids) if r]
+
+    def results(self):
+        """The last DASHBOARD_ALERTS alerts as a triage.py results dict, so
+        the dashboard and evaluate.py read a live server like a batch run.
+        Each alert shows the decision it got on arrival: a REVIEW acked or
+        escalated since then is in /recent."""
+        with self.lock:
+            pairs = list(self.records)
+        # Only the latest record per id: an alert re-sent later was re-judged.
+        latest = {a["id"]: (a, rec) for a, rec in pairs}
+        alerts = [a for a, _ in latest.values()]
+        records = [rec for _, rec in latest.values()]
+        decisions = {r["id"]: triage.Decision(**{k: r[k] for k in triage.Decision.__dataclass_fields__})
+                     for r in records}
+        judgments = {r["id"]: triage.Judgment(**r["judgment"]) for r in records if r["judgment"]}
+        calls = {r["id"]: r["call"] for r in records if r["call"]}
+        c = self.config
+        return {
+            "meta": {
+                "version": 2,
+                "model_requested": c.model,
+                "models_answered": sorted({j.model for j in judgments.values()}),
+                "policy": asdict(self.policy),
+                "teams": c.teams,
+                "topology": self.topology,
+                "generated_at": _now_iso(),
+                "note": f"Live from server.py: the last {len(alerts)} alerts received. "
+                        "Each shows the decision it got on arrival.",
+            },
+            "summary": triage.summarize(alerts, decisions, judgments, calls, 0,
+                                        triage.check_invariants(decisions)),
+            "alerts": records,
+        }, alerts
 
     def sweep_reviews(self):
         """Escalate unacked reviews. Returns what was escalated."""
@@ -599,6 +650,19 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.rstrip("/") == "/pending":
             pending = self.runner.reviews.pending()
             self._send_json(200, {"pending": pending, "count": len(pending)})
+        elif self.path.rstrip("/") == "/dashboard":
+            import generate_dashboard  # local import: only this endpoint needs it
+            results, alerts = self.runner.results()
+            page = generate_dashboard.render(
+                results, alerts, "server.py", label="Live", refresh_s=15,
+                footer="Rendered live by server.py from the alerts it has received. "
+                       "It refreshes every 15 seconds.")
+            body = page.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -731,6 +795,7 @@ def main(argv=None):
     print(f"  GET  /health", file=sys.stderr)
     print(f"  GET  /recent", file=sys.stderr)
     print(f"  GET  /pending             reviews waiting on an ack", file=sys.stderr)
+    print(f"  GET  /dashboard           live HTML dashboard", file=sys.stderr)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

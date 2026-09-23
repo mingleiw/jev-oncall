@@ -1,0 +1,37 @@
+# A five-minute demo: Prometheus fires a staged incident, Alertmanager sends it
+# to jev-oncall, and the dashboard at http://localhost:8090/dashboard shows
+# what paged, what was linked to the root cause, and what was held back.
+#
+#     cd demo
+#     export TYPESAFE_API_KEY=<key>     # optional: without it, you see the fail-open baseline
+#     docker compose up --build
+#
+# Restart to replay the incident: docker compose down && docker compose up
+
+services:
+  jev-oncall:
+    build: ..
+    ports: ["8090:8090"]
+    environment:
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_WEBHOOK_SECRET: demo-secret   # Alertmanager sends it as a bearer token
+      JEV_ONCALL_CONFIG: /demo/jev-oncall.toml
+    volumes:
+      - ./jev-oncall.toml:/demo/jev-oncall.toml:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    ports: ["9093:9093"]
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on: [jev-oncall]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+    depends_on: [alertmanager]

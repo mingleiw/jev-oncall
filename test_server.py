@@ -699,5 +699,36 @@ class AlertmanagerFlowTests(unittest.TestCase):
         self.assertEqual(self.judge_mock.call_count, 2)
 
 
+
+class LiveDashboardTests(unittest.TestCase):
+    def test_dashboard_renders_what_the_server_received(self):
+        from http.server import HTTPServer
+        runner = server.TriageRunner(topology={}, api_key=None)
+        old, server.Handler.runner = getattr(server.Handler, "runner", None), runner
+        httpd = HTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            conn = HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=5)
+            with mock.patch("sys.stderr", io.StringIO()):
+                post(conn, "/ingest/generic", {"id": "d1", "title": "orders-db pool exhausted",
+                                               "configured_severity": "critical"})
+                post(conn, "/ingest/generic", {"id": "d1", "title": "orders-db pool exhausted",
+                                               "configured_severity": "critical"})
+                conn.request("GET", "/dashboard")
+                resp = conn.getresponse()
+                html = resp.read().decode()
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            server.Handler.runner = old
+        self.assertEqual(resp.status, 200)
+        self.assertIn("text/html", resp.getheader("Content-Type"))
+        self.assertIn("orders-db pool exhausted", html)
+        self.assertIn('http-equiv="refresh"', html)
+        results, alerts = runner.results()
+        self.assertEqual([a["id"] for a in alerts], ["d1"])  # a resend shows once
+        self.assertEqual(results["summary"]["fallback"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
