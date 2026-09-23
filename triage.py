@@ -5,7 +5,8 @@ One Jev call per production alert asks four typed questions:
 
     actionable    Noul    does a human need to intervene?
     severity      Score   SEV4 < SEV3 < SEV2 < SEV1; routing uses the distribution
-    team          Choice  database / compute / network / deploy
+    team          Choice  your teams from the config (default: database /
+                          compute / network / deploy)
     duplicate_of  Choice  which candidate alert directly causes this one, or "none"
 
 The policy is plain code on those probabilities:
@@ -27,6 +28,7 @@ Usage:
     python3 triage.py --alerts history.jsonl --out replay.json \\
         --timeout 10 --retries 3 --max-wait 30
     python3 evaluate.py replay.json --sweep  # offline metrics and threshold sweep
+    python3 triage.py --config jev-oncall.toml   # your teams, thresholds, topology
 
 Standard library only.
 """
@@ -43,6 +45,7 @@ import ssl
 import sys
 import threading
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import uuid
@@ -174,6 +177,101 @@ class Policy:
     skew_min: float = 2.0       # ...or at most this long after (alert delivery jitter)
     max_candidates: int = 50    # Choice allows 255 options; fewer keeps the question short
     review_ack_min: int = 15    # a REVIEW nobody acks within this becomes a page
+    fallback_team: str = FALLBACK_TEAM  # owner when Jev didn't name one and the alert has no owner
+
+
+@dataclass
+class Config:
+    """Everything a deployment tunes, loaded from a TOML file by load_config().
+    Secrets stay in environment variables, never here."""
+    model: str = MODEL
+    timeout: float = 2.0        # seconds per attempt; keep it short on a paging path
+    retries: int = 1
+    max_wait: float = 1.0       # longest backoff before giving up and falling back
+    teams: dict = field(default_factory=lambda: dict(TEAM_CRITERIA))  # name -> what it owns
+    topology: dict | None = None  # service -> upstream services; None: not configured
+    policy: Policy = field(default_factory=Policy)
+
+
+class ConfigError(Exception):
+    """A config file that would route alerts differently than its author meant."""
+
+
+_JEV_KEYS = ("model", "timeout", "retries", "max_wait")
+_POLICY_TYPES = {name: f.type for name, f in Policy.__dataclass_fields__.items()}
+
+
+def _check_keys(table, allowed, where):
+    unknown = sorted(set(table) - set(allowed))
+    if unknown:
+        # A typo'd threshold would silently keep its default on a paging path.
+        raise ConfigError(f"{where}: unknown key(s) {', '.join(unknown)}; "
+                          f"expected one of {', '.join(allowed)}")
+
+
+def load_config(path=None):
+    """Parse a TOML config into a Config. No path means built-in defaults.
+    Unknown keys and out-of-range values are errors, not warnings."""
+    config = Config()
+    if not path:
+        return config
+    try:
+        with open(path, "rb") as f:
+            raw = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ConfigError(f"{path}: {e}") from e
+    _check_keys(raw, ["jev", "policy", "teams", "topology"], path)
+
+    jev = raw.get("jev", {})
+    _check_keys(jev, _JEV_KEYS, f"{path} [jev]")
+    for key in _JEV_KEYS:
+        if key in jev:
+            setattr(config, key, jev[key])
+    if not isinstance(config.model, str) or not config.model:
+        raise ConfigError(f"{path} [jev]: model must be a non-empty string")
+    for key in ("timeout", "retries", "max_wait"):
+        value = getattr(config, key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            raise ConfigError(f"{path} [jev]: {key} must be a non-negative number")
+
+    policy = raw.get("policy", {})
+    _check_keys(policy, list(_POLICY_TYPES), f"{path} [policy]")
+    for key, value in policy.items():
+        want = _POLICY_TYPES[key]
+        types = {"str": str, "int": int, "float": (int, float)}[want]
+        ok = isinstance(value, types) and not isinstance(value, bool) and value != ""
+        if not ok:
+            raise ConfigError(f"{path} [policy]: {key} must be a {want}, got {value!r}")
+    config.policy = p = Policy(**policy)
+    for key in ("page_bar", "no_page_bar", "drop_bar", "dedup_bar", "team_bar"):
+        if not 0.0 <= getattr(p, key) <= 1.0:
+            raise ConfigError(f"{path} [policy]: {key} must be between 0 and 1")
+    if p.no_page_bar >= p.page_bar:
+        raise ConfigError(f"{path} [policy]: no_page_bar ({p.no_page_bar}) must be below "
+                          f"page_bar ({p.page_bar}), or nothing lands in REVIEW")
+    if not 1 <= p.max_candidates <= 254:
+        raise ConfigError(f"{path} [policy]: max_candidates must be 1-254 "
+                          "(Choice allows 255 options, one is 'none')")
+
+    if "teams" in raw:
+        teams = raw["teams"]
+        # The runner-up rule needs a second team; Choice allows at most 255.
+        if not 2 <= len(teams) <= 255:
+            raise ConfigError(f"{path} [teams]: need 2 to 255 teams, got {len(teams)}")
+        for name, desc in teams.items():
+            if not isinstance(desc, str) or not desc.strip():
+                raise ConfigError(f"{path} [teams]: {name} needs a description of what it "
+                                  "owns; Jev routes on it")
+        config.teams = dict(teams)
+
+    if "topology" in raw:
+        topology = raw["topology"]
+        for service, deps in topology.items():
+            if not isinstance(deps, list) or not all(isinstance(d, str) for d in deps):
+                raise ConfigError(f"{path} [topology]: {service} must list upstream "
+                                  "services as strings")
+        config.topology = dict(topology)
+    return config
 
 
 class JevError(Exception):
@@ -293,11 +391,12 @@ def describe(alert):
     return f"{alert['title']} (service {alert.get('service', 'unknown')}, started {when})"
 
 
-def build_payload(alert, candidates, model=MODEL):
+def build_payload(alert, candidates, model=MODEL, teams=None):
     questions = {
         "actionable": {"type": "noul", "instructions": ACTIONABLE_Q},
         "severity": {"type": "score", "instructions": SEVERITY_Q, "criteria": SEV_CRITERIA},
-        "team": {"type": "choice", "instructions": TEAM_Q, "criteria": TEAM_CRITERIA},
+        "team": {"type": "choice", "instructions": TEAM_Q,
+                 "criteria": teams or TEAM_CRITERIA},
     }
     if candidates:
         options = {c["id"]: describe(c) for c in candidates}
@@ -407,7 +506,7 @@ def _validate_choice_max(answer, dist, what):
             raise JevError(f"{what}: choice {choice!r} is not the most probable option")
 
 
-def parse_answers(resp, candidate_ids):
+def parse_answers(resp, candidate_ids, teams=None):
     """Validate a response and normalize it into a Judgment, or raise JevError.
     Jev guarantees the schema; checking anyway is cheap on a paging path."""
     try:
@@ -428,7 +527,7 @@ def parse_answers(resp, candidate_ids):
             _validate_choice_max(answers["duplicate_of"], duplicate_of, "duplicate_of")
         sev_dist = _distribution(severity, SEV_LEVELS, "severity")
         team_raw = answers["team"]["probabilities"]
-        team_dist = _distribution(team_raw, list(TEAM_CRITERIA), "team")
+        team_dist = _distribution(team_raw, list(teams or TEAM_CRITERIA), "team")
         _validate_choice_max(answers["team"], team_dist, "team")
         return Judgment(
             model=str(resp.get("model", "unknown")),
@@ -442,7 +541,7 @@ def parse_answers(resp, candidate_ids):
 
 
 def judge_all(alerts, candidates, api_key, model=MODEL, timeout_s=2.0, retries=1,
-              max_wait_s=1.0, workers=8):
+              max_wait_s=1.0, workers=8, teams=None):
     """One Jev call per production alert, in parallel. Returns (judgments,
     errors, calls). An alert Jev couldn't judge has an error and no judgment."""
     todo = [a for a in alerts if is_prod(a)]
@@ -454,9 +553,9 @@ def judge_all(alerts, candidates, api_key, model=MODEL, timeout_s=2.0, retries=1
     def one(alert):
         aid, cands = alert["id"], candidates[alert["id"]]
         try:
-            payload = build_payload(alert, cands, model)
+            payload = build_payload(alert, cands, model, teams)
             resp, ms = call_jev(payload, api_key, timeout_s, retries, max_wait_s)
-            judgment = parse_answers(resp, [c["id"] for c in cands])
+            judgment = parse_answers(resp, [c["id"] for c in cands], teams)
             return aid, judgment, None, {"ms": round(ms), "usage": resp.get("usage", {})}
         except Exception as e:  # fail-open: whatever broke, the alert still gets routed
             error = str(e) if isinstance(e, JevError) else f"{type(e).__name__}: {e}"
@@ -476,12 +575,12 @@ def judge_all(alerts, candidates, api_key, model=MODEL, timeout_s=2.0, retries=1
 # --------------------------------------------------------------------------
 # Deciding: plain code, no I/O
 
-def static_route(alert, error):
+def static_route(alert, error, fallback_team=FALLBACK_TEAM):
     """Fail-open: route exactly as the alert would be routed without Jev."""
     sev = str(alert.get("configured_severity", "")).lower()
     action = STATIC_ROUTES.get(sev, "PAGE")
     basis = f"configured severity {sev!r}" if sev in STATIC_ROUTES else "no configured severity, so page"
-    return Decision(alert["id"], action, action, alert.get("owner") or FALLBACK_TEAM,
+    return Decision(alert["id"], action, action, alert.get("owner") or fallback_team,
                     "fallback", reasons=[f"Jev unavailable ({error}); routed by {basis}"])
 
 
@@ -489,11 +588,11 @@ def route_standalone(alert, judgment, policy, error=None):
     """What this alert would get on its own, before dedup."""
     aid = alert["id"]
     if not is_prod(alert):
-        return Decision(aid, "LOG", "LOG", alert.get("owner") or FALLBACK_TEAM, "rule",
+        return Decision(aid, "LOG", "LOG", alert.get("owner") or policy.fallback_team, "rule",
                         reasons=[f"env={alert.get('env')}: non-production never pages "
                                  "(rule, no model call)"])
     if judgment is None:
-        return static_route(alert, error or "no judgment")
+        return static_route(alert, error or "no judgment", policy.fallback_team)
 
     j = judgment
     p_page, p_act, team = j.p_page, j.p_actionable, top(j.team)
@@ -671,27 +770,52 @@ def print_table(alerts, decisions, judgments, verbose=False):
                 print(f"{'':6}- {reason}")
 
 
+def resolve_topology(topology_path, config):
+    """An explicit --topology file wins, then the config's [topology], then
+    topology.json next to this script, then none."""
+    if topology_path:
+        return load_json(topology_path)
+    if config.topology is not None:
+        return config.topology
+    default = os.path.join(BASE, "topology.json")
+    return load_json(default) if os.path.exists(default) else {}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Triage alerts with Jev: Jev judges, code decides.")
     ap.add_argument("--alerts", default=os.path.join(BASE, "alerts.json"),
                     help="JSON list or JSONL of alerts (default: alerts.json)")
-    ap.add_argument("--topology", default=os.path.join(BASE, "topology.json"),
-                    help="optional service -> upstream services map (default: topology.json)")
+    ap.add_argument("--config", default=os.environ.get("JEV_ONCALL_CONFIG"),
+                    help="TOML file with teams, thresholds, and topology "
+                         "(default: $JEV_ONCALL_CONFIG, else built-in defaults)")
+    ap.add_argument("--topology",
+                    help="service -> upstream services JSON; overrides the config's "
+                         "[topology] (default: topology.json if the config has none)")
     ap.add_argument("--out", default=os.path.join(BASE, "results.json"))
-    ap.add_argument("--model", default=MODEL)
-    ap.add_argument("--timeout", type=float, default=2.0,
+    ap.add_argument("--model", help="overrides [jev] model")
+    ap.add_argument("--timeout", type=float,
                     help="seconds per attempt; keep it short on a paging path")
-    ap.add_argument("--retries", type=int, default=1)
-    ap.add_argument("--max-wait", type=float, default=1.0,
+    ap.add_argument("--retries", type=int)
+    ap.add_argument("--max-wait", type=float,
                     help="longest backoff before giving up and falling back")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="print the reasons behind every decision")
     args = ap.parse_args(argv)
 
+    try:
+        config = load_config(args.config)
+    except ConfigError as e:
+        sys.exit(f"config error: {e}")
+    for key in _JEV_KEYS:  # flags beat the file
+        if getattr(args, key) is not None:
+            setattr(config, key, getattr(args, key))
+    args.model, args.timeout, args.retries, args.max_wait = (
+        config.model, config.timeout, config.retries, config.max_wait)
+
     alerts = load_alerts(args.alerts)
-    topology = load_json(args.topology) if os.path.exists(args.topology) else {}
-    policy = Policy()
+    topology = resolve_topology(args.topology, config)
+    policy = config.policy
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
         print("WARNING: TYPESAFE_API_KEY is not set, so every alert is routed by its "
@@ -700,7 +824,8 @@ def main(argv=None):
     candidates = {a["id"]: candidate_causes(a, alerts, topology, policy) for a in alerts}
     t0 = time.monotonic()
     judgments, errors, calls = judge_all(alerts, candidates, api_key, args.model,
-                                         args.timeout, args.retries, args.max_wait, args.workers)
+                                         args.timeout, args.retries, args.max_wait, args.workers,
+                                         config.teams)
     wall_ms = (time.monotonic() - t0) * 1000
     decisions = route_all(alerts, judgments, errors, policy)
     problems = check_invariants(decisions)
@@ -718,6 +843,8 @@ def main(argv=None):
             "model_requested": args.model,
             "models_answered": models,
             "policy": asdict(policy),
+            "teams": config.teams,
+            "config_path": os.path.abspath(args.config) if args.config else None,
             "alerts_path": os.path.abspath(args.alerts),
             "topology": topology,
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

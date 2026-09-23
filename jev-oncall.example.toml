@@ -1,0 +1,48 @@
+# jev-oncall configuration. Copy to jev-oncall.toml and edit, then:
+#
+#     python3 triage.py --config jev-oncall.toml
+#     python3 server.py --config jev-oncall.toml
+#
+# or set JEV_ONCALL_CONFIG=jev-oncall.toml. Every section is optional; anything
+# left out keeps the built-in default shown here. Unknown keys are an error, so
+# a typo can't silently leave a threshold at its default.
+#
+# Secrets never go in this file: TYPESAFE_API_KEY and JEV_WEBHOOK_SECRET are
+# read from the environment.
+
+[jev]
+# Pinned rather than "jev-latest": an alias moves when TypeSafe ships a release,
+# which can shift probabilities under the thresholds below. Re-run
+# `evaluate.py --sweep` on replayed history before moving the pin.
+model = "jev-1.13.0"
+timeout = 2.0     # seconds per attempt; keep it short on a paging path
+retries = 1
+max_wait = 1.0    # a retry that would wait longer than this falls back instead
+
+[policy]
+# Starting points, not tuned values. Choose them with `evaluate.py --sweep`.
+page_bar = 0.80        # P(page) at or above: page
+no_page_bar = 0.20     # P(page) at or below: don't page. In between: REVIEW
+drop_bar = 0.05        # P(actionable) at or below, when not paging: DROP
+dedup_bar = 0.70       # P(duplicate_of = X) at or above: link to X
+team_bar = 0.60        # owner below this: a page or review also notifies the runner-up
+window_min = 30.0      # a cause starts at most this long before its symptom...
+skew_min = 2.0         # ...or at most this long after (alert delivery jitter)
+max_candidates = 50    # dedup candidates offered per alert (1-254)
+review_ack_min = 15    # a REVIEW nobody acks within this becomes a page
+fallback_team = "triage-rotation"  # owner when Jev can't be asked and the alert names none
+
+[teams]
+# Team name = what it owns. Jev picks the owner from these descriptions, so
+# write them the way you'd brief a new on-call engineer. 2 to 255 teams.
+database = "databases, caches, queues, storage"
+compute = "servers, containers, batch jobs, stream processing"
+network = "CDN, edge, DNS, TLS, connectivity"
+deploy = "releases, deploys, canary analysis, CI/CD"
+
+[topology]
+# Service = the services it depends on (transitively followed). When an alert's
+# service is listed, dedup only considers alerts on it and its upstreams.
+# Overridden by --topology <file.json>. Without this section, topology.json is used.
+payment-service = ["checkout-api"]
+homepage = ["edge"]
