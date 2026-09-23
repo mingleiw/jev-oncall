@@ -254,7 +254,7 @@ python3 server.py --host 0.0.0.0 --port 9000
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/ingest/<provider>` | Receive a webhook. Providers: `datadog`, `pagerduty`, `grafana`, `generic` |
+| POST | `/ingest/<provider>` | Receive a webhook. Providers: `alertmanager`, `datadog`, `pagerduty`, `grafana`, `generic` |
 | POST | `/ingest` | Same as `/ingest/generic` |
 | POST | `/ack/<alert-id>` | Ack a REVIEW so it does not page. `X-Acked-By` names who took it |
 | GET | `/health` | `{"ok": true}` |
@@ -289,8 +289,45 @@ silence.
 | `pagerduty` | `X-PagerDuty-Signature` | `v1=<hex>`, comma-separated during key rotation. Non-`v1` elements are ignored, never trusted |
 | `grafana` | `X-Grafana-Alerting-Signature` | bare hex. Grafana's optional timestamped variant is not supported |
 | `datadog`, `generic` | `X-Jev-Signature` | `sha256=<hex>` or bare hex, set as a custom header on the outgoing webhook |
+| `alertmanager` | `Authorization` | `Bearer <secret>`. Alertmanager can't compute an HMAC, so the secret itself is the credential: it authenticates the sender, not the body, so serve it over TLS |
 
 ### Providers
+
+**Alertmanager** (Prometheus) takes the standard v4 webhook. Point a receiver at
+the server:
+
+```yaml
+receivers:
+  - name: jev-oncall
+    webhook_configs:
+      - url: https://jev-oncall.internal:8090/ingest/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            credentials: <same value as JEV_WEBHOOK_SECRET>
+```
+
+The title is `alertname: summary`. The `description` annotation, the remaining
+labels, and the `generatorURL` go into the description, so Jev sees the instance
+and job. Service comes from the `service`, `job`, or `namespace` label, env from `env`
+or `environment` (default `prod`), and severity from the `severity` label:
+`critical`/`page`/`error` → critical, `warning` → warning, `info`/`none` → info, and
+anything else pages.
+
+Two Alertmanager behaviors need handling, and both are covered:
+
+- **Group resends.** Alertmanager re-sends every alert in a group whenever the group
+  changes. An alert already judged comes back under `repeats` and isn't judged or
+  routed again. Each firing gets one id, from its fingerprint and `startsAt`, so
+  a later re-fire of the same labels is judged fresh. A REVIEW also keeps its first
+  deadline if the same alert is reviewed again, so no provider's resends can push a
+  page back indefinitely.
+- **Resolved notifications.** With `send_resolved: true`, a resolved alert is
+  never triaged. If its REVIEW is still waiting on an ack, the review is cancelled
+  and reported under `reviews_cancelled`, acked by `resolved upstream`: an alert that
+  cleared on its own shouldn't page anyone. It stays a dedup candidate until it ages
+  out, because things it caused can still arrive. Grafana resolved notifications get
+  the same treatment.
 
 **Generic** accepts the jev-oncall alert schema directly (`{id, title, description,
 service, env, started_at, configured_severity}`), so any system can integrate by
@@ -346,7 +383,7 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [evaluate.py](evaluate.py) | Offline outcomes, agreement, calibration, threshold sweep |
 | [generate_dashboard.py](generate_dashboard.py) | Renders `results.json` as `dashboard.html` |
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
-| [server.py](server.py) | Webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts |
+| [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
 | [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |

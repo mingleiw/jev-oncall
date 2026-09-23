@@ -10,7 +10,8 @@ triages with Jev, and returns decisions as JSON.
 Endpoints:
 
     POST /ingest/<provider>    Accept a webhook from a monitoring provider.
-                               Providers: datadog, pagerduty, grafana, generic.
+                               Providers: alertmanager, datadog, pagerduty,
+                               grafana, generic.
                                Returns the triage decision for each alert.
 
     POST /ingest               Same as /ingest/generic.
@@ -29,7 +30,8 @@ system can integrate by posting normalized JSON.
 
 Set JEV_WEBHOOK_SECRET to require a signature on every ingest. PagerDuty and
 Grafana sign with their own headers; datadog and generic use X-Jev-Signature,
-set as a custom header on the outgoing webhook. Without the variable, ingest
+set as a custom header on the outgoing webhook. Alertmanager can't compute an
+HMAC, so it sends the secret as a bearer token. Without the variable, ingest
 is unauthenticated.
 
 Standard library only.
@@ -61,7 +63,13 @@ SIGNATURE_HEADERS = {
     "grafana": "X-Grafana-Alerting-Signature",
     "datadog": "X-Jev-Signature",
     "generic": "X-Jev-Signature",
+    "alertmanager": "Authorization",
 }
+
+# Providers that re-send every alert in a group whenever the group changes.
+# A re-sent alert was already judged: judging it again costs a call and, worse,
+# re-adding a REVIEW would otherwise restart its ack clock on every resend.
+RESENDS_GROUPS = {"alertmanager"}
 
 VALID_SEVERITIES = {"critical", "warning", "info"}
 MAX_FIELD_LEN = 1000
@@ -108,6 +116,11 @@ def verify_signature(provider, raw, headers, secret):
         return False
     want = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
 
+    if provider == "alertmanager":
+        # Alertmanager has no HMAC signing; its http_config sends a static
+        # credential. Over TLS that authenticates the sender, not the body.
+        offered = [sent.strip()[7:]] if sent.strip().startswith("Bearer ") else []
+        return any(hmac.compare_digest(secret.encode(), o.encode()) for o in offered if o)
     if provider == "pagerduty":
         # "v1=<hex>[,v1=<hex>]" during key rotation. Anything that is not a v1
         # element is dropped rather than trusted, so a caller cannot downgrade
@@ -275,7 +288,7 @@ def normalize_grafana(body):
                    "info": "info", "low": "info"}
         configured_severity = sev_map.get(raw_sev, "critical")
         started = raw.get("startsAt") or raw.get("starts_at") or _now_iso()
-        alerts.append({
+        alert = {
             "id": alert_id,
             "title": title,
             "description": "\n".join(desc_parts),
@@ -283,7 +296,64 @@ def normalize_grafana(body):
             "env": env,
             "started_at": started,
             "configured_severity": configured_severity,
-        })
+        }
+        # Unified alerting marks each alert; legacy marks the whole body "ok".
+        if raw.get("status") == "resolved" or body.get("state") == "ok":
+            alert["resolved"] = True
+        alerts.append(alert)
+    return alerts
+
+
+# Alertmanager has no standard severity; these are the common `severity` label values.
+_AM_SEVERITIES = {"critical": "critical", "page": "critical", "error": "critical",
+                  "high": "critical", "warning": "warning", "warn": "warning",
+                  "info": "info", "low": "info", "none": "info"}
+
+
+@provider("alertmanager")
+def normalize_alertmanager(body):
+    """Prometheus Alertmanager webhook (payload version 4).
+
+    The id is the alert's fingerprint plus its startsAt, so every resend of
+    one firing maps to one id, the matching "resolved" notification carries
+    the same id, and a later re-fire of the same labels is a new alert.
+    """
+    raw_alerts = body.get("alerts")
+    if not isinstance(raw_alerts, list):
+        raise ValueError("alertmanager payload needs an 'alerts' list")
+    alerts = []
+    for raw in raw_alerts:
+        labels = raw.get("labels") or {}
+        annotations = raw.get("annotations") or {}
+        started = raw.get("startsAt") or _now_iso()
+        fingerprint = raw.get("fingerprint") or json.dumps(labels, sort_keys=True)
+        alertname = labels.get("alertname") or "Alertmanager alert"
+        summary = annotations.get("summary")
+        title = f"{alertname}: {summary}" if summary else alertname
+        desc_parts = []
+        if annotations.get("description"):
+            desc_parts.append(annotations["description"])
+        extra = {k: v for k, v in sorted(labels.items())
+                 if k not in ("alertname", "severity")}
+        if extra:
+            desc_parts.append("Labels: " + ", ".join(f"{k}={v}" for k, v in extra.items()))
+        if raw.get("generatorURL"):
+            desc_parts.append(raw["generatorURL"])
+        raw_sev = str(labels.get("severity") or labels.get("priority") or "").lower()
+        alert = {
+            "id": _stable_id("alertmanager", f"{fingerprint}:{started}"),
+            "title": title,
+            "description": "\n".join(desc_parts),
+            "service": (labels.get("service") or labels.get("job")
+                        or labels.get("namespace")),
+            "env": labels.get("env") or labels.get("environment") or "prod",
+            "started_at": started,
+            # An unknown severity pages: the fail-safe direction.
+            "configured_severity": _AM_SEVERITIES.get(raw_sev, "critical"),
+        }
+        if raw.get("status") == "resolved":
+            alert["resolved"] = True
+        alerts.append(alert)
     return alerts
 
 
@@ -336,8 +406,11 @@ class ReviewQueue:
     def add(self, entry, now=None):
         now = time.monotonic() if now is None else now
         with self._lock:
-            self._pending[entry["id"]] = {"deadline": now + self.ack_seconds,
-                                          "entry": entry}
+            # A second REVIEW for the same alert keeps the first deadline:
+            # a provider re-sending an alert must not keep pushing its page back.
+            old = self._pending.get(entry["id"])
+            deadline = old["deadline"] if old else now + self.ack_seconds
+            self._pending[entry["id"]] = {"deadline": deadline, "entry": entry}
 
     def ack(self, alert_id, who=None):
         with self._lock:
@@ -398,11 +471,20 @@ class TriageRunner:
         self._active_alerts = [a for a in self._active_alerts
                                if a["id"] not in stale]
 
-    def triage(self, alerts):
+    def triage(self, alerts, skip_repeats=False):
         now = time.monotonic()
+        repeats = []
         with self.lock:
             self._prune_stale()
             existing_ids = {a["id"] for a in self._active_alerts}
+            if skip_repeats:
+                repeats = [a["id"] for a in alerts if a["id"] in existing_ids]
+                for aid in repeats:
+                    self._alert_times[aid] = now  # still firing: still a dedup candidate
+                alerts = [a for a in alerts if a["id"] not in existing_ids]
+                if not alerts:
+                    return {"decisions": [], "wall_ms": 0, "invariant_violations": [],
+                            "repeats": repeats}
             for a in alerts:
                 self._alert_times[a["id"]] = now
                 if a["id"] not in existing_ids:
@@ -446,7 +528,17 @@ class TriageRunner:
             "decisions": results,
             "wall_ms": round(wall_ms),
             "invariant_violations": problems,
+            "repeats": repeats,
         }
+
+    def resolve(self, alert_ids):
+        """The provider says these alerts cleared. A REVIEW still waiting on
+        one is cancelled: paging someone for an alert that already went away
+        is the noise this exists to cut. Returns the cancelled reviews.
+        The alert stays a dedup candidate until it ages out: something it
+        caused can still arrive after it clears."""
+        return [r for r in (self.reviews.ack(aid, "resolved upstream")
+                            for aid in alert_ids) if r]
 
     def sweep_reviews(self):
         """Escalate unacked reviews. Returns what was escalated."""
@@ -561,13 +653,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"decisions": [], "wall_ms": 0, "invariant_violations": []})
             return
 
+        cleared = [bool(a.pop("resolved", False)) for a in alerts]
+        # Clamped like validate_alert clamps a firing id, so the two match.
+        resolved = [_clamp(str(a.get("id", "")), 64) for a, c in zip(alerts, cleared) if c]
+        firing = [a for a, c in zip(alerts, cleared) if not c]
         try:
-            alerts = [validate_alert(a) for a in alerts]
+            firing = [validate_alert(a) for a in firing]
         except (ValueError, TypeError) as e:
             self._send_json(422, {"error": f"validation failed: {e}"})
             return
 
-        result = self.runner.triage(alerts)
+        if firing:
+            result = self.runner.triage(firing, provider_name in RESENDS_GROUPS)
+        else:
+            result = {"decisions": [], "wall_ms": 0, "invariant_violations": [],
+                      "repeats": []}
+        result["resolved"] = resolved
+        result["reviews_cancelled"] = self.runner.resolve(resolved)
         self._send_json(200, result)
 
     def log_message(self, fmt, *args):

@@ -565,5 +565,139 @@ class HTTPTests(unittest.TestCase):
             server.Handler.runner = old_runner
 
 
+
+def am_payload(status="firing", fingerprint="fp1", starts="2026-09-18T14:03:00Z", **labels):
+    """An Alertmanager v4 webhook body carrying one alert."""
+    labels = {"alertname": "HighErrorRate", "severity": "critical",
+              "service": "checkout-api", "instance": "10.0.0.7:9090", **labels}
+    return {"version": "4", "status": status, "receiver": "jev-oncall",
+            "groupKey": "{}:{alertname=\"HighErrorRate\"}", "truncatedAlerts": 0,
+            "groupLabels": {"alertname": "HighErrorRate"}, "commonLabels": labels,
+            "commonAnnotations": {}, "externalURL": "http://am:9093",
+            "alerts": [{"status": status, "labels": labels,
+                        "annotations": {"summary": "5xx above 5%",
+                                        "description": "error ratio 0.31 over 5m"},
+                        "startsAt": starts, "endsAt": "0001-01-01T00:00:00Z",
+                        "generatorURL": "http://prom:9090/graph?g0.expr=x",
+                        "fingerprint": fingerprint}]}
+
+
+class AlertmanagerNormalizerTests(unittest.TestCase):
+    def test_maps_labels_and_annotations(self):
+        a = server.normalize_alertmanager(am_payload())[0]
+        self.assertEqual(a["title"], "HighErrorRate: 5xx above 5%")
+        self.assertEqual(a["service"], "checkout-api")
+        self.assertEqual(a["env"], "prod")
+        self.assertEqual(a["configured_severity"], "critical")
+        self.assertEqual(a["started_at"], "2026-09-18T14:03:00Z")
+        self.assertIn("error ratio 0.31", a["description"])
+        self.assertIn("instance=10.0.0.7:9090", a["description"])
+        self.assertIn("http://prom:9090", a["description"])
+        self.assertNotIn("resolved", a)
+        server.validate_alert(a)
+
+    def test_severity_env_and_service_fallbacks(self):
+        a = server.normalize_alertmanager(am_payload(severity="warning", env="staging",
+                                                     service=""))[0]
+        self.assertEqual((a["configured_severity"], a["env"]), ("warning", "staging"))
+        body = am_payload()
+        body["alerts"][0]["labels"] = {"alertname": "Down", "job": "node", "severity": "p9"}
+        a = server.normalize_alertmanager(body)[0]
+        self.assertEqual(a["service"], "node")
+        self.assertEqual(a["configured_severity"], "critical")  # unknown pages
+        self.assertEqual(a["title"], "Down: 5xx above 5%")
+
+    def test_ids_are_one_per_firing(self):
+        firing = server.normalize_alertmanager(am_payload())[0]["id"]
+        resolved = server.normalize_alertmanager(am_payload("resolved"))[0]
+        self.assertEqual(resolved["id"], firing)
+        self.assertTrue(resolved["resolved"])
+        refire = server.normalize_alertmanager(am_payload(starts="2026-09-18T16:00:00Z"))
+        self.assertNotEqual(refire[0]["id"], firing)
+        other = server.normalize_alertmanager(am_payload(fingerprint="fp2"))
+        self.assertNotEqual(other[0]["id"], firing)
+
+    def test_rejects_a_body_without_alerts(self):
+        with self.assertRaises(ValueError):
+            server.normalize_alertmanager({"status": "firing"})
+
+    def test_grafana_resolved_is_marked(self):
+        body = {"alerts": [{"status": "resolved", "labels": {"alertname": "x"},
+                            "fingerprint": "f"}]}
+        self.assertTrue(server.normalize_grafana(body)[0]["resolved"])
+        legacy = {"title": "x", "state": "ok"}
+        self.assertTrue(server.normalize_grafana(legacy)[0]["resolved"])
+
+
+class AlertmanagerAuthTests(unittest.TestCase):
+    def test_bearer_token(self):
+        ok = server.verify_signature("alertmanager", b"{}", {"Authorization": "Bearer s3"}, "s3")
+        self.assertTrue(ok)
+        for sent in ("Bearer wrong", "Basic s3", "s3", ""):
+            self.assertFalse(server.verify_signature(
+                "alertmanager", b"{}", {"Authorization": sent}, "s3"), sent)
+
+
+class ReviewDeadlineTests(unittest.TestCase):
+    def test_a_repeated_review_keeps_its_first_deadline(self):
+        q = server.ReviewQueue(ack_minutes=15)
+        now = time.monotonic()
+        q.add({"id": "r1", "title": "t"}, now=now)
+        q.add({"id": "r1", "title": "t"}, now=now + 10 * 60)
+        self.assertEqual(len(q.sweep(now=now + 15 * 60 + 1)), 1)
+
+
+class AlertmanagerFlowTests(unittest.TestCase):
+    """Firing, group resend, and resolve through the real HTTP handler."""
+
+    def setUp(self):
+        from http.server import HTTPServer
+        self.runner = server.TriageRunner(topology={}, api_key="k", rate_limit=1000)
+        self.old_runner = getattr(server.Handler, "runner", None)
+        server.Handler.runner = self.runner
+        self.httpd = HTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        review = test_triage.judgment(sev={"SEV2": 0.5, "SEV3": 0.5})
+        self.judge = mock.patch.object(
+            triage, "judge_all",
+            side_effect=lambda alerts, *a, **k: ({x["id"]: review for x in alerts}, {}, {}))
+        self.judge_mock = self.judge.start()
+
+    def tearDown(self):
+        self.judge.stop()
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        server.Handler.runner = self.old_runner
+
+    def send(self, body):
+        conn = HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+        with mock.patch("sys.stderr", io.StringIO()):
+            return post(conn, "/ingest/alertmanager", body)
+
+    def test_resend_is_not_rejudged_and_resolve_cancels_the_review(self):
+        status, first = self.send(am_payload())
+        self.assertEqual(status, 200)
+        self.assertEqual(first["decisions"][0]["action"], "REVIEW")
+        aid = first["decisions"][0]["id"]
+        self.assertEqual(len(self.runner.reviews.pending()), 1)
+
+        _, resend = self.send(am_payload())
+        self.assertEqual((resend["decisions"], resend["repeats"]), ([], [aid]))
+        self.assertEqual(self.judge_mock.call_count, 1)
+
+        _, cleared = self.send(am_payload("resolved"))
+        self.assertEqual(cleared["resolved"], [aid])
+        self.assertEqual(cleared["reviews_cancelled"][0]["acked_by"], "resolved upstream")
+        self.assertEqual(self.runner.reviews.pending(), [])
+        self.assertEqual(self.judge_mock.call_count, 1)
+
+    def test_other_providers_still_rejudge_a_resend(self):
+        conn = HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+        with mock.patch("sys.stderr", io.StringIO()):
+            post(conn, "/ingest/generic", {"id": "g1", "title": "t"})
+            post(conn, "/ingest/generic", {"id": "g1", "title": "t"})
+        self.assertEqual(self.judge_mock.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
