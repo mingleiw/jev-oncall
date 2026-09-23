@@ -5,6 +5,7 @@ triages with Jev, and returns decisions as JSON.
     export TYPESAFE_API_KEY=<key>
     python3 server.py                        # localhost:8090
     python3 server.py --port 9000 --host 0.0.0.0
+    python3 server.py --config jev-oncall.toml   # your teams, thresholds, topology
 
 Endpoints:
 
@@ -375,10 +376,11 @@ class ReviewQueue:
 
 class TriageRunner:
     def __init__(self, topology=None, api_key=None, rate_limit=DEFAULT_RATE_LIMIT,
-                 secret=None):
+                 secret=None, config=None):
+        self.config = config or triage.Config()
         self.topology = topology or {}
         self.api_key = api_key
-        self.policy = triage.Policy()
+        self.policy = self.config.policy
         self.lock = threading.Lock()
         self.recent = deque(maxlen=200)
         self._active_alerts = []
@@ -408,8 +410,10 @@ class TriageRunner:
             candidates = {a["id"]: triage.candidate_causes(a, self._active_alerts, self.topology, self.policy)
                           for a in alerts}
         t0 = time.monotonic()
+        c = self.config
         judgments, errors, calls = triage.judge_all(
-            alerts, candidates, self.api_key, timeout_s=2.0, retries=1, max_wait_s=1.0)
+            alerts, candidates, self.api_key, c.model, c.timeout, c.retries, c.max_wait,
+            teams=c.teams)
         wall_ms = (time.monotonic() - t0) * 1000
         decisions = triage.route_all(alerts, judgments, errors, self.policy)
         problems = triage.check_invariants(decisions)
@@ -574,12 +578,22 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Webhook server for jev-oncall.")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--topology", default=os.path.join(triage.BASE, "topology.json"))
+    ap.add_argument("--config", default=os.environ.get("JEV_ONCALL_CONFIG"),
+                    help="TOML file with teams, thresholds, and topology "
+                         "(default: $JEV_ONCALL_CONFIG, else built-in defaults)")
+    ap.add_argument("--topology",
+                    help="service -> upstream services JSON; overrides the config's "
+                         "[topology] (default: topology.json if the config has none)")
     ap.add_argument("--rate-limit", type=int, default=DEFAULT_RATE_LIMIT,
                     help=f"max ingests per minute (default: {DEFAULT_RATE_LIMIT})")
     ap.add_argument("--sweep-interval", type=float, default=10.0,
                     help="seconds between checks for unacked reviews")
     args = ap.parse_args(argv)
+
+    try:
+        config = triage.load_config(args.config)
+    except triage.ConfigError as e:
+        sys.exit(f"config error: {e}")
 
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
@@ -592,8 +606,8 @@ def main(argv=None):
               "can reach this port can inject alerts, including one crafted to dedup a real "
               "page into silence.", file=sys.stderr)
 
-    topology = triage.load_json(args.topology) if os.path.exists(args.topology) else {}
-    runner = TriageRunner(topology, api_key, args.rate_limit, secret)
+    topology = triage.resolve_topology(args.topology, config)
+    runner = TriageRunner(topology, api_key, args.rate_limit, secret, config)
     Handler.runner = runner
 
     stop = threading.Event()
@@ -608,6 +622,8 @@ def main(argv=None):
 
     httpd = HTTPServer((args.host, args.port), Handler)
     print(f"jev-oncall server listening on {args.host}:{args.port}", file=sys.stderr)
+    print(f"  config: {args.config or 'built-in defaults'} | model {config.model} | "
+          f"teams: {', '.join(config.teams)}", file=sys.stderr)
     print(f"  POST /ingest/<provider>   providers: {', '.join(sorted(PROVIDERS))}", file=sys.stderr)
     print(f"  POST /ack/<alert-id>      ack a review before it pages", file=sys.stderr)
     print(f"  GET  /health", file=sys.stderr)

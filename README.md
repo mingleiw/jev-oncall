@@ -29,13 +29,14 @@ alert ──► rules ──► non-prod: LOG (no model call)
 | --- | --- | --- |
 | `actionable` | Noul | Can drop an alert only when severity agrees it's noise |
 | `severity` | Score: SEV4 < SEV3 < SEV2 < SEV1 | P(page) = P(SEV1) + P(SEV2) |
-| `team` | Choice | Owner. Below 0.60, the runner-up team is notified too |
+| `team` | Choice over your [teams](#configure-it) | Owner. Below 0.60, the runner-up team is notified too |
 | `duplicate_of` | Choice over candidate alerts + `none` | Edges of the dedup graph |
 
 ### Routing policy
 
-The thresholds live in `Policy` in `triage.py`. They are starting points: tune them
-with `evaluate.py --sweep` on replayed history.
+The thresholds are set in the `[policy]` section of the [config file](#configure-it),
+with defaults in `Policy` in `triage.py`. They are starting points: tune them with
+`evaluate.py --sweep` on replayed history.
 
 | Condition | Action |
 | --- | --- |
@@ -195,11 +196,43 @@ Alert format (JSON list or JSONL):
 
 `expected` is optional and only used for evaluation.
 
+## Configure it
+
+Your teams, thresholds, and service topology live in one TOML file, so you can
+adopt jev-oncall without editing its code. Start from the example, which lists every
+key with its default:
+
+```
+cp jev-oncall.example.toml jev-oncall.toml
+python3 triage.py --config jev-oncall.toml
+python3 server.py --config jev-oncall.toml     # or: export JEV_ONCALL_CONFIG=jev-oncall.toml
+```
+
+| Section | What it sets |
+| --- | --- |
+| `[jev]` | Pinned model, per-call timeout, retries, longest backoff |
+| `[policy]` | Every routing threshold, the review ack window, and the fallback owner |
+| `[teams]` | `name = "what it owns"`, 2 to 255 teams. Jev picks the owner from these descriptions, so write them the way you'd brief a new on-call engineer |
+| `[topology]` | `service = ["upstream", ...]`, used to narrow dedup candidates |
+
+Every section is optional, and anything left out keeps its default. The file is
+checked strictly: an unknown key, a threshold outside 0 to 1, or a `no_page_bar`
+at or above `page_bar` stops the program before it triages anything, because a typo
+that silently kept a default would change who gets paged. Command-line flags
+(`--model`, `--timeout`, `--retries`, `--max-wait`, `--topology`) override the file.
+Secrets stay in environment variables and never go in the file.
+
+The config's teams and thresholds are written into `results.json`, so `evaluate.py`
+and the dashboard judge a run by the policy it actually ran with.
+
 ## Run it
+
+Python 3.11 or newer, standard library only.
 
 ```
 export TYPESAFE_API_KEY=<your key from console.typesafe.ai/keys>
 python3 triage.py          # routing table + results.json, plus the evaluation if alerts are labeled
+python3 triage.py --config jev-oncall.toml   # with your teams and thresholds
 python3 triage.py -v       # also prints the reasons behind every decision
 python3 generate_dashboard.py   # dashboard.html from results.json
 python3 -m unittest -v     # offline tests with a fake Jev: no key, no network
@@ -298,7 +331,7 @@ Standard library only.
 ## Development
 
 ```bash
-python3 -m unittest test_triage test_server test_dashboard -v   # all offline tests
+python3 -m unittest test_triage test_server test_dashboard test_config -v   # all offline tests
 python3 -m unittest test_triage -v                              # triage engine only
 python3 -m unittest test_server -v                              # webhook adapter only
 ```
@@ -317,6 +350,8 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
 | [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |
+| [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
+| [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
 | [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
-| [topology.json](topology.json) | Service → upstream dependencies, used to narrow dedup candidates |
+| [topology.json](topology.json) | Service → upstream dependencies, used when the config has no `[topology]` |
 | `results.json`, `dashboard.html` | Written by `triage.py` and `generate_dashboard.py` |
