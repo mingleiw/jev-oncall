@@ -116,6 +116,24 @@ class TokenOption(Serving):
             triage.load_config(f.name)
 
 
+class Demo(unittest.TestCase):
+    def test_demo_page_shows_every_behavior_and_says_it_is_scripted(self):
+        import build_demo
+        html = build_demo.build()
+        self.assertIn("Demo with sample data", html)
+        self.assertIn("answers are scripted", html)
+        self.assertIn("window.JEV_DEMO = true", html)
+        self.assertIn('id="demo-reset"', html)
+        import html as htmllib
+        for label in shadow.COMPARISON_LABELS.values():
+            self.assertIn(htmllib.escape(label), html)  # agreement and every kind of difference
+        self.assertEqual(html.count('class="live-btn ack"'), 2)  # an unsure and a cross-team review
+        self.assertIn("root is owned by database, so compute gets a REVIEW", html)
+        self.assertIn("Also notifies", html)
+        self.assertNotIn("No alert in this run has an expected label", html)
+        self.assertNotIn(build_demo.MODEL, html.split("<h1")[0])  # the banner, not a fake model name, explains
+
+
 class LivePage(Serving):
     def test_review_queue_shadow_comparison_and_labels(self):
         path = self.shadow_log()
