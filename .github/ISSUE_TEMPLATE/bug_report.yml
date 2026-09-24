@@ -1,0 +1,51 @@
+name: Bug report
+description: Something routed, deduped or paged the wrong way, or broke.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Never paste an API key, a webhook secret, or alert text you can't share publicly.
+        If the bug could let someone inject, silence or forge a page, report it privately instead: https://github.com/mingleiw/jev-oncall/security/advisories/new
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did jev-oncall do? Include the decision (PAGE, REVIEW, DEDUP, ...) and its reasons if you have them.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The alert payload or steps, with anything private removed. The Docker demo or a curl command is ideal.
+      render: text
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where the alert came from
+      options:
+        - Alertmanager
+        - Grafana
+        - Datadog
+        - PagerDuty
+        - Generic JSON
+        - Batch run (triage.py)
+        - Other
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you're running (git rev-parse --short HEAD) or the image tag.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Server output around the problem, with secrets removed.
+      render: text

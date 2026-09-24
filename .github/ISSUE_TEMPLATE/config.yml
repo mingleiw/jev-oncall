@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/mingleiw/jev-oncall/security/advisories/new
+    about: Anything that could let someone inject, silence or forge a page.
+  - name: How jev-oncall works
+    url: https://mingleiw.github.io/jev-oncall/architecture.html
+    about: The pipeline, the review clock and the default thresholds.

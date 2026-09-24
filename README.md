@@ -533,6 +533,11 @@ python3 -m unittest test_server -v                              # webhook adapte
 
 Tests use a fake Jev that returns canned probabilities. No API key, no network.
 
+Want to help? [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the rules that keep
+paging safe, and how to add a provider. The
+[good first issues](https://github.com/mingleiw/jev-oncall/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+are a good place to start.
+
 ## Files
 
 | File | Job |
