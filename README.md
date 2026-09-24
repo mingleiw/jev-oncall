@@ -151,6 +151,10 @@ so every alert arrives at once instead of in sequence.
 
 ## How it works
 
+![The jev-oncall server pipeline: alerts from Alertmanager and other providers pass through seven steps. Only step 4 calls Jev; if it fails, the alert is routed by its configured severity. Decisions are read from the server's endpoints; sending them to PagerDuty, Slack or Jira is not built yet.](docs/architecture.png)
+
+Only step 4 leaves the server. The same flow in brief:
+
 ```
 alert ──► rules ──► non-prod: LOG (no model call)
             │
@@ -412,6 +416,8 @@ runs as a non-root user and has a health check on `/health`.
 
 ### The review clock
 
+![A REVIEW ends in one of three ways: an ack closes it, a resolved notification cancels it, and no ack within 15 minutes escalates it to a PAGE.](docs/review-clock.png)
+
 A REVIEW is only meaningful if something escalates it. The server holds every
 REVIEW for `Policy.review_ack_min` (15 minutes). Ack it and it closes; ignore it
 and a sweeper turns it into a PAGE, records it in `/recent` with the reason, and
@@ -534,6 +540,7 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
 | [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts, plus a live dashboard |
 | [Dockerfile](Dockerfile) | Image for the webhook server |
+| [docs/](docs) | Architecture diagrams: `architecture.html` (open it in a browser) and the PNGs the README shows |
 | [demo/](demo) | Docker Compose demo: Prometheus, Alertmanager, and jev-oncall |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
