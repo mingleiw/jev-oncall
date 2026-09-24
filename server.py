@@ -595,6 +595,12 @@ class TriageRunner:
         # Only the latest record per id: an alert re-sent later was re-judged.
         latest = {a["id"]: (a, rec) for a, rec in pairs}
         alerts = [a for a, _ in latest.values()]
+        if self.shadow:
+            # In shadow mode, labels come only from /label, as in shadow.to_results.
+            labels = shadow.labels_by_id(shadow.load(self.shadow.path)[0])
+            alerts = [{**{k: v for k, v in a.items() if k != "expected"},
+                       **({"expected": labels[a["id"]]} if a["id"] in labels else {})}
+                      for a in alerts]
         records = [rec for _, rec in latest.values()]
         decisions = {r["id"]: triage.Decision(**{k: r[k] for k in triage.Decision.__dataclass_fields__})
                      for r in records}
@@ -645,6 +651,27 @@ class TriageRunner:
         label = shadow.validate_label(body, self.config.teams)
         self.shadow.label(alert_id, label, who)
         return {"id": alert_id, "label": label, "labeled_by": who or "unknown"}
+
+    def live_view(self):
+        """What the live dashboard adds on top of the run: the review queue,
+        and the shadow comparison and label forms when shadow mode is on."""
+        return {
+            "pending": self.reviews.pending(),
+            "shadow_on": bool(self.shadow),
+            "shadow": self.shadow_summary() if self.shadow else None,
+            "teams": list(self.config.teams),
+            "require_token": self.config.require_token,
+        }
+
+    def action_allowed(self, headers):
+        """/ack and /label change state. With [server] require_token they need
+        the webhook secret as a bearer token; otherwise they're open, as before."""
+        if not self.config.require_token:
+            return True
+        sent = (headers.get("Authorization") or "").strip()
+        if not self.secret or not sent.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(self.secret.encode(), sent[7:].strip().encode())
 
     def shadow_summary(self):
         events, bad = shadow.load(self.shadow.path)
@@ -705,9 +732,9 @@ class Handler(BaseHTTPRequestHandler):
             import generate_dashboard  # local import: only this endpoint needs it
             results, alerts = self.runner.results()
             page = generate_dashboard.render(
-                results, alerts, "server.py", label="Live", refresh_s=15,
-                footer="Rendered live by server.py from the alerts it has received. "
-                       "It refreshes every 15 seconds.")
+                results, alerts, "server.py", label="Live", live=self.runner.live_view(),
+                footer="Rendered live by server.py from the alerts it has received. It refreshes "
+                       "every 15 seconds, except while you're reading a Why panel or labeling.")
             body = page.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -719,6 +746,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip("/")
+        if (path.startswith("/ack/") or path.startswith("/label/")) \
+                and self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
+            # A browser on another site must not be able to ack a review, which
+            # would stop it from paging. curl and the dashboard itself are fine.
+            self._send_json(403, {"error": "cross-site requests can't ack or label"})
+            return
+        if (path.startswith("/ack/") or path.startswith("/label/")) \
+                and not self.runner.action_allowed(self.headers):
+            self._send_json(401, {"error": "this server requires a token: "
+                                           "Authorization: Bearer <JEV_WEBHOOK_SECRET>"})
+            return
         if path.startswith("/ack/"):
             alert_id = path.split("/ack/", 1)[1]
             who = self.headers.get("X-Acked-By")
@@ -832,6 +870,9 @@ def main(argv=None):
         sys.exit(f"config error: {e}")
     if args.shadow_log:
         config.shadow_log = args.shadow_log
+    if config.require_token and not os.environ.get("JEV_WEBHOOK_SECRET"):
+        sys.exit("config error: [server] require_token needs JEV_WEBHOOK_SECRET, "
+                 "which is the token /ack and /label will require")
 
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:

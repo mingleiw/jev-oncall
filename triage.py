@@ -192,6 +192,7 @@ class Config:
     topology: dict | None = None  # service -> upstream services; None: not configured
     policy: Policy = field(default_factory=Policy)
     shadow_log: str | None = None  # JSONL path; set, it turns on shadow mode (shadow.py)
+    require_token: bool = False   # /ack and /label need Authorization: Bearer <JEV_WEBHOOK_SECRET>
 
 
 class ConfigError(Exception):
@@ -221,7 +222,7 @@ def load_config(path=None):
             raw = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
         raise ConfigError(f"{path}: {e}") from e
-    _check_keys(raw, ["jev", "policy", "teams", "topology", "shadow"], path)
+    _check_keys(raw, ["jev", "policy", "teams", "topology", "shadow", "server"], path)
 
     jev = raw.get("jev", {})
     _check_keys(jev, _JEV_KEYS, f"{path} [jev]")
@@ -279,6 +280,13 @@ def load_config(path=None):
         if not isinstance(shadow_cfg["log"], str) or not shadow_cfg["log"].strip():
             raise ConfigError(f"{path} [shadow]: log must be a file path")
         config.shadow_log = shadow_cfg["log"]
+
+    server_cfg = raw.get("server", {})
+    _check_keys(server_cfg, ["require_token"], f"{path} [server]")
+    if "require_token" in server_cfg:
+        if not isinstance(server_cfg["require_token"], bool):
+            raise ConfigError(f"{path} [server]: require_token must be true or false")
+        config.require_token = server_cfg["require_token"]
     return config
 
 

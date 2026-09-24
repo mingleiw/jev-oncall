@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Offline tests (fake Jev, no key, no network)
-        run: python -m unittest test_triage test_server test_dashboard test_config test_shadow -v
+        run: python -m unittest test_triage test_server test_dashboard test_config test_shadow test_live -v
       - name: Smoke run on the bundled alerts
         run: |
           python triage.py --config jev-oncall.example.toml

@@ -51,3 +51,8 @@ homepage = ["edge"]
 # Uncomment to run next to your existing paging and record what jev-oncall
 # would have done (see "Shadow mode" in the README). Overridden by --shadow-log.
 # log = "shadow.jsonl"
+
+# [server]
+# Uncomment to make /ack and /label (and the dashboard's Ack and label buttons)
+# require Authorization: Bearer <JEV_WEBHOOK_SECRET>. Needs JEV_WEBHOOK_SECRET set.
+# require_token = true

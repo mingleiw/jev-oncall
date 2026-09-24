@@ -24,7 +24,7 @@ library only, and the tests use a fake Jev, so you don't need an API key.
 ```
 git clone https://github.com/mingleiw/jev-oncall
 cd jev-oncall
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow -v
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live -v
 ```
 
 To see your change working end to end, run the Docker demo
