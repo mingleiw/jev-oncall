@@ -7,6 +7,9 @@ Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
 anyone. It only judges.
 
+**Website:** [mingleiw.github.io/jev-oncall](https://mingleiw.github.io/jev-oncall/), with an
+[architecture page](https://mingleiw.github.io/jev-oncall/architecture.html).
+
 ![jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 flagged for review, each alert a dot on the P(page) scale against the 0.20 and 0.80 policy bars](dashboard.png)
 
 That run: 300 synthetic alerts at **p50 418ms, p95 1477ms, $0.0128 total.** The
@@ -540,7 +543,7 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
 | [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts, plus a live dashboard |
 | [Dockerfile](Dockerfile) | Image for the webhook server |
-| [docs/](docs) | Architecture diagrams: `architecture.html` (open it in a browser) and the PNGs the README shows |
+| [docs/](docs) | The website, served by GitHub Pages: `index.html`, `architecture.html`, and the images the README shows |
 | [demo/](demo) | Docker Compose demo: Prometheus, Alertmanager, and jev-oncall |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |

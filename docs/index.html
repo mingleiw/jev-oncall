@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jev-oncall</title>
+<meta name="description" content="Open-source alert triage. Each production alert gets one Jev call with four typed questions, and plain, auditable code turns the probabilities into pages, reviews, tickets and linked incidents.">
+<meta property="og:title" content="jev-oncall: Jev judges. Code decides.">
+<meta property="og:description" content="Open-source alert triage for on-call teams, built on Jev.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+  .hero { padding-block: 84px 72px; text-align: center; }
+  .hero .container { display: grid; justify-items: center; gap: 26px; }
+  .hero h1 { font: 600 clamp(46px, 8.4vw, 92px)/1 var(--sans); letter-spacing: -.05em; }
+  .hero .sub { max-width: 640px; color: var(--muted); font-size: clamp(17px, 2.1vw, 20px); line-height: 1.55; }
+  .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .sources { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; color: var(--dim); font-size: 14px; }
+  .sources span { color: var(--muted); }
+  .shot { margin-top: 30px; width: 100%; max-width: 1040px; }
+  .shot img { width: 100%; height: auto; background: #f3f4f6; }
+  .shot-note { margin-top: 16px; color: var(--dim); font-size: 14px; max-width: 760px; margin-inline: auto; }
+  .shot-note b { color: var(--muted); font-weight: 500; }
+
+  /* P(page) scale */
+  .scale { display: grid; gap: 14px; }
+  .bands { display: grid; grid-template-columns: 20fr 60fr 20fr; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .band { padding: 22px 20px; display: grid; gap: 8px; align-content: start; min-height: 150px; }
+  .band + .band { border-left: 1px solid var(--border-2); }
+  .band h3 { font: 600 17px/1.2 var(--sans); letter-spacing: -.01em; display: flex; align-items: center; gap: 9px; }
+  .band p { font-size: 14.5px; color: var(--muted); }
+  .band.no { background: var(--surface); }
+  .band.review { background: repeating-linear-gradient(135deg, rgba(251,191,36,.07) 0 10px, transparent 10px 20px), var(--surface); }
+  .band.page { background: linear-gradient(0deg, rgba(248,113,113,.10), rgba(248,113,113,.10)), var(--surface); }
+  .ticks { position: relative; height: 16px; font: 500 13px/1 var(--mono); color: var(--muted); }
+  .ticks b { position: absolute; top: 0; font-weight: 500; transform: translateX(-50%); }
+  .ticks b:first-child { transform: none; }
+  .ticks b:last-child { transform: translateX(-100%); }
+  .rule-note { color: var(--muted); font-size: 15px; max-width: 760px; }
+  @media (max-width: 760px) {
+    .bands { grid-template-columns: 1fr; }
+    .band + .band { border-left: 0; border-top: 1px solid var(--border-2); }
+    .band { min-height: 0; }
+    .ticks { display: none; }
+    .band h3::after { content: attr(data-range); margin-left: auto; font: 500 12.5px/1 var(--mono); color: var(--dim); }
+  }
+
+  /* Integrations */
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .list li { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); font-size: 15px; color: var(--text); }
+  .list li:first-child { border-top: 0; }
+  .list li small { font: 500 12.5px/1.5 var(--mono); color: var(--dim); text-align: right; }
+  .card.planned { background: transparent; border-style: dashed; border-color: var(--border-2); }
+
+  /* Demo */
+  .demo { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .demo { grid-template-columns: 1fr; } }
+  .window .copy-row { display: flex; justify-content: flex-end; padding: 0 14px 14px; background: var(--surface); }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 12px; color: var(--muted); font-size: 15.5px; }
+  .steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-2); display: grid; place-items: center; font: 500 12.5px/1 var(--mono); color: var(--ink); }
+  .steps b { color: var(--ink); font-weight: 600; }
+
+  .cta-band { text-align: center; }
+  .cta-band .container { display: grid; justify-items: center; gap: 22px; }
+  .cta-band h2 { font: 600 clamp(32px, 5vw, 52px)/1.05 var(--sans); letter-spacing: -.04em; }
+  .cta-band p { color: var(--muted); max-width: 560px; }
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="container">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#safety">Safety</a>
+      <a href="#demo">Demo</a>
+      <a href="architecture.html">Architecture</a>
+      <a class="gh" href="https://github.com/mingleiw/jev-oncall">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="container">
+      <span class="pill"><span class="dot" style="background: var(--green)"></span>Open source · MIT · built on Jev</span>
+      <h1>Jev judges.<br>Code decides.</h1>
+      <p class="sub">Alert triage for on-call teams. Every production alert gets one Jev call with four typed questions, and plain, auditable code turns the probabilities into pages, reviews, tickets and linked incidents.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="https://github.com/mingleiw/jev-oncall">View on GitHub</a>
+        <button class="btn btn-ghost copy" type="button" data-copy="docker compose up --build">docker compose up <span class="hint">Copy</span></button>
+      </div>
+      <p class="sources">Takes webhooks from <span>Prometheus Alertmanager</span><span>Grafana</span><span>Datadog</span><span>PagerDuty</span><span>any JSON</span></p>
+
+      <figure class="shot" style="margin-inline: 0; margin-bottom: 0;">
+        <div class="window">
+          <div class="window-bar"><i></i><i></i><i></i><span class="tab">dashboard</span><span class="tab">synthetic benchmark</span></div>
+          <img src="benchmark.png" width="1100" height="748" alt="The jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 for review, 33 linked to an incident that already paged, and 118 ticketed, logged or dropped. Each alert is a dot on the P(page) scale against the 0.20 and 0.80 policy bars.">
+        </div>
+        <figcaption class="shot-note"><b>One measured run:</b> 300 synthetic alerts, 233 Jev calls, p50 418 ms, p95 1,477 ms, $0.0128 in total. It measures speed on one network path, not whether the routing was correct. That takes replayed, labeled history.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">01 · One call, four questions</p>
+        <h2>Jev answers with probabilities, not prose.</h2>
+        <p>Each question has a typed answer, so the code downstream can reason about how sure Jev is instead of parsing text.</p>
+      </div>
+      <div class="grid grid-4">
+        <div class="card">
+          <h3><span class="dot" style="background: var(--green)"></span>actionable</h3>
+          <p class="type">Noul · yes or no</p>
+          <p>Does a human need to intervene? It can drop an alert only when severity agrees it's noise.</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot" style="background: var(--red)"></span>severity</h3>
+          <p class="type">Score · SEV4 &lt; SEV3 &lt; SEV2 &lt; SEV1</p>
+          <p>P(page) is P(SEV1) + P(SEV2). Routing uses the whole distribution, not just the top label.</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot" style="background: var(--blue)"></span>team</h3>
+          <p class="type">Choice · your teams</p>
+          <p>Picks the owner from your team descriptions. Below 0.60, the runner-up team is notified too.</p>
+        </div>
+        <div class="card">
+          <h3><span class="dot" style="background: var(--violet)"></span>duplicate_of</h3>
+          <p class="type">Choice · candidate alerts + none</p>
+          <p>Which recent alert causes this one. Those answers become the edges of a dedup graph.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="policy">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">02 · Plain code decides</p>
+        <h2>Unsure costs a review, never silence.</h2>
+        <p>The policy is a few lines of code on P(page). The bars are asymmetric on purpose: dropping an alert takes the most certainty.</p>
+      </div>
+      <div class="scale">
+        <div class="bands">
+          <div class="band no">
+            <h3 data-range="0 to 0.20"><span class="dot" style="background: var(--dim)"></span>No page</h3>
+            <p>TICKET. DROP only if P(actionable) is 0.05 or less.</p>
+          </div>
+          <div class="band review">
+            <h3 data-range="0.20 to 0.80"><span class="dot" style="background: var(--amber)"></span>REVIEW</h3>
+            <p>Low urgency to the owning team. If nobody acks it within 15 minutes, it pages.</p>
+          </div>
+          <div class="band page">
+            <h3 data-range="0.80 to 1"><span class="dot" style="background: var(--red)"></span>PAGE</h3>
+            <p>PAGE_NOW when SEV1 is at least as likely as SEV2.</p>
+          </div>
+        </div>
+        <div class="ticks" aria-hidden="true"><b style="left: 0">0</b><b style="left: 20%">0.20</b><b style="left: 80%">0.80</b><b style="left: 100%">1</b></div>
+        <p class="rule-note">Non-production alerts are logged by a rule and never cost a model call. Every threshold lives in your config file, and <code>evaluate.py --sweep</code> replays stored answers under other thresholds so you can pick them from data.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="safety">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">03 · Built to fail safe</p>
+        <h2>A paging path that degrades to what you have today.</h2>
+      </div>
+      <div class="grid grid-3">
+        <div class="card"><h3><span class="dot" style="background: var(--amber)"></span>Fails open</h3><p>If Jev errors, times out or returns a malformed answer, the alert is routed by its configured severity, exactly as it would be without jev-oncall.</p></div>
+        <div class="card"><h3><span class="dot" style="background: var(--amber)"></span>Review clock</h3><p>A REVIEW pages after 15 minutes unless someone acks it. A resolved alert cancels its review, and resends can't push the deadline back.</p></div>
+        <div class="card"><h3><span class="dot" style="background: var(--violet)"></span>Dedup never silences</h3><p>A linked alert owned by another team gets a REVIEW. A page never dedups onto an earlier alert that got a weaker decision.</p></div>
+        <div class="card"><h3><span class="dot" style="background: var(--green)"></span>Invariant checks</h3><p>Every run checks that no linked alert outranks its incident root, and that nothing was dropped without a model judgment.</p></div>
+        <div class="card"><h3><span class="dot" style="background: var(--blue)"></span>Pinned model</h3><p>Calls pin <code>jev-1.13.0</code>, not an alias, so a new release can't shift probabilities under your thresholds.</p></div>
+        <div class="card"><h3><span class="dot" style="background: var(--blue)"></span>One key per call</h3><p>A call and its retry share one Idempotency-Key, so a client timeout never judges, or bills, the same alert twice.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="integrations">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">04 · Integrations</p>
+        <h2>Plugs into the alerts you already have.</h2>
+        <p>jev-oncall judges and records decisions today. Sending them onward is next on the roadmap.</p>
+      </div>
+      <div class="cols">
+        <div class="card">
+          <h3><span class="dot" style="background: var(--blue)"></span>Takes webhooks from</h3>
+          <ul class="list">
+            <li>Prometheus Alertmanager <small>bearer token</small></li>
+            <li>Grafana Alerting <small>HMAC</small></li>
+            <li>Datadog <small>HMAC header</small></li>
+            <li>PagerDuty v2 / v3 <small>HMAC</small></li>
+            <li>Generic JSON <small>HMAC header</small></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3><span class="dot" style="background: var(--green)"></span>Gives you today</h3>
+          <ul class="list">
+            <li>Live dashboard <small>/dashboard</small></li>
+            <li>Decisions as JSON <small>/recent</small></li>
+            <li>Reviews awaiting an ack <small>/pending</small></li>
+            <li>Ack a review <small>POST /ack/&lt;id&gt;</small></li>
+            <li>Offline replay and sweep <small>evaluate.py</small></li>
+          </ul>
+        </div>
+        <div class="card planned">
+          <h3><span class="dot" style="background: var(--dim)"></span>Not built yet</h3>
+          <ul class="list">
+            <li>Shadow mode <small>roadmap</small></li>
+            <li>Slack with an Ack button <small>roadmap</small></li>
+            <li>PagerDuty and Opsgenie paging <small>roadmap</small></li>
+            <li>Jira and Linear tickets <small>roadmap</small></li>
+            <li>Durable review queue <small>roadmap</small></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">05 · Try it</p>
+        <h2>A real incident, replayed in five minutes.</h2>
+        <p>The demo runs Prometheus, Alertmanager and jev-oncall with Docker Compose. Prometheus fires a staged incident and Alertmanager delivers it exactly as it would in production.</p>
+      </div>
+      <div class="demo">
+        <div class="window">
+          <div class="window-bar"><i></i><i></i><i></i><span class="tab">terminal</span></div>
+<pre class="code" id="demo-cmd"><span class="k">git clone</span> https://github.com/mingleiw/jev-oncall
+<span class="k">cd</span> jev-oncall/demo
+<span class="k">echo</span> <span class="s">"TYPESAFE_API_KEY=&lt;your key&gt;"</span> &gt; .env   <span class="c"># optional</span>
+<span class="k">docker compose up</span> --build
+<span class="c"># then open http://localhost:8090/dashboard</span></pre>
+          <div class="copy-row"><button class="btn btn-ghost copy" type="button" data-copy-from="demo-cmd"><span class="hint">Copy commands</span></button></div>
+        </div>
+        <ol class="steps">
+          <li><span><b>A database runs out of connections,</b> and checkout and payments fail because of it. Dedup can link them to that one root cause.</span></li>
+          <li><span><b>Noise arrives with it:</b> a staging disk alert, an expiring certificate, and an alert that clears on its own and sends its resolve.</span></li>
+          <li><span><b>Two severities are mislabeled:</b> a slow report job marked critical, and a homepage slowdown marked as a warning while conversion falls 22%.</span></li>
+          <li><span><b>Without a key</b> you see today's baseline, routed by configured severity. With one, compare what Jev changes.</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="configure">
+    <div class="container demo">
+      <div class="section-head" style="margin-bottom: 0;">
+        <p class="eyebrow">06 · Configure</p>
+        <h2>Your teams, your thresholds, one file.</h2>
+        <p>Every section is optional. Unknown keys and out-of-range thresholds stop the server before it triages anything, because a typo that silently kept a default would change who gets paged.</p>
+        <p><a class="btn btn-ghost" href="architecture.html" style="margin-top: 8px;">See the architecture</a></p>
+      </div>
+      <div class="window">
+        <div class="window-bar"><i></i><i></i><i></i><span class="tab">jev-oncall.toml</span></div>
+<pre class="code"><span class="h">[teams]</span>
+<span class="k">database</span> = <span class="s">"databases, connection pools, caches"</span>
+<span class="k">network</span>  = <span class="s">"CDN, edge, DNS, TLS certificates"</span>
+
+<span class="h">[policy]</span>
+<span class="k">page_bar</span>       = <span class="n">0.80</span>
+<span class="k">no_page_bar</span>    = <span class="n">0.20</span>
+<span class="k">dedup_bar</span>      = <span class="n">0.70</span>
+<span class="k">review_ack_min</span> = <span class="n">15</span>
+
+<span class="h">[topology]</span>
+<span class="k">payment-service</span> = [<span class="s">"checkout-api"</span>]</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div class="container">
+      <h2>Judge every alert.<br>Keep the page path safe.</h2>
+      <p>jev-oncall is open source under the MIT license. Read the code, run the demo, and tune the policy on your own history.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="https://github.com/mingleiw/jev-oncall">View on GitHub</a>
+        <a class="btn btn-ghost" href="architecture.html">Architecture</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
+    <nav aria-label="Footer">
+      <a href="https://github.com/mingleiw/jev-oncall">GitHub</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="https://github.com/mingleiw/jev-oncall/blob/main/LICENSE">MIT License</a>
+      <a href="https://typesafe.ai">Jev by TypeSafe</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('button.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var src = btn.dataset.copyFrom ? document.getElementById(btn.dataset.copyFrom) : null;
+      var text = src ? src.innerText : btn.dataset.copy;
+      var hint = btn.querySelector('.hint');
+      var done = function (label) { if (hint) { var old = hint.dataset.label || hint.textContent; hint.dataset.label = old; hint.textContent = label; setTimeout(function () { hint.textContent = old; }, 1600); } };
+      var select = function () {
+        if (!src) { done('Select to copy'); return; }
+        var r = document.createRange(); r.selectNodeContents(src);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done('Selected');
+      };
+      try {
+        navigator.clipboard.writeText(text).then(function () { done('Copied'); }, select);
+      } catch (e) { select(); }
+    });
+  });
+</script>
+</body>
+</html>
