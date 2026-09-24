@@ -9,7 +9,7 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY triage.py server.py evaluate.py generate_dashboard.py generate_alerts.py \
+COPY triage.py server.py shadow.py evaluate.py generate_dashboard.py generate_alerts.py \
      topology.json jev-oncall.example.toml alerts.json ./
 
 RUN useradd --system --uid 10001 --no-create-home jev

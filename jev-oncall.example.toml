@@ -46,3 +46,8 @@ deploy = "releases, deploys, canary analysis, CI/CD"
 # Overridden by --topology <file.json>. Without this section, topology.json is used.
 payment-service = ["checkout-api"]
 homepage = ["edge"]
+
+# [shadow]
+# Uncomment to run next to your existing paging and record what jev-oncall
+# would have done (see "Shadow mode" in the README). Overridden by --shadow-log.
+# log = "shadow.jsonl"

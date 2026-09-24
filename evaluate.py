@@ -314,7 +314,32 @@ def main(argv=None):
     ap.add_argument("results", nargs="?", default=os.path.join(triage.BASE, "results.json"))
     ap.add_argument("--alerts", help="labeled alerts (default: the file triage.py read)")
     ap.add_argument("--sweep", action="store_true", help="re-route stored answers under other thresholds")
+    ap.add_argument("--shadow", metavar="LOG",
+                    help="score a shadow-mode log (server.py --shadow-log) against its labels "
+                         "instead of a results file")
     args = ap.parse_args(argv)
+
+    if args.shadow:
+        import shadow  # local import: only this mode needs it
+        if not os.path.exists(args.shadow):
+            sys.exit(f"{args.shadow} not found. Run server.py with --shadow-log first.")
+        events, bad = shadow.load(args.shadow)
+        summary = shadow.summarize(events, bad, recent=0)
+        print(f"Shadow log: {summary['alerts']} alerts since {summary['since']}, "
+              f"{summary['labeled']} labeled")
+        print(f"Pages: your routing {summary['pages']['your_routing']}, "
+              f"jev-oncall {summary['pages']['jev_oncall']}")
+        for c in summary["comparisons"]:
+            if c["count"]:
+                print(f"  {c['count']:>5}  {c['label']}")
+        if bad:
+            print(f"  ({bad} unreadable lines skipped)")
+        print()
+        results, alerts = shadow.to_results(events)
+        print_report(results, alerts)
+        if args.sweep:
+            print_sweep(results, alerts)
+        return 0
 
     results = triage.load_json(args.results)
     if not isinstance(results, dict) or results.get("meta", {}).get("version") != 2:

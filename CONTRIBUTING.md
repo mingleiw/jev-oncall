@@ -24,7 +24,7 @@ library only, and the tests use a fake Jev, so you don't need an API key.
 ```
 git clone https://github.com/mingleiw/jev-oncall
 cd jev-oncall
-python3 -m unittest test_triage test_server test_dashboard test_config -v
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow -v
 ```
 
 To see your change working end to end, run the Docker demo
@@ -38,6 +38,7 @@ or run `python3 server.py` and post alerts to it with `curl`. The
 | --- | --- |
 | `triage.py` | Jev calls, the routing policy, the dedup graph, fail-open, invariants |
 | `server.py` | Webhook server: provider normalizers, signatures, the review clock, `/dashboard` |
+| `shadow.py` | Shadow mode: the decision log and the comparison with routing by configured severity |
 | `evaluate.py` | Offline scoring and threshold sweeps over stored answers |
 | `generate_dashboard.py` | Renders a run as one HTML page |
 | `test_*.py` | Offline tests, one file per module |

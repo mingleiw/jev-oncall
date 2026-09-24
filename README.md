@@ -357,6 +357,7 @@ python3 server.py --config jev-oncall.toml     # or: export JEV_ONCALL_CONFIG=je
 | `[policy]` | Every routing threshold, the review ack window, and the fallback owner |
 | `[teams]` | `name = "what it owns"`, 2 to 255 teams. Jev picks the owner from these descriptions, so write them the way you'd brief a new on-call engineer |
 | `[topology]` | `service = ["upstream", ...]`, used to narrow dedup candidates |
+| `[shadow]` | `log = "shadow.jsonl"` turns on [shadow mode](#shadow-mode) |
 
 Every section is optional, and anything left out keeps its default. The file is
 checked strictly: an unknown key, a threshold outside 0 to 1, or a `no_page_bar`
@@ -416,6 +417,8 @@ runs as a non-root user and has a health check on `/health`.
 | GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
 | GET | `/pending` | REVIEWs still waiting on an ack, with seconds left |
 | GET | `/dashboard` | The last 500 alerts as the HTML dashboard, refreshing every 15 seconds. Each shows the decision it got on arrival |
+| POST | `/label/<alert-id>` | [Shadow mode](#shadow-mode): record what an alert really was. `X-Labeled-By` names who labeled it |
+| GET | `/shadow` | [Shadow mode](#shadow-mode): how decisions compare with routing by configured severity |
 
 ### The review clock
 
@@ -433,6 +436,56 @@ curl http://localhost:8090/pending
 
 The queue is in memory, so a restart drops pending reviews rather than paging
 them. `--sweep-interval` controls how often the deadline is checked.
+
+### Shadow mode
+
+Shadow mode is how a team tries jev-oncall before trusting it. Run it next to
+your existing paging, point your alerts at both, and it records what it would
+have done. It never sends anything onward. Once outbound paging exists, shadow
+mode will keep it switched off.
+
+```
+python3 server.py --config jev-oncall.toml --shadow-log shadow.jsonl
+```
+
+or set `[shadow] log = "shadow.jsonl"` in the config. Every decision goes to that
+append-only JSONL file next to a **baseline**: the action routing by configured
+severity takes, which is what most paging setups do today and exactly what
+jev-oncall's fail-open path computes. Review outcomes (acked, escalated, cancelled
+by a resolve) are logged too. The file survives restarts; in Docker, put it on a
+volume.
+
+`GET /shadow` summarizes the log: how many alerts matched your current routing,
+and each kind of difference, with the latest differences and their reasons.
+
+| Difference | What it means |
+| --- | --- |
+| Would page, your routing didn't | jev-oncall pages an alert configured as a warning or info |
+| Would ask for a review, your routing didn't page | An unsure alert gets a person's attention instead of a ticket |
+| Your routing paged, would ask for a review instead | Unsure: a person decides within 15 minutes, or it pages |
+| Your routing paged, would fold into an incident that already pages | A duplicate page saved |
+| Your routing paged, would not page | Held back, for example a non-production alert or one Jev judged minor |
+| Would drop, nobody sees it | The only silent outcome. Check these first |
+
+Differences only say where jev-oncall and your routing disagree, not which one was
+right. For that, label alerts after the fact, for example in an incident review:
+
+```
+curl -X POST localhost:8090/label/<alert-id> -H 'X-Labeled-By: alice' \
+  -d '{"severity": "SEV2", "actionable": true, "team": "database", "duplicate_of": null}'
+```
+
+`severity` and `actionable` are required. `team` must be one of your teams, and
+`duplicate_of` is the alert that caused this one, if any. Then score the log the same
+way as a replay, side by side with the baseline, including the threshold sweep:
+
+```
+python3 evaluate.py --shadow shadow.jsonl --sweep
+```
+
+Only labels posted to `/label` count; an `expected` block inside a webhook payload
+is ignored. Like `/ack`, `/label` isn't signed, so keep the server on a network you
+trust.
 
 ### Signing webhooks
 
@@ -526,7 +579,7 @@ Standard library only.
 ## Development
 
 ```bash
-python3 -m unittest test_triage test_server test_dashboard test_config -v   # all offline tests
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow -v   # all offline tests
 python3 -m unittest test_triage -v                              # triage engine only
 python3 -m unittest test_server -v                              # webhook adapter only
 ```
@@ -554,6 +607,8 @@ are a good place to start.
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
 | [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |
 | [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
+| [shadow.py](shadow.py) | Shadow mode: the decision log, the comparison with configured-severity routing, and the input `evaluate.py --shadow` scores |
+| [test_shadow.py](test_shadow.py) | Shadow mode tests: comparisons, labels, the log, the endpoints |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
 | [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
 | [topology.json](topology.json) | Service → upstream dependencies, used when the config has no `[topology]` |
