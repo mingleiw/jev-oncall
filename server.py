@@ -505,7 +505,15 @@ class TriageRunner:
             alerts, candidates, self.api_key, c.model, c.timeout, c.retries, c.max_wait,
             teams=c.teams)
         wall_ms = (time.monotonic() - t0) * 1000
-        decisions = triage.route_all(alerts, judgments, errors, self.policy)
+        with self.lock:
+            # Dedup candidates span webhook deliveries, but each delivery is
+            # routed as its own batch: hand the cluster step the earlier
+            # batches' decisions so a duplicate_of pointing at a previous
+            # alert resolves instead of KeyErroring.
+            prior = {a["id"]: {"standalone": rec["standalone"],
+                               "team": rec["team"], "action": rec["action"]}
+                     for a, rec in self.records}
+        decisions = triage.route_all(alerts, judgments, errors, self.policy, prior=prior)
         problems = triage.check_invariants(decisions)
         with self.lock:
             for a in alerts:

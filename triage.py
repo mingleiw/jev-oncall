@@ -624,9 +624,21 @@ def route_standalone(alert, judgment, policy, error=None):
     return decision
 
 
-def resolve_clusters(alerts, decisions, judgments, policy):
-    """Turn duplicate_of answers into incident clusters, in place."""
+def resolve_clusters(alerts, decisions, judgments, policy, prior=None):
+    """Turn duplicate_of answers into incident clusters, in place.
+
+    prior maps alert ids decided in earlier batches (the streaming server
+    triages one webhook delivery at a time) to {"standalone", "team",
+    "action"}. The batch CLI path passes nothing.
+    """
+    prior = prior or {}
     started = {a["id"]: parse_time(a.get("started_at")) for a in alerts}
+
+    def cause_standalone(cid):
+        if cid in decisions:
+            return decisions[cid].standalone
+        p = prior.get(cid)
+        return p.get("standalone") if p else None
 
     # 1. At most one edge per alert: its most likely cause, if likely enough.
     parent, confidence = {}, {}
@@ -637,10 +649,16 @@ def resolve_clusters(alerts, decisions, judgments, policy):
         cause = top(causes)
         if causes[cause] < policy.dedup_bar:
             continue
-        if decisions[cause].standalone in ("DROP", "LOG"):
+        standalone = cause_standalone(cause)
+        if standalone is None:
             decisions[aid].reasons.append(
                 f"duplicate_of {cause} ({causes[cause]:.2f}) ignored: "
-                f"{cause} is {decisions[cause].standalone}")
+                f"cause has no recorded decision")
+            continue
+        if standalone in ("DROP", "LOG"):
+            decisions[aid].reasons.append(
+                f"duplicate_of {cause} ({causes[cause]:.2f}) ignored: "
+                f"{cause} is {standalone}")
             continue
         parent[aid], confidence[aid] = cause, causes[cause]
 
@@ -674,35 +692,41 @@ def resolve_clusters(alerts, decisions, judgments, policy):
 
     # 3. The root carries the cluster's most urgent action. Members owned by
     # the root's team are deduped; other teams get a REVIEW, never silence.
+    # A root decided in an earlier batch keeps the action it already got:
+    # the server can't rewrite history, so there is no escalation there.
     for root, members in clusters.items():
-        if len(members) == 1:
-            continue
-        rd = decisions[root]
+        if len(members) == 1 and root in decisions:
+            continue  # true singleton; a prior-batch root still claims its members
+        rd = decisions.get(root)
+        rd_team = rd.team if rd is not None else prior[root]["team"]
+        rd_action = rd.action if rd is not None else prior[root]["action"]
         most_urgent = max(members, key=lambda m: RANK[decisions[m].standalone])
-        if RANK[decisions[most_urgent].standalone] > RANK[rd.action]:
+        if rd is not None and RANK[decisions[most_urgent].standalone] > RANK[rd_action]:
             rd.action = decisions[most_urgent].standalone
             rd.reasons.append(f"escalated to {rd.action}: cluster member {most_urgent} needs it")
+            rd_action = rd.action
         for m in members:
             if m == root:
                 continue
             md = decisions[m]
             md.linked_to = root
             md.reasons.append(f"duplicate_of {parent[m]} ({confidence[m]:.2f}); incident root {root}")
-            if md.team != rd.team and RANK[md.standalone] >= RANK["REVIEW"]:
+            if md.team != rd_team and RANK[md.standalone] >= RANK["REVIEW"]:
                 md.action = "REVIEW"
-                md.reasons.append(f"root is owned by {rd.team}, so {md.team} gets a REVIEW, "
+                md.reasons.append(f"root is owned by {rd_team}, so {md.team} gets a REVIEW, "
                                   "not silence")
             else:
                 md.action = "DEDUP"
     return decisions
 
 
-def route_all(alerts, judgments, errors, policy):
+def route_all(alerts, judgments, errors, policy, prior=None):
     """The whole policy. Pure: same inputs, same decisions. evaluate.py
-    re-runs it over stored answers to sweep thresholds offline."""
+    re-runs it over stored answers to sweep thresholds offline. prior carries
+    earlier batches' decisions for the streaming server; the batch path omits it."""
     decisions = {a["id"]: route_standalone(a, judgments.get(a["id"]), policy, errors.get(a["id"]))
                  for a in alerts}
-    return resolve_clusters(alerts, decisions, judgments, policy)
+    return resolve_clusters(alerts, decisions, judgments, policy, prior)
 
 
 def check_invariants(decisions):
@@ -711,7 +735,7 @@ def check_invariants(decisions):
     for d in decisions.values():
         if d.action == "DEDUP" and not d.linked_to:
             problems.append(f"{d.id}: DEDUP without an incident root")
-        if d.linked_to:
+        if d.linked_to and d.linked_to in decisions:
             root = decisions[d.linked_to]
             if root.linked_to:
                 problems.append(f"{d.id}: linked to {root.id}, which is not a root")
