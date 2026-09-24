@@ -93,7 +93,6 @@ section { padding-block: 88px; border-top: 1px solid var(--border); }
 .window-bar i:nth-child(2) { background: #febc2e; }
 .window-bar i:nth-child(3) { background: #28c840; }
 .window-bar .tab { margin-left: 10px; font: 500 13px/1 var(--sans); color: var(--ink); background: var(--surface-2); padding: 7px 11px; border-radius: 7px; }
-.window-bar .tab + .tab { margin-left: 0; color: var(--dim); background: none; }
 
 /* Cards */
 .grid { display: grid; gap: 16px; }
