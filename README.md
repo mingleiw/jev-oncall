@@ -7,6 +7,9 @@ Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
 anyone. It only judges.
 
+**Website:** [mingleiw.github.io/jev-oncall](https://mingleiw.github.io/jev-oncall/), with an
+[architecture page](https://mingleiw.github.io/jev-oncall/architecture.html).
+
 ![jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 flagged for review, each alert a dot on the P(page) scale against the 0.20 and 0.80 policy bars](dashboard.png)
 
 That run: 300 synthetic alerts at **p50 418ms, p95 1477ms, $0.0128 total.** The
@@ -150,6 +153,10 @@ Then open <http://localhost:8090/dashboard>. This skips Prometheus and Alertmana
 so every alert arrives at once instead of in sequence.
 
 ## How it works
+
+![The jev-oncall server pipeline: alerts from Alertmanager and other providers pass through seven steps. Only step 4 calls Jev; if it fails, the alert is routed by its configured severity. Decisions are read from the server's endpoints; sending them to PagerDuty, Slack or Jira is not built yet.](docs/architecture.png)
+
+Only step 4 leaves the server. The same flow in brief:
 
 ```
 alert ──► rules ──► non-prod: LOG (no model call)
@@ -412,6 +419,8 @@ runs as a non-root user and has a health check on `/health`.
 
 ### The review clock
 
+![A REVIEW ends in one of three ways: an ack closes it, a resolved notification cancels it, and no ack within 15 minutes escalates it to a PAGE.](docs/review-clock.png)
+
 A REVIEW is only meaningful if something escalates it. The server holds every
 REVIEW for `Policy.review_ack_min` (15 minutes). Ack it and it closes; ignore it
 and a sweeper turns it into a PAGE, records it in `/recent` with the reason, and
@@ -534,6 +543,7 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
 | [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts, plus a live dashboard |
 | [Dockerfile](Dockerfile) | Image for the webhook server |
+| [docs/](docs) | The website, served by GitHub Pages: `index.html`, `architecture.html`, and the images the README shows |
 | [demo/](demo) | Docker Compose demo: Prometheus, Alertmanager, and jev-oncall |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
