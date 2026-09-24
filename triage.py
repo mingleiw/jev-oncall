@@ -686,14 +686,36 @@ def resolve_clusters(alerts, decisions, judgments, policy, prior=None):
             aid = parent[aid]
         return aid
 
-    clusters = {}
-    for aid in sorted(decisions):
-        clusters.setdefault(root_of(aid), []).append(aid)
+    def cluster_map():
+        clusters = {}
+        for aid in sorted(decisions):
+            clusters.setdefault(root_of(aid), []).append(aid)
+        return clusters
+
+    # A root decided in an earlier batch can't be escalated now: that decision
+    # already went out. If it got less than its new members need, or was itself
+    # deduped, it can't carry them, so cut their links to it and let them form
+    # their own cluster here. Otherwise a page could DEDUP onto a TICKET.
+    clusters = cluster_map()
+    for root, members in clusters.items():
+        if root in decisions:
+            continue
+        got = prior[root]["action"]
+        need = max(RANK[decisions[m].standalone] for m in members)
+        if got in RANK and RANK[got] >= need:
+            continue
+        for m in members:
+            if parent.get(m) == root:
+                del parent[m]
+                decisions[m].reasons.append(
+                    f"duplicate_of {root} ({confidence[m]:.2f}) not applied: {root} was "
+                    f"decided earlier as {got}, less than this incident needs")
+    clusters = cluster_map()
 
     # 3. The root carries the cluster's most urgent action. Members owned by
     # the root's team are deduped; other teams get a REVIEW, never silence.
-    # A root decided in an earlier batch keeps the action it already got:
-    # the server can't rewrite history, so there is no escalation there.
+    # A root decided in an earlier batch keeps the action it already got; the
+    # cut above guarantees that action already covers every member left.
     for root, members in clusters.items():
         if len(members) == 1 and root in decisions:
             continue  # true singleton; a prior-batch root still claims its members
