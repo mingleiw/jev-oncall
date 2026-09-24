@@ -24,6 +24,29 @@
   .shot-note { margin-top: 16px; color: var(--dim); font-size: 14px; max-width: 760px; margin-inline: auto; }
   .shot-note b { color: var(--muted); font-weight: 500; }
 
+  /* Hero window tabs */
+  .tabs { display: flex; gap: 4px; margin-left: 10px; }
+  .tab-btn { font: 500 13px/1 var(--sans); color: var(--muted); background: none; border: 1px solid transparent; padding: 7px 11px; border-radius: 7px; cursor: pointer; }
+  .tab-btn:hover { color: var(--ink); background: var(--surface); }
+  .tab-btn[aria-selected="true"] { color: var(--ink); background: var(--surface-2); border-color: var(--border-2); }
+  .bench { text-align: left; padding: 30px; background: var(--surface); }
+  .bench-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 32px; }
+  @media (max-width: 860px) { .bench-grid { grid-template-columns: 1fr; } .bench { padding: 20px; } }
+  .bench-title { font: 600 24px/1.2 var(--sans); letter-spacing: -.03em; color: var(--ink); }
+  .bench-sub { margin-top: 8px; color: var(--muted); font-size: 15px; }
+  .facts { margin: 22px 0 0; display: grid; }
+  .facts div { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border); }
+  @media (max-width: 520px) { .facts div { grid-template-columns: 1fr; gap: 4px; } }
+  .facts dt { color: var(--dim); font-size: 14px; }
+  .facts dd { margin: 0; font: 500 14px/1.5 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .bench-side { display: grid; gap: 16px; align-content: start; }
+  .takeaway { display: grid; grid-template-columns: 10px 1fr; gap: 12px; font-size: 14.5px; color: var(--muted); }
+  .takeaway .dot { margin-top: 7px; }
+  .takeaway b { color: var(--ink); font-weight: 600; }
+  pre.code.mini { font-size: 12.5px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); }
+  .more { justify-self: start; color: var(--ink); text-decoration: none; font-weight: 500; border-bottom: 1px solid var(--border-2); padding-bottom: 2px; }
+  .more:hover { border-color: var(--ink); }
+
   /* P(page) scale */
   .scale { display: grid; gap: 14px; }
   .bands { display: grid; grid-template-columns: 20fr 60fr 20fr; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -99,8 +122,39 @@
 
       <figure class="shot" style="margin-inline: 0; margin-bottom: 0;">
         <div class="window">
-          <div class="window-bar"><i></i><i></i><i></i><span class="tab">dashboard</span><span class="tab">synthetic benchmark</span></div>
+          <div class="window-bar">
+            <i></i><i></i><i></i>
+            <div class="tabs" role="tablist" aria-label="Benchmark views">
+              <button class="tab-btn" type="button" role="tab" id="tab-dash" aria-controls="panel-dash" aria-selected="true">dashboard</button>
+              <button class="tab-btn" type="button" role="tab" id="tab-bench" aria-controls="panel-bench" aria-selected="false" tabindex="-1">synthetic benchmark</button>
+            </div>
+          </div>
+          <div class="panel" role="tabpanel" id="panel-dash" aria-labelledby="tab-dash">
           <img src="benchmark.png" width="1100" height="748" alt="The jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 for review, 33 linked to an incident that already paged, and 118 ticketed, logged or dropped. Each alert is a dot on the P(page) scale against the 0.20 and 0.80 policy bars.">
+          </div>
+          <div class="panel bench" role="tabpanel" id="panel-bench" aria-labelledby="tab-bench" hidden>
+            <div class="bench-grid">
+              <div>
+                <p class="bench-title">One measured run</p>
+                <p class="bench-sub">300 synthetic alerts, 16 workers, default 2-second timeout. 233 reached Jev; the other 67 were non-prod and never called the model.</p>
+                <dl class="facts">
+                  <div><dt>Per-call latency</dt><dd>min 204 · p50 418 · p90 674 · p95 1,477 · p99 1,748 · max 1,849 ms</dd></div>
+                  <div><dt>Wall clock</dt><dd>7,642 ms for all 300</dd></div>
+                  <div><dt>Cost</dt><dd>$0.0128 total, about $0.04 per 1,000 alerts</dd></div>
+                  <div><dt>Payload</dt><dd>304,175 input tokens, about 1,305 per call</dd></div>
+                  <div><dt>Fallbacks</dt><dd>0</dd></div>
+                </dl>
+              </div>
+              <div class="bench-side">
+                <div class="takeaway"><span class="dot" style="background: var(--amber)"></span><p><b>The tail nearly reaches the timeout.</b> The slowest call took 1,849 ms against a 2,000 ms limit. A slower network path would push some alerts onto the fail-open path.</p></div>
+                <div class="takeaway"><span class="dot" style="background: var(--amber)"></span><p><b>37% of judged alerts landed in REVIEW.</b> That's the band working as designed, and a sign the default bars are wide for this alert mix. <code>evaluate.py --sweep</code> is for tuning them.</p></div>
+<pre class="code mini"><span class="c"># reproduce it</span>
+<span class="k">python3</span> generate_alerts.py --count 300 --out bench_alerts.json
+<span class="k">python3</span> triage.py --alerts bench_alerts.json --out bench_results.json</pre>
+                <a class="more" href="https://github.com/mingleiw/jev-oncall#one-measured-run">Full write-up on GitHub →</a>
+              </div>
+            </div>
+          </div>
         </div>
         <figcaption class="shot-note"><b>One measured run:</b> 300 synthetic alerts, 233 Jev calls, p50 418 ms, p95 1,477 ms, $0.0128 in total. It measures speed on one network path, not whether the routing was correct. That takes replayed, labeled history.</figcaption>
       </figure>
@@ -304,6 +358,28 @@
 </footer>
 
 <script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
+    var show = function (tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (focus) tab.focus();
+    };
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { show(t); });
+      t.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          show(tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length], true);
+        }
+      });
+    });
+    if (location.hash === '#benchmark') show(document.getElementById('tab-bench'));
+  })();
   document.querySelectorAll('button.copy').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var src = btn.dataset.copyFrom ? document.getElementById(btn.dataset.copyFrom) : null;
