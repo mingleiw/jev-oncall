@@ -1,0 +1,12 @@
+# Demo config. See ../jev-oncall.example.toml for every key and its default.
+
+[teams]
+database = "databases, connection pools, caches, queues, storage"
+compute = "API servers, containers, batch jobs, memory and CPU"
+network = "CDN, edge, DNS, TLS certificates, connectivity"
+deploy = "releases, deploys, canary analysis, CI/CD"
+
+# Who depends on whom, so dedup only links an alert to a plausible cause.
+[topology]
+payment-service = ["checkout-api"]
+checkout-api = ["orders-db"]

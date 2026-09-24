@@ -701,8 +701,10 @@ def evaluation(report):
             f'<div class="eval-grid">{outcomes}<div class="eval-side">{"".join(side)}</div></div></section>')
 
 
-def render(results, alerts, results_name="results.json", label=None):
-    """The whole page as a string."""
+def render(results, alerts, results_name="results.json", label=None, footer=None,
+           refresh_s=None):
+    """The whole page as a string. `footer` replaces the how-to-refresh line;
+    `refresh_s` makes the browser reload the page, for a live server."""
     meta = results["meta"]
     policy = triage.Policy(**meta["policy"])
     records = {r["id"]: r for r in results["alerts"]}
@@ -721,11 +723,16 @@ def render(results, alerts, results_name="results.json", label=None):
     follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
     tag = f'<p class="tag">{esc(label)}</p>' if label else ""
     stats_html = headline_stats(results)
+    refresh = f'<meta http-equiv="refresh" content="{int(refresh_s)}">' if refresh_s else ""
+    foot = esc(footer) if footer else (
+        f"Built from {esc(results_name)} by generate_dashboard.py. To refresh, run\n"
+        "    <code>python3 triage.py</code>, then <code>python3 generate_dashboard.py</code>.")
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{refresh}
 <title>Triage run, {esc(date)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -750,8 +757,7 @@ def render(results, alerts, results_name="results.json", label=None):
   {alert_groups(alerts, decisions, judgments, records, report)}
   {run_facts(results)}
   {evaluation(report)}
-  <footer class="foot"><p>Built from {esc(results_name)} by generate_dashboard.py. To refresh, run
-    <code>python3 triage.py</code>, then <code>python3 generate_dashboard.py</code>.</p></footer>
+  <footer class="foot"><p>{foot}</p></footer>
 </main>
 </body>
 </html>

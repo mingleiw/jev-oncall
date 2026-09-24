@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Offline tests (fake Jev, no key, no network)
+        run: python -m unittest test_triage test_server test_dashboard test_config -v
+      - name: Smoke run on the bundled alerts
+        run: |
+          python triage.py --config jev-oncall.example.toml
+          python generate_dashboard.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t jev-oncall .
+      - name: Serve, ingest an alert, and render the dashboard
+        run: |
+          docker run -d --name jev -p 8090:8090 jev-oncall
+          for i in $(seq 1 20); do curl -fs localhost:8090/health && break; sleep 1; done
+          curl -fs -X POST localhost:8090/ingest/alertmanager \
+            -d '{"alerts":[{"status":"firing","labels":{"alertname":"Smoke","severity":"critical"},"startsAt":"2026-01-01T00:00:00Z","fingerprint":"f"}]}'
+          curl -fs localhost:8090/dashboard | grep -q "Smoke"
+      - if: failure()
+        run: docker logs jev

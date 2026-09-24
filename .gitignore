@@ -8,3 +8,4 @@ package-lock.json
 bench_alerts.json
 bench_results.json
 bench_dashboard.html
+demo/.env

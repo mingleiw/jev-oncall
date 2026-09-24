@@ -1,5 +1,7 @@
 # jev-oncall
 
+[![CI](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml/badge.svg)](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml)
+
 Incident triage with [Jev](https://typesafe.ai), TypeSafe's System One decision model.
 Each production alert gets one Jev call with four typed questions. Jev returns
 probabilities, and plain code turns them into routing decisions. Jev never pages
@@ -12,6 +14,140 @@ slowest call landed 151ms short of the 2-second timeout, and 37% of judged alert
 fell in the review band. Both numbers, and why the tail matters more than the
 median, are in [one measured run](#one-measured-run). They measure speed on one
 network path, not whether the routing was correct.
+
+## Try it in five minutes
+
+The demo runs Prometheus, Alertmanager, and jev-oncall together with Docker Compose.
+Prometheus fires a staged incident over the first minute and Alertmanager delivers it
+to jev-oncall, exactly as it would in production. You watch the decisions arrive on a
+live dashboard.
+
+### What you need
+
+- Docker with Compose v2: Docker Desktop, or Docker Engine 24+ with the compose plugin.
+  Check with `docker compose version`.
+- Ports 8090, 9090, and 9093 free on your machine.
+- Optionally, a TypeSafe API key from [console.typesafe.ai/keys](https://console.typesafe.ai/keys).
+  The demo runs without one, but then you only see the baseline (see
+  [with and without a key](#with-and-without-a-key)).
+
+### Run it
+
+1. **Get the code.**
+
+   ```
+   git clone https://github.com/mingleiw/jev-oncall
+   cd jev-oncall/demo
+   ```
+
+2. **Add your key (optional).** Put it in `demo/.env`, which Compose reads on its own
+   and git ignores:
+
+   ```
+   echo "TYPESAFE_API_KEY=<your key>" > .env
+   ```
+
+   Exporting it in your shell (`export TYPESAFE_API_KEY=...`) works too.
+
+3. **Start the stack.** The first run builds the jev-oncall image and pulls Prometheus
+   and Alertmanager, which takes a minute or two.
+
+   ```
+   docker compose up --build
+   ```
+
+4. **Open the dashboard** at <http://localhost:8090/dashboard>. Counting from when the
+   containers start, the first alerts arrive within about 30 seconds and all 8 within
+   a minute. The last resolve follows within two minutes. The page refreshes itself
+   every 15 seconds.
+
+5. **Stop it** with Ctrl+C, then `docker compose down`. Pending reviews live in memory,
+   so they're dropped when the stack stops.
+
+### What happens
+
+Each alert fires at a fixed time after Prometheus starts. Alertmanager groups alerts by
+service and waits 5 seconds before sending a group, so each one reaches jev-oncall a
+few seconds after it fires.
+
+| Fires at | Alert | Configured severity | What it's there to show |
+| --- | --- | --- | --- |
+| +10s | `OrdersDbPoolExhausted` | critical | The root cause |
+| +15s | `StagingDiskFull` | critical, but `env=staging` | Non-production is logged by rule and never sent to Jev |
+| +15s | `SearchApiHighMemory` | warning | Clears at +75s, and Alertmanager sends the resolve |
+| +20s | `CheckoutApiErrorRate` | critical | A symptom of the database, which dedup can link to it |
+| +25s | `PaymentServiceErrors` | critical | A symptom of checkout-api, one hop further downstream |
+| +30s | `TlsCertExpiringSoon` | warning | Real but not urgent |
+| +35s | `ReportJobSlow` | critical | Labeled critical, but the job finished and nobody was affected |
+| +40s | `HomepageLatencyHigh` | warning | Labeled a warning, but checkout conversion fell 22% |
+
+The alert text is in [demo/rules.yml](demo/rules.yml), and [demo/jev-oncall.toml](demo/jev-oncall.toml)
+sets the teams and the service topology (`payment-service` → `checkout-api` →
+`orders-db`) that dedup uses.
+
+### With and without a key
+
+**Without a key**, every alert takes the fail-open path and is routed by its
+configured severity, the way it would be routed with no jev-oncall at all. The
+dashboard shows 4 pages, 3 tickets, and 1 log. The three alerts from the database
+incident page separately, the slow report job pages someone, and the homepage slowdown
+only gets a ticket.
+
+**With a key**, Jev judges each production alert, so compare against that baseline:
+
+- Are `CheckoutApiErrorRate` and `PaymentServiceErrors` linked under
+  `OrdersDbPoolExhausted`, so the incident pages once?
+- Is `ReportJobSlow` held back from paging, and `HomepageLatencyHigh` raised?
+- Which alerts land in REVIEW? Open **Why** on any alert for its probabilities and the
+  reasons behind the decision.
+
+To replay the incident, for example after adding a key, restart the stack:
+
+```
+docker compose down && docker compose up
+```
+
+### Look around
+
+| Where | What you see |
+| --- | --- |
+| <http://localhost:8090/dashboard> | Every decision, grouped by outcome, with the reasons behind it |
+| <http://localhost:8090/recent> | The same decisions as JSON, including reviews that escalated to a page |
+| <http://localhost:8090/pending> | REVIEWs waiting on an ack, with seconds left |
+| <http://localhost:9090/alerts> | Prometheus: which demo alerts are firing |
+| <http://localhost:9093> | Alertmanager: groups, and what it has sent |
+
+A REVIEW pages if nobody acks it within 15 minutes. To ack one, copy its id from
+`/pending` and run:
+
+```
+curl -X POST localhost:8090/ack/<id> -H 'X-Acked-By: you'
+```
+
+`docker compose logs -f jev-oncall` shows each delivery as it arrives.
+
+### If something goes wrong
+
+| Symptom | Fix |
+| --- | --- |
+| `port is already allocated` | Something else uses 8090, 9090, or 9093. Change the left side of `ports:` in `demo/docker-compose.yml`, for example `"18090:8090"`, and open that port instead |
+| `429 Too Many Requests` while pulling images | Docker Hub limits anonymous pulls. Run `docker login`, or wait and try again |
+| The dashboard says 0 alerts | Wait 30 seconds. If it stays empty, `docker compose logs alertmanager` shows whether deliveries are failing |
+| jev-oncall logs `POST /ingest/alertmanager ... 401` | The token in `demo/alertmanager.yml` must match `JEV_WEBHOOK_SECRET` in `demo/docker-compose.yml`. Both are `demo-secret` |
+| Every alert says "Fallback: Jev unavailable" even with a key | Confirm the container received the key with `docker compose exec jev-oncall printenv TYPESAFE_API_KEY`, then check `docker compose logs jev-oncall` for the error |
+
+### Without Docker
+
+You need Python 3.11 or newer and nothing else. Start the server with the demo config,
+send it the 14 bundled alerts, and open the same dashboard:
+
+```
+python3 server.py --config demo/jev-oncall.toml
+curl -X POST localhost:8090/ingest -H 'Content-Type: application/json' -d @alerts.json
+```
+
+Then open <http://localhost:8090/dashboard>. This skips Prometheus and Alertmanager,
+so every alert arrives at once instead of in sequence.
 
 ## How it works
 
@@ -250,16 +386,29 @@ python3 server.py                           # localhost:8090
 python3 server.py --host 0.0.0.0 --port 9000
 ```
 
+### Docker
+
+```
+docker build -t jev-oncall .
+docker run -p 8090:8090 -e TYPESAFE_API_KEY -e JEV_WEBHOOK_SECRET \
+  -v $PWD/jev-oncall.toml:/config/jev-oncall.toml -e JEV_ONCALL_CONFIG=/config/jev-oncall.toml \
+  jev-oncall
+```
+
+The image is `python:3.12-slim` plus the scripts: no dependencies to install. It
+runs as a non-root user and has a health check on `/health`.
+
 ### Endpoints
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/ingest/<provider>` | Receive a webhook. Providers: `datadog`, `pagerduty`, `grafana`, `generic` |
+| POST | `/ingest/<provider>` | Receive a webhook. Providers: `alertmanager`, `datadog`, `pagerduty`, `grafana`, `generic` |
 | POST | `/ingest` | Same as `/ingest/generic` |
 | POST | `/ack/<alert-id>` | Ack a REVIEW so it does not page. `X-Acked-By` names who took it |
 | GET | `/health` | `{"ok": true}` |
 | GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
 | GET | `/pending` | REVIEWs still waiting on an ack, with seconds left |
+| GET | `/dashboard` | The last 500 alerts as the HTML dashboard, refreshing every 15 seconds. Each shows the decision it got on arrival |
 
 ### The review clock
 
@@ -289,8 +438,45 @@ silence.
 | `pagerduty` | `X-PagerDuty-Signature` | `v1=<hex>`, comma-separated during key rotation. Non-`v1` elements are ignored, never trusted |
 | `grafana` | `X-Grafana-Alerting-Signature` | bare hex. Grafana's optional timestamped variant is not supported |
 | `datadog`, `generic` | `X-Jev-Signature` | `sha256=<hex>` or bare hex, set as a custom header on the outgoing webhook |
+| `alertmanager` | `Authorization` | `Bearer <secret>`. Alertmanager can't compute an HMAC, so the secret itself is the credential: it authenticates the sender, not the body, so serve it over TLS |
 
 ### Providers
+
+**Alertmanager** (Prometheus) takes the standard v4 webhook. Point a receiver at
+the server:
+
+```yaml
+receivers:
+  - name: jev-oncall
+    webhook_configs:
+      - url: https://jev-oncall.internal:8090/ingest/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            credentials: <same value as JEV_WEBHOOK_SECRET>
+```
+
+The title is `alertname: summary`. The `description` annotation, the remaining
+labels, and the `generatorURL` go into the description, so Jev sees the instance
+and job. Service comes from the `service`, `job`, or `namespace` label, env from `env`
+or `environment` (default `prod`), and severity from the `severity` label:
+`critical`/`page`/`error` → critical, `warning` → warning, `info`/`none` → info, and
+anything else pages.
+
+Two Alertmanager behaviors need handling, and both are covered:
+
+- **Group resends.** Alertmanager re-sends every alert in a group whenever the group
+  changes. An alert already judged comes back under `repeats` and isn't judged or
+  routed again. Each firing gets one id, from its fingerprint and `startsAt`, so
+  a later re-fire of the same labels is judged fresh. A REVIEW also keeps its first
+  deadline if the same alert is reviewed again, so no provider's resends can push a
+  page back indefinitely.
+- **Resolved notifications.** With `send_resolved: true`, a resolved alert is
+  never triaged. If its REVIEW is still waiting on an ack, the review is cancelled
+  and reported under `reviews_cancelled`, acked by `resolved upstream`: an alert that
+  cleared on its own shouldn't page anyone. It stays a dedup candidate until it ages
+  out, because things it caused can still arrive. Grafana resolved notifications get
+  the same treatment.
 
 **Generic** accepts the jev-oncall alert schema directly (`{id, title, description,
 service, env, started_at, configured_severity}`), so any system can integrate by
@@ -346,7 +532,9 @@ Tests use a fake Jev that returns canned probabilities. No API key, no network.
 | [evaluate.py](evaluate.py) | Offline outcomes, agreement, calibration, threshold sweep |
 | [generate_dashboard.py](generate_dashboard.py) | Renders `results.json` as `dashboard.html` |
 | [generate_alerts.py](generate_alerts.py) | Synthetic alerts for latency benchmarking (no labels) |
-| [server.py](server.py) | Webhook adapter for Datadog, PagerDuty, Grafana, and generic alerts |
+| [server.py](server.py) | Webhook adapter for Alertmanager, Datadog, PagerDuty, Grafana, and generic alerts, plus a live dashboard |
+| [Dockerfile](Dockerfile) | Image for the webhook server |
+| [demo/](demo) | Docker Compose demo: Prometheus, Alertmanager, and jev-oncall |
 | [test_triage.py](test_triage.py) | Triage engine tests with a fake Jev |
 | [test_server.py](test_server.py) | Webhook adapter tests (normalizers, validation, HTTP) |
 | [test_dashboard.py](test_dashboard.py) | Dashboard rendering tests |
