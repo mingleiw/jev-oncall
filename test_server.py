@@ -730,5 +730,25 @@ class LiveDashboardTests(unittest.TestCase):
         self.assertEqual(results["summary"]["fallback"], 1)
 
 
+
+class CrossDeliveryDedupTests(unittest.TestCase):
+    def test_a_link_to_an_earlier_delivery_routes_instead_of_crashing(self):
+        runner = server.TriageRunner(topology={}, api_key="k")
+        answers = {
+            "db1": test_triage.judgment(sev={"SEV3": 0.9, "SEV4": 0.1}),  # a TICKET
+            "c1": test_triage.judgment(sev={"SEV1": 0.95, "SEV2": 0.05},
+                                       dup={"db1": 0.9, "none": 0.1}),
+        }
+        judge = lambda alerts, *a, **k: ({x["id"]: answers[x["id"]] for x in alerts}, {}, {})
+        with mock.patch.object(triage, "judge_all", side_effect=judge):
+            runner.triage([test_triage.alert("db1", started="2026-09-18T14:00:00Z")])
+            out = runner.triage([test_triage.alert("c1", started="2026-09-18T14:02:00Z")])
+        d = out["decisions"][0]
+        self.assertEqual((d["action"], d["linked_to"]), ("PAGE_NOW", None))
+        self.assertEqual(out["invariant_violations"], [])
+        results, _ = runner.results()
+        self.assertEqual(results["summary"]["invariant_violations"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

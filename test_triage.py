@@ -187,6 +187,60 @@ class Dedup(unittest.TestCase):
         self.assertEqual(len(triage.check_invariants(decisions)), 2)
 
 
+class DedupAcrossBatches(unittest.TestCase):
+    """The server routes one webhook delivery at a time, so duplicate_of can
+    name an alert decided in an earlier delivery (prior)."""
+    PAGE_NOW = {"SEV1": 0.95, "SEV2": 0.05}
+
+    def route(self, alerts, judgments, prior):
+        decisions = triage.route_all(alerts, judgments, {}, P, prior=prior)
+        self.assertEqual(triage.check_invariants(decisions), [])
+        return decisions
+
+    def prior(self, action, standalone=None, team="compute"):
+        return {"db1": {"standalone": standalone or action, "team": team, "action": action}}
+
+    def test_links_to_an_earlier_root_that_already_pages(self):
+        d = self.route([alert("c1")], {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1})},
+                       self.prior("PAGE_NOW"))["c1"]
+        self.assertEqual((d.action, d.linked_to), ("DEDUP", "db1"))
+
+    def test_other_team_under_an_earlier_root_gets_a_review(self):
+        d = self.route([alert("c1")], {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1})},
+                       self.prior("PAGE_NOW", team="database"))["c1"]
+        self.assertEqual((d.action, d.linked_to), ("REVIEW", "db1"))
+
+    def test_a_page_never_dedups_onto_an_earlier_ticket(self):
+        # The earlier decision already went out and can't be escalated, so the
+        # link gives way instead of silencing this page.
+        d = self.route([alert("c1")], {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1})},
+                       self.prior("TICKET"))["c1"]
+        self.assertEqual((d.action, d.linked_to), ("PAGE_NOW", None))
+        self.assertIn("not applied", " ".join(d.reasons))
+
+    def test_an_earlier_alert_that_was_itself_deduped_is_not_a_root(self):
+        d = self.route([alert("c1")], {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1})},
+                       self.prior("DEDUP", standalone="PAGE"))["c1"]
+        self.assertEqual((d.action, d.linked_to), ("PAGE_NOW", None))
+
+    def test_a_cut_chain_still_clusters_within_the_batch(self):
+        alerts = [alert("c1", started="2026-09-18T14:00:00Z"), alert("p1", started="2026-09-18T14:01:00Z")]
+        judgments = {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1}),
+                     "p1": judgment(sev=self.PAGE_NOW, dup={"c1": 0.9, "none": 0.1})}
+        d = self.route(alerts, judgments, self.prior("TICKET"))
+        self.assertEqual((d["c1"].action, d["c1"].linked_to), ("PAGE_NOW", None))
+        self.assertEqual((d["p1"].action, d["p1"].linked_to), ("DEDUP", "c1"))
+
+    def test_unknown_and_logged_causes_are_ignored(self):
+        j = {"c1": judgment(sev=self.PAGE_NOW, dup={"gone": 0.9, "none": 0.1})}
+        d = self.route([alert("c1")], j, {})["c1"]
+        self.assertEqual((d.action, d.linked_to), ("PAGE_NOW", None))
+        self.assertIn("no recorded decision", " ".join(d.reasons))
+        j = {"c1": judgment(sev=self.PAGE_NOW, dup={"db1": 0.9, "none": 0.1})}
+        d = self.route([alert("c1")], j, self.prior("LOG"))["c1"]
+        self.assertEqual((d.action, d.linked_to), ("PAGE_NOW", None))
+
+
 class Candidates(unittest.TestCase):
     def test_window_skew_env_and_cap(self):
         child = alert("c", "2026-09-18T14:00:00Z")
