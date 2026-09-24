@@ -56,10 +56,10 @@ live dashboard.
    docker compose up --build
    ```
 
-4. **Open the dashboard** at <http://localhost:8090/dashboard>. The first alert arrives
-   about 15 seconds after Prometheus starts, and the page refreshes itself every 15
-   seconds. Every alert has arrived by about 45 seconds; the last resolve follows
-   within two minutes.
+4. **Open the dashboard** at <http://localhost:8090/dashboard>. Counting from when the
+   containers start, the first alerts arrive within about 30 seconds and all 8 within
+   a minute. The last resolve follows within two minutes. The page refreshes itself
+   every 15 seconds.
 
 5. **Stop it** with Ctrl+C, then `docker compose down`. Pending reviews live in memory,
    so they're dropped when the stack stops.
