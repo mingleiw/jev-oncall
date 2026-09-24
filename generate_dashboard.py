@@ -139,8 +139,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   transform: translateX(-50%); width: max-content; max-width: 260px; padding: 6px 10px;
   border-radius: var(--radius); background: var(--ink); color: var(--ground); font-size: 13px;
   line-height: 1.35; font-stretch: 92%; white-space: normal; pointer-events: none;
-  opacity: 0; visibility: hidden; z-index: 2; }
-.pin:hover::after, .pin:focus-visible::after { opacity: 1; visibility: visible; }
+  opacity: 0; visibility: hidden; z-index: 2; display: none; }
+.pin:hover::after, .pin:focus-visible::after { opacity: 1; visibility: visible; display: block; }
 .pin.tip-start::after { left: 0; transform: none; }
 .pin.tip-end::after { left: auto; right: 0; transform: none; }
 .more { position: absolute; bottom: calc(6px + var(--k) * var(--step)); transform: translateX(-50%);
@@ -820,6 +820,15 @@ def shadow_section(summary, alerts_by_id):
 
 COMPARISON_DROP = shadow.COMPARISON_LABELS["dropped"]
 
+DEMO_BANNER = """
+<section class="demo-banner" aria-label="About this demo">
+  <p><b>Demo with sample data.</b> The alerts are the Docker demo's staged incident, and Jev's
+    answers are scripted, so this shows how jev-oncall works, not how well Jev judges. Everything
+    else is the real pipeline: routing, the dedup graph, the review clock and shadow mode.
+    Try <b>Ack</b>, or open <b>Why</b> on any alert to label it. Nothing is saved or sent anywhere.</p>
+  <button type="button" id="demo-reset" class="live-btn ghost">Start over</button>
+</section>"""
+
 LIVE_CSS = """
 .live-you { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 24px; font-size: 14px; color: var(--graphite); }
 .live-you label, .label-form label { display: grid; gap: 4px; font-size: 13px; color: var(--graphite); }
@@ -853,6 +862,10 @@ LIVE_CSS = """
 .diffs th { font-size: 12px; color: var(--graphite); font-weight: 600; }
 .diffs td.act { white-space: nowrap; font-weight: 600; }
 .label-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.demo-banner { margin-top: 20px; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+  justify-content: space-between; border: 1.5px solid var(--accent); border-radius: var(--radius); background: var(--accent-wash); }
+.demo-banner p { margin: 0; max-width: 90ch; font-size: 15px; }
+.live-btn.ghost { color: var(--accent); background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
 .lf-title { margin: 0 0 10px; font-weight: 600; }
 .lf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .lf-actions { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
@@ -865,6 +878,9 @@ LIVE_CSS = """
 
 LIVE_JS = r"""
 (function () {
+  // Demo pages (build_demo.py, served without a server) answer /ack and
+  // /label here, in the browser, and remember what the visitor did.
+  var DEMO = !!window.JEV_DEMO, DEMO_KEY = "jev-oncall-demo";
   var store = {
     get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -891,7 +907,23 @@ LIVE_JS = r"""
     if (status === 401) return "This server needs the token. Enter it above.";
     return (body && body.error) || ("Failed (" + status + ")");
   }
+  function demoState() {
+    try { return JSON.parse(store.get(DEMO_KEY)) || {acked: {}, labels: {}}; }
+    catch (e) { return {acked: {}, labels: {}}; }
+  }
+  function demoAnswer(url, payload, extra) {
+    var st = demoState(), who = (extra && (extra["X-Acked-By"] || extra["X-Labeled-By"])) || "you";
+    var id = decodeURIComponent(url.split("/").pop());
+    if (url.indexOf("/ack/") === 0) {
+      if (st.acked[id]) return {status: 404, body: {}};
+      st.acked[id] = who; store.set(DEMO_KEY, JSON.stringify(st));
+      return {status: 200, body: {id: id, acked_by: who}};
+    }
+    st.labels[id] = payload; store.set(DEMO_KEY, JSON.stringify(st));
+    return {status: 201, body: {id: id, label: payload, labeled_by: who}};
+  }
   function send(url, payload, extra) {
+    if (DEMO) return Promise.resolve(demoAnswer(url, payload, extra));
     return fetch(url, {method: "POST", headers: headers(extra), body: JSON.stringify(payload)})
       .then(function (r) { return r.json().catch(function () { return {}; })
         .then(function (b) { return {status: r.status, body: b}; }); });
@@ -932,6 +964,28 @@ LIVE_JS = r"""
     });
   });
 
+  // In the demo, show what this visitor already did, and let them start over.
+  if (DEMO) {
+    var st = demoState();
+    Object.keys(st.acked).forEach(function (id) {
+      var btn = document.querySelector('button.ack[data-id="' + CSS.escape(id) + '"]');
+      if (btn) { show(btn.parentNode.querySelector(".live-status"), "Acked by " + st.acked[id] + ". It won't page.", true); btn.remove(); }
+    });
+    Object.keys(st.labels).forEach(function (id) {
+      var form = document.querySelector('form.label-form[data-id="' + CSS.escape(id) + '"]');
+      if (!form) return;
+      var l = st.labels[id], f = form.elements;
+      f.severity.value = l.severity; f.actionable.value = String(l.actionable);
+      f.team.value = l.team || ""; f.duplicate_of.value = l.duplicate_of || "";
+      show(form.querySelector(".live-status"), "Saved in this demo.", true);
+    });
+    var reset = document.getElementById("demo-reset");
+    if (reset) reset.addEventListener("click", function () {
+      try { localStorage.removeItem(DEMO_KEY); } catch (e) {}
+      location.reload();
+    });
+  }
+
   // Review clocks count down between refreshes.
   var clocks = document.querySelectorAll(".pend-left[data-left]");
   setInterval(function () {
@@ -944,7 +998,7 @@ LIVE_JS = r"""
 
   // Refresh every 15 seconds, but never while someone is reading a Why panel
   // or has an unsaved label, so nothing they typed is lost.
-  setInterval(function () {
+  if (!DEMO) setInterval(function () {
     var busy = document.querySelector("details.why[open]") || document.querySelector("form.label-form[data-dirty]") ||
       (document.activeElement && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName));
     if (!busy) location.reload();
@@ -954,12 +1008,14 @@ LIVE_JS = r"""
 
 
 def render(results, alerts, results_name="results.json", label=None, footer=None,
-           refresh_s=None, live=None):
+           refresh_s=None, live=None, demo=False):
     """The whole page as a string. `footer` replaces the how-to-refresh line;
     `refresh_s` makes the browser reload the page, for a live server.
     `live` (server.py only) adds the review queue with Ack buttons, the shadow
     comparison and label forms: a dict with "pending", "shadow" (a summary or
-    None), "shadow_on", "teams" and "require_token". It refreshes itself."""
+    None), "shadow_on", "teams" and "require_token". It refreshes itself.
+    `demo` (build_demo.py) adds a banner and answers the buttons in the
+    browser, for a static page with no server behind it."""
     meta = results["meta"]
     policy = triage.Policy(**meta["policy"])
     records = {r["id"]: r for r in results["alerts"]}
@@ -986,6 +1042,9 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
                      + shadow_section(live.get("shadow"), alerts_by_id))
         live_style = LIVE_CSS
         live_script = f"<script>{LIVE_JS}</script>"
+        if demo:
+            note = DEMO_BANNER + note
+            live_script = "<script>window.JEV_DEMO = true;</script>" + live_script
     foot = esc(footer) if footer else (
         f"Built from {esc(results_name)} by generate_dashboard.py. To refresh, run\n"
         "    <code>python3 triage.py</code>, then <code>python3 generate_dashboard.py</code>.")

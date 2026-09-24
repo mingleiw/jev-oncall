@@ -8,6 +8,7 @@ probabilities, and plain code turns them into routing decisions. Jev never pages
 anyone. It only judges.
 
 **Website:** [mingleiw.github.io/jev-oncall](https://mingleiw.github.io/jev-oncall/), with an
+[interactive dashboard demo](https://mingleiw.github.io/jev-oncall/demo/) and an
 [architecture page](https://mingleiw.github.io/jev-oncall/architecture.html).
 
 ![jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 flagged for review, each alert a dot on the P(page) scale against the 0.20 and 0.80 policy bars](dashboard.png)
@@ -501,6 +502,11 @@ The live dashboard (`/dashboard`) is where people act, so nobody needs `curl`:
   any. Saved labels show on the alert and feed the page's **Against the labels**
   scores.
 
+To see it without running anything, open the
+[interactive demo](https://mingleiw.github.io/jev-oncall/demo/): the Docker demo's
+incident with scripted answers in place of Jev, where Ack and labels work in your
+browser. `python3 build_demo.py` rebuilds it into `docs/demo/`.
+
 Type your name once at the top; it's remembered in your browser and recorded on
 acks and labels. The page refreshes every 15 seconds, but not while a **Why** panel is
 open or a label is half filled in.
@@ -642,6 +648,7 @@ are a good place to start.
 | [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
 | [shadow.py](shadow.py) | Shadow mode: the decision log, the comparison with configured-severity routing, and the input `evaluate.py --shadow` scores |
 | [test_shadow.py](test_shadow.py) | Shadow mode tests: comparisons, labels, the log, the endpoints |
+| [build_demo.py](build_demo.py) | Builds the interactive dashboard demo in `docs/demo/` from the Docker demo's incident, with scripted answers |
 | [test_live.py](test_live.py) | Live dashboard tests: the review queue, the shadow comparison, label forms, the token option |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
 | [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
