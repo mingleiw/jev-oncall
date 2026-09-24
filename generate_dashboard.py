@@ -22,6 +22,7 @@ import sys
 from datetime import timezone
 
 import evaluate
+import shadow
 import triage
 
 ACTION_LABEL = {
@@ -492,7 +493,7 @@ def notices(results, decisions, errors, report):
     return "".join(out)
 
 
-def why_panel(alert, d, j, record, lab):
+def why_panel(alert, d, j, record, lab, live=None):
     reasons = "".join(f"<li>{esc(r)}</li>" for r in d.reasons if not r.startswith("P(page)="))
     facts = []
     if j:
@@ -520,11 +521,12 @@ def why_panel(alert, d, j, record, lab):
             labeled.append(f"caused by {lab['duplicate_of']}")
         facts.append(("Labeled", ", ".join(labeled)))
     dl = "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in facts)
+    form = label_form(alert["id"], live["teams"], lab) if live and live.get("shadow_on") else ""
     return (f'<details class="why"><summary>Why</summary><div class="why-body">'
-            f'{f"<ul class=reasons>{reasons}</ul>" if reasons else ""}<dl>{dl}</dl></div></details>')
+            f'{f"<ul class=reasons>{reasons}</ul>" if reasons else ""}<dl>{dl}</dl>{form}</div></details>')
 
 
-def alert_row(alert, d, j, record, tags, lab, child=False):
+def alert_row(alert, d, j, record, tags, lab, child=False, live=None):
     aid = alert["id"]
     bits = [aid, alert.get("service"), clock(alert.get("started_at"))]
     if not triage.is_prod(alert):
@@ -565,11 +567,11 @@ def alert_row(alert, d, j, record, tags, lab, child=False):
   {dist}
   <div class="num num-page"><span class="k">P(page)</span>{p_page}</div>
   <div class="num num-act"><span class="k">Actionable</span>{p_act}</div>
-  {why_panel(alert, d, j, record, lab)}
+  {why_panel(alert, d, j, record, lab, live)}
 </li>"""
 
 
-def alert_groups(alerts, decisions, judgments, records, report):
+def alert_groups(alerts, decisions, judgments, records, report, live=None):
     children = {}
     for a in alerts:
         root = decisions[a["id"]].linked_to
@@ -579,7 +581,7 @@ def alert_groups(alerts, decisions, judgments, records, report):
     def render(a, child=False):
         lab = evaluate.labels(a)
         return alert_row(a, decisions[a["id"]], judgments.get(a["id"]), records.get(a["id"], {}),
-                         report["tags"].get(a["id"], []), lab, child)
+                         report["tags"].get(a["id"], []), lab, child, live)
 
     sections = []
     for slug, title, actions in GROUPS:
@@ -701,10 +703,263 @@ def evaluation(report):
             f'<div class="eval-grid">{outcomes}<div class="eval-side">{"".join(side)}</div></div></section>')
 
 
+# --------------------------------------------------------------------------
+# Live server only: acting on reviews and labeling alerts
+#
+# Everything here calls the server's existing /ack and /label endpoints. None
+# of it can change routing or config.
+
+def label_form(aid, teams, lab):
+    """'What was this really?' inside an alert's Why panel (shadow mode)."""
+    lab = lab or {}
+    base = f"lf-{re.sub(r'[^A-Za-z0-9_-]', '_', aid)}"
+
+    def options(values, chosen, blank):
+        opts = [f'<option value="">{esc(blank)}</option>'] if blank else []
+        for value, text in values:
+            sel = " selected" if value == chosen else ""
+            opts.append(f'<option value="{esc(value)}"{sel}>{esc(text)}</option>')
+        return "".join(opts)
+
+    actionable = {True: "true", False: "false"}.get(lab.get("actionable"), "")
+    sev = options([(lvl, lvl) for lvl in reversed(triage.SEV_LEVELS)], lab.get("severity"), "Choose")
+    act = options([("true", "Yes"), ("false", "No")], actionable, "Choose")
+    team = options([(t, t) for t in teams], lab.get("team"), "Not sure")
+    dup = esc(lab.get("duplicate_of") or "")
+    return f"""
+<form class="label-form" data-id="{esc(aid)}" novalidate>
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="{base}-sev">Severity<select id="{base}-sev" name="severity" required>{sev}</select></label>
+    <label for="{base}-act">Needed a human?<select id="{base}-act" name="actionable" required>{act}</select></label>
+    <label for="{base}-team">Owner<select id="{base}-team" name="team">{team}</select></label>
+    <label for="{base}-dup">Caused by<input id="{base}-dup" name="duplicate_of" value="{dup}" placeholder="alert id, if any" autocomplete="off"></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn">Save label</button><span class="live-status" role="status"></span></div>
+</form>"""
+
+
+def _minutes(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def live_controls(live):
+    token = ""
+    if live.get("require_token"):
+        token = ('<label for="you-token">Token<input id="you-token" type="password" '
+                 'autocomplete="off" placeholder="JEV_WEBHOOK_SECRET"></label>')
+    return f"""
+<section class="live-you" aria-label="Who is acting">
+  <label for="you-name">Your name<input id="you-name" autocomplete="name" placeholder="shown on acks and labels"></label>
+  {token}
+</section>"""
+
+
+def pending_section(live, alerts_by_id):
+    items = live.get("pending") or []
+    if not items:
+        body = '<p class="live-empty">No reviews are waiting. Unsure alerts land here, and page if nobody acks them in time.</p>'
+    else:
+        rows = []
+        for it in items:
+            aid = it["id"]
+            title = display_title(alerts_by_id.get(aid, {"id": aid, "title": it.get("title") or aid}))
+            rows.append(f"""
+<li class="pend">
+  <div class="pend-main"><a href="#alert-{esc(aid)}">{esc(title)}</a><span class="pend-meta">{esc(aid)} · {esc(it.get("team") or "no owner")}</span></div>
+  <span class="pend-left" data-left="{int(it["seconds_left"])}">{_minutes(it["seconds_left"])} left</span>
+  <button type="button" class="live-btn ack" data-id="{esc(aid)}">Ack</button>
+  <span class="live-status" role="status"></span>
+</li>""")
+        body = f'<ul class="pend-list">{"".join(rows)}</ul>'
+    count = len(items)
+    return f"""
+<section class="live-box" aria-labelledby="pending-h">
+  <h2 id="pending-h">Waiting for a decision <span class="count">{count}</span></h2>
+  <p class="live-lede">Ack a review to take it. If nobody does before its clock runs out, it pages.</p>
+  {body}
+</section>"""
+
+
+def shadow_section(summary, alerts_by_id):
+    if summary is None:
+        return ""
+    if not summary["alerts"]:
+        return """
+<section class="live-box" aria-labelledby="shadow-h">
+  <h2 id="shadow-h">Compared with your current routing</h2>
+  <p class="live-empty">Shadow mode is on. Nothing has been logged yet.</p>
+</section>"""
+    pages = summary["pages"]
+    since = run_date(summary["since"]) if summary.get("since") else "the start"
+    counts = "".join(
+        f'<li class="{"cmp-drop" if c["key"] == "dropped" else ""}"><span class="n">{c["count"]}</span>{esc(c["label"])}</li>'
+        for c in summary["comparisons"] if c["count"])
+    diffs = sorted(summary["recent_differences"], key=lambda d: d["comparison"] != COMPARISON_DROP)
+    rows = []
+    for d in diffs:
+        title = display_title(alerts_by_id.get(d["id"], {"id": d["id"], "title": d["title"]}))
+        link = f'<a href="#alert-{esc(d["id"])}">{esc(title)}</a>' if d["id"] in alerts_by_id else esc(title)
+        reason = d["reasons"][0] if d["reasons"] else ""
+        rows.append(f'<tr><td>{link}<span class="pend-meta">{esc(reason)}</span></td>'
+                    f'<td class="act">{esc(d["your_routing"])} → {esc(d["jev_oncall"])}</td></tr>')
+    table = ""
+    if rows:
+        table = (f'<div class="table-wrap"><table class="diffs"><thead><tr><th>Latest differences</th>'
+                 f'<th>Your routing → jev-oncall</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+    return f"""
+<section class="live-box" aria-labelledby="shadow-h">
+  <h2 id="shadow-h">Compared with your current routing</h2>
+  <p class="live-lede">Since {esc(since)}: {summary["alerts"]} alerts. Your routing paged {pages["your_routing"]};
+    jev-oncall would have paged {pages["jev_oncall"]}. {summary["labeled"]} labeled so far. Open <b>Why</b> on any alert to label it.</p>
+  <ul class="cmp-list">{counts}</ul>
+  {table}
+</section>"""
+
+
+COMPARISON_DROP = shadow.COMPARISON_LABELS["dropped"]
+
+LIVE_CSS = """
+.live-you { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 24px; font-size: 14px; color: var(--graphite); }
+.live-you label, .label-form label { display: grid; gap: 4px; font-size: 13px; color: var(--graphite); }
+.live-you input, .label-form select, .label-form input {
+  font: inherit; font-size: 15px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: 7px 9px; min-width: 0; }
+.live-box { margin-top: 40px; padding: 20px; background: var(--face); border: 1px solid var(--rule); border-radius: var(--radius); }
+.live-box h2 { margin: 0; font-size: 20px; }
+.live-box .count { font-weight: 500; color: var(--graphite); }
+.live-lede, .live-empty { margin: 8px 0 0; color: var(--graphite); font-size: 15px; max-width: 80ch; }
+.pend-list, .cmp-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.pend { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 14px; align-items: center;
+  padding: 10px 12px; background: var(--ground); border: 1px solid var(--rule); border-radius: var(--radius); }
+.pend-main { display: grid; gap: 2px; min-width: 0; }
+.pend-main a, .diffs a { color: var(--ink); font-weight: 600; }
+.pend-meta { display: block; font-size: 13px; color: var(--graphite); overflow-wrap: anywhere; }
+.pend-left { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; white-space: nowrap; }
+.pend .live-status { grid-column: 1 / -1; }
+.live-btn { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--accent-ink);
+  background: var(--accent); border: 0; border-radius: var(--radius); padding: 8px 14px; }
+.live-btn:disabled { opacity: .5; cursor: default; }
+.live-btn:focus-visible, .live-you input:focus-visible, .label-form select:focus-visible, .label-form input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+.live-status { font-size: 13px; color: var(--graphite); }
+.live-status.ok { color: var(--ink); } .live-status.bad { color: var(--accent); }
+.cmp-list li { display: flex; gap: 10px; align-items: baseline; font-size: 15px; }
+.cmp-list .n { min-width: 3ch; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cmp-list .cmp-drop { color: var(--accent); }
+.diffs { margin-top: 16px; width: 100%; border-collapse: collapse; font-size: 14px; }
+.diffs th, .diffs td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--rule); vertical-align: top; }
+.diffs th { font-size: 12px; color: var(--graphite); font-weight: 600; }
+.diffs td.act { white-space: nowrap; font-weight: 600; }
+.label-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.lf-title { margin: 0 0 10px; font-weight: 600; }
+.lf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.lf-actions { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+@media (max-width: 700px) {
+  .lf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pend { grid-template-columns: minmax(0, 1fr) auto; }
+  .pend .ack { grid-column: 2; }
+}
+"""
+
+LIVE_JS = r"""
+(function () {
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var name = document.getElementById("you-name");
+  var token = document.getElementById("you-token");
+  [[name, "jev-oncall-name"], [token, "jev-oncall-token"]].forEach(function (p) {
+    if (!p[0]) return;
+    p[0].value = store.get(p[1]);
+    p[0].addEventListener("change", function () { store.set(p[1], p[0].value.trim()); });
+  });
+  function headers(extra) {
+    var h = {"Content-Type": "application/json"};
+    if (token && token.value.trim()) h["Authorization"] = "Bearer " + token.value.trim();
+    Object.keys(extra || {}).forEach(function (k) { if (extra[k]) h[k] = extra[k]; });
+    return h;
+  }
+  function show(el, text, good) {
+    if (!el) return;
+    el.textContent = text;
+    el.className = "live-status " + (good ? "ok" : "bad");
+  }
+  function explain(status, body) {
+    if (status === 401) return "This server needs the token. Enter it above.";
+    return (body && body.error) || ("Failed (" + status + ")");
+  }
+  function send(url, payload, extra) {
+    return fetch(url, {method: "POST", headers: headers(extra), body: JSON.stringify(payload)})
+      .then(function (r) { return r.json().catch(function () { return {}; })
+        .then(function (b) { return {status: r.status, body: b}; }); });
+  }
+
+  // Ack a review.
+  document.querySelectorAll("button.ack").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var status = btn.parentNode.querySelector(".live-status");
+      btn.disabled = true;
+      send("/ack/" + encodeURIComponent(btn.dataset.id), {}, {"X-Acked-By": name && name.value.trim()})
+        .then(function (r) {
+          if (r.status === 200) { show(status, "Acked by " + r.body.acked_by + ". It won't page.", true); btn.remove(); }
+          else if (r.status === 404) { show(status, "Not pending any more: it was acked, cleared or already paged.", false); btn.remove(); }
+          else { show(status, explain(r.status, r.body), false); btn.disabled = false; }
+        }, function () { show(status, "Couldn't reach the server.", false); btn.disabled = false; });
+    });
+  });
+
+  // Label an alert.
+  document.querySelectorAll("form.label-form").forEach(function (form) {
+    form.addEventListener("input", function () { form.dataset.dirty = "1"; });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var status = form.querySelector(".live-status");
+      var f = form.elements;
+      if (!f.severity.value || !f.actionable.value) { show(status, "Choose a severity and whether it needed a human.", false); return; }
+      var label = {severity: f.severity.value, actionable: f.actionable.value === "true",
+                   team: f.team.value || null, duplicate_of: f.duplicate_of.value.trim() || null};
+      var btn = form.querySelector("button");
+      btn.disabled = true;
+      send("/label/" + encodeURIComponent(form.dataset.id), label, {"X-Labeled-By": name && name.value.trim()})
+        .then(function (r) {
+          btn.disabled = false;
+          if (r.status === 201) { show(status, "Saved.", true); delete form.dataset.dirty; }
+          else show(status, explain(r.status, r.body), false);
+        }, function () { btn.disabled = false; show(status, "Couldn't reach the server.", false); });
+    });
+  });
+
+  // Review clocks count down between refreshes.
+  var clocks = document.querySelectorAll(".pend-left[data-left]");
+  setInterval(function () {
+    clocks.forEach(function (el) {
+      var left = Math.max(0, parseInt(el.dataset.left, 10) - 1);
+      el.dataset.left = left;
+      el.textContent = left ? Math.floor(left / 60) + ":" + ("0" + left % 60).slice(-2) + " left" : "Paging now";
+    });
+  }, 1000);
+
+  // Refresh every 15 seconds, but never while someone is reading a Why panel
+  // or has an unsaved label, so nothing they typed is lost.
+  setInterval(function () {
+    var busy = document.querySelector("details.why[open]") || document.querySelector("form.label-form[data-dirty]") ||
+      (document.activeElement && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName));
+    if (!busy) location.reload();
+  }, 15000);
+})();
+"""
+
+
 def render(results, alerts, results_name="results.json", label=None, footer=None,
-           refresh_s=None):
+           refresh_s=None, live=None):
     """The whole page as a string. `footer` replaces the how-to-refresh line;
-    `refresh_s` makes the browser reload the page, for a live server."""
+    `refresh_s` makes the browser reload the page, for a live server.
+    `live` (server.py only) adds the review queue with Ack buttons, the shadow
+    comparison and label forms: a dict with "pending", "shadow" (a summary or
+    None), "shadow_on", "teams" and "require_token". It refreshes itself."""
     meta = results["meta"]
     policy = triage.Policy(**meta["policy"])
     records = {r["id"]: r for r in results["alerts"]}
@@ -723,7 +978,14 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
     follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
     tag = f'<p class="tag">{esc(label)}</p>' if label else ""
     stats_html = headline_stats(results)
-    refresh = f'<meta http-equiv="refresh" content="{int(refresh_s)}">' if refresh_s else ""
+    refresh = f'<meta http-equiv="refresh" content="{int(refresh_s)}">' if refresh_s and not live else ""
+    alerts_by_id = {a["id"]: a for a in alerts}
+    live_html = live_style = live_script = ""
+    if live:
+        live_html = (live_controls(live) + pending_section(live, alerts_by_id)
+                     + shadow_section(live.get("shadow"), alerts_by_id))
+        live_style = LIVE_CSS
+        live_script = f"<script>{LIVE_JS}</script>"
     foot = esc(footer) if footer else (
         f"Built from {esc(results_name)} by generate_dashboard.py. To refresh, run\n"
         "    <code>python3 triage.py</code>, then <code>python3 generate_dashboard.py</code>.")
@@ -737,7 +999,7 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;display=swap">
-<style>{CSS}</style>
+<style>{CSS}{live_style}</style>
 </head>
 <body>
 <main class="page">
@@ -753,12 +1015,14 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
     {stats_html}
     {rail(alerts, decisions, judgments, errors, policy)}
   </section>
+  {live_html}
   {notices(results, decisions, errors, report)}
-  {alert_groups(alerts, decisions, judgments, records, report)}
+  {alert_groups(alerts, decisions, judgments, records, report, live)}
   {run_facts(results)}
   {evaluation(report)}
   <footer class="foot"><p>{foot}</p></footer>
 </main>
+{live_script}
 </body>
 </html>
 """

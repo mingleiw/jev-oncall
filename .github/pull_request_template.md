@@ -8,7 +8,7 @@
 
 ## Checklist
 
-- [ ] `python3 -m unittest test_triage test_server test_dashboard test_config test_shadow` passes
+- [ ] `python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live` passes
 - [ ] No new path can drop, dedup or hide an alert that would have paged
 - [ ] README updated if behavior or configuration changed
 - [ ] Commits are signed off (`git commit -s`)

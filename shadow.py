@@ -157,6 +157,11 @@ def _latest(events):
     return decisions, labels, reviews, start
 
 
+def labels_by_id(events):
+    """The newest label per alert id, in evaluate.py's "expected" shape."""
+    return {aid: e["label"] for aid, e in _latest(events)[1].items()}
+
+
 def summarize(events, bad_lines=0, recent=25):
     """What /shadow returns: how jev-oncall compares with your current routing."""
     decisions, labels, reviews, start = _latest(events)

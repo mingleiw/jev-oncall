@@ -358,6 +358,7 @@ python3 server.py --config jev-oncall.toml     # or: export JEV_ONCALL_CONFIG=je
 | `[teams]` | `name = "what it owns"`, 2 to 255 teams. Jev picks the owner from these descriptions, so write them the way you'd brief a new on-call engineer |
 | `[topology]` | `service = ["upstream", ...]`, used to narrow dedup candidates |
 | `[shadow]` | `log = "shadow.jsonl"` turns on [shadow mode](#shadow-mode) |
+| `[server]` | `require_token = true` makes `/ack` and `/label` require the webhook secret as a bearer token ([details](#acting-from-the-dashboard)) |
 
 Every section is optional, and anything left out keeps its default. The file is
 checked strictly: an unknown key, a threshold outside 0 to 1, or a `no_page_bar`
@@ -484,8 +485,40 @@ python3 evaluate.py --shadow shadow.jsonl --sweep
 ```
 
 Only labels posted to `/label` count; an `expected` block inside a webhook payload
-is ignored. Like `/ack`, `/label` isn't signed, so keep the server on a network you
-trust.
+is ignored. Like `/ack`, `/label` is open by default; see
+[Acting from the dashboard](#acting-from-the-dashboard) to require a token.
+
+### Acting from the dashboard
+
+The live dashboard (`/dashboard`) is where people act, so nobody needs `curl`:
+
+- **Waiting for a decision** lists every REVIEW with its clock counting down and an
+  **Ack** button. An acked review won't page.
+- **Compared with your current routing** (shadow mode) shows the counts above, the
+  pages each side would have sent, and the latest differences, drops first.
+- **What was this really?** (shadow mode) sits in each alert's **Why** panel: pick a
+  severity, whether it needed a human, the owner, and the alert that caused it, if
+  any. Saved labels show on the alert and feed the page's **Against the labels**
+  scores.
+
+Type your name once at the top; it's remembered in your browser and recorded on
+acks and labels. The page refreshes every 15 seconds, but not while a **Why** panel is
+open or a label is half filled in.
+
+`/ack` and `/label` are open by default. To require a token, set
+
+```toml
+[server]
+require_token = true
+```
+
+with `JEV_WEBHOOK_SECRET` set; the server refuses to start without it. Either way,
+requests a browser makes from another site are refused, so a page elsewhere can't
+ack a review behind your back. Both endpoints
+then need `Authorization: Bearer <JEV_WEBHOOK_SECRET>`, and the dashboard shows a
+**Token** field. Reading `/dashboard`, `/recent` and `/shadow` stays open, so keep the
+server on a network you trust either way. Config itself is never editable from the
+page: it stays a file you review like code.
 
 ### Signing webhooks
 
@@ -579,7 +612,7 @@ Standard library only.
 ## Development
 
 ```bash
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow -v   # all offline tests
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live -v   # all offline tests
 python3 -m unittest test_triage -v                              # triage engine only
 python3 -m unittest test_server -v                              # webhook adapter only
 ```
@@ -609,6 +642,7 @@ are a good place to start.
 | [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
 | [shadow.py](shadow.py) | Shadow mode: the decision log, the comparison with configured-severity routing, and the input `evaluate.py --shadow` scores |
 | [test_shadow.py](test_shadow.py) | Shadow mode tests: comparisons, labels, the log, the endpoints |
+| [test_live.py](test_live.py) | Live dashboard tests: the review queue, the shadow comparison, label forms, the token option |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
 | [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
 | [topology.json](topology.json) | Service → upstream dependencies, used when the config has no `[topology]` |

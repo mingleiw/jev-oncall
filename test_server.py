@@ -724,7 +724,10 @@ class LiveDashboardTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertIn("text/html", resp.getheader("Content-Type"))
         self.assertIn("orders-db pool exhausted", html)
-        self.assertIn('http-equiv="refresh"', html)
+        # The live page refreshes itself from script, pausing while someone types.
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertIn("location.reload()", html)
+        self.assertIn("Waiting for a decision", html)
         results, alerts = runner.results()
         self.assertEqual([a["id"] for a in alerts], ["d1"])  # a resend shows once
         self.assertEqual(results["summary"]["fallback"], 1)
