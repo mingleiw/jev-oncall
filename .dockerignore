@@ -1,6 +1,7 @@
 *
 !triage.py
 !server.py
+!shadow.py
 !evaluate.py
 !generate_dashboard.py
 !generate_alerts.py

@@ -191,6 +191,7 @@ class Config:
     teams: dict = field(default_factory=lambda: dict(TEAM_CRITERIA))  # name -> what it owns
     topology: dict | None = None  # service -> upstream services; None: not configured
     policy: Policy = field(default_factory=Policy)
+    shadow_log: str | None = None  # JSONL path; set, it turns on shadow mode (shadow.py)
 
 
 class ConfigError(Exception):
@@ -220,7 +221,7 @@ def load_config(path=None):
             raw = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
         raise ConfigError(f"{path}: {e}") from e
-    _check_keys(raw, ["jev", "policy", "teams", "topology"], path)
+    _check_keys(raw, ["jev", "policy", "teams", "topology", "shadow"], path)
 
     jev = raw.get("jev", {})
     _check_keys(jev, _JEV_KEYS, f"{path} [jev]")
@@ -271,6 +272,13 @@ def load_config(path=None):
                 raise ConfigError(f"{path} [topology]: {service} must list upstream "
                                   "services as strings")
         config.topology = dict(topology)
+
+    shadow_cfg = raw.get("shadow", {})
+    _check_keys(shadow_cfg, ["log"], f"{path} [shadow]")
+    if "log" in shadow_cfg:
+        if not isinstance(shadow_cfg["log"], str) or not shadow_cfg["log"].strip():
+            raise ConfigError(f"{path} [shadow]: log must be a file path")
+        config.shadow_log = shadow_cfg["log"]
     return config
 
 

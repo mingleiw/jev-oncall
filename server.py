@@ -28,6 +28,11 @@ Endpoints:
     GET  /dashboard            The last alerts received, as the HTML
                                dashboard generate_dashboard.py renders.
 
+    POST /label/<alert-id>     Shadow mode: record what an alert really was.
+
+    GET  /shadow               Shadow mode: how decisions compare with routing
+                               by configured severity.
+
 The generic provider accepts the jev-oncall alert schema directly, so any
 system can integrate by posting normalized JSON.
 
@@ -55,6 +60,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+import shadow
 import triage
 
 PROVIDERS = {}
@@ -81,6 +87,7 @@ _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 
 DEFAULT_RATE_LIMIT = 120
 DASHBOARD_ALERTS = 500
+SHADOW_OFF = "shadow mode is off: set [shadow] log in the config, or pass --shadow-log"
 ALERT_TTL_S = 3600
 
 
@@ -470,6 +477,11 @@ class TriageRunner:
         # Full records, in triage.py's results.json shape, for /dashboard.
         self.records = deque(maxlen=DASHBOARD_ALERTS)
         self.calls = deque(maxlen=DASHBOARD_ALERTS)
+        # Shadow mode: every decision and review outcome goes to an append-only
+        # log beside what routing by configured severity would have done.
+        self.shadow = shadow.ShadowLog(self.config.shadow_log) if self.config.shadow_log else None
+        if self.shadow:
+            self.shadow.start(self.config)
 
     def _prune_stale(self):
         cutoff = time.monotonic() - ALERT_TTL_S
@@ -518,13 +530,16 @@ class TriageRunner:
         with self.lock:
             for a in alerts:
                 aid, j = a["id"], judgments.get(a["id"])
-                self.records.append((a, {
+                record = {
                     **asdict(decisions[aid]),
                     "candidates": [c["id"] for c in candidates[aid]],
                     "judgment": asdict(j) if j else None,
                     "error": errors.get(aid),
                     "call": calls.get(aid),
-                }))
+                }
+                self.records.append((a, record))
+                if self.shadow:
+                    self.shadow.decision(a, record)
         results = []
         for a in alerts:
             d = decisions[a["id"]]
@@ -563,8 +578,12 @@ class TriageRunner:
         is the noise this exists to cut. Returns the cancelled reviews.
         The alert stays a dedup candidate until it ages out: something it
         caused can still arrive after it clears."""
-        return [r for r in (self.reviews.ack(aid, "resolved upstream")
-                            for aid in alert_ids) if r]
+        cancelled = [r for r in (self.reviews.ack(aid, "resolved upstream")
+                                 for aid in alert_ids) if r]
+        if self.shadow:
+            for r in cancelled:
+                self.shadow.review(r["id"], "cancelled", "resolved upstream")
+        return cancelled
 
     def results(self):
         """The last DASHBOARD_ALERTS alerts as a triage.py results dict, so
@@ -607,10 +626,29 @@ class TriageRunner:
                 for entry in escalated:
                     self.recent.append(entry)
                     self.escalated += 1
+            if self.shadow:
+                for entry in escalated:
+                    self.shadow.review(entry["id"], "escalated")
         return escalated
 
     def ack(self, alert_id, who=None):
-        return self.reviews.ack(alert_id, who)
+        record = self.reviews.ack(alert_id, who)
+        if record and self.shadow:
+            self.shadow.review(alert_id, "acked", who)
+        return record
+
+    def label(self, alert_id, body, who=None):
+        """Shadow mode: record what an alert really was. Raises ValueError on
+        a bad label; returns None when shadow mode is off."""
+        if not self.shadow:
+            return None
+        label = shadow.validate_label(body, self.config.teams)
+        self.shadow.label(alert_id, label, who)
+        return {"id": alert_id, "label": label, "labeled_by": who or "unknown"}
+
+    def shadow_summary(self):
+        events, bad = shadow.load(self.shadow.path)
+        return shadow.summarize(events, bad)
 
     def stats(self):
         with self.lock:
@@ -658,6 +696,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.rstrip("/") == "/pending":
             pending = self.runner.reviews.pending()
             self._send_json(200, {"pending": pending, "count": len(pending)})
+        elif self.path.rstrip("/") == "/shadow":
+            if not self.runner.shadow:
+                self._send_json(404, {"error": SHADOW_OFF})
+            else:
+                self._send_json(200, self.runner.shadow_summary())
         elif self.path.rstrip("/") == "/dashboard":
             import generate_dashboard  # local import: only this endpoint needs it
             results, alerts = self.runner.results()
@@ -684,6 +727,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": f"no review pending for {alert_id}"})
             else:
                 self._send_json(200, record)
+            return
+        if path.startswith("/label/"):
+            alert_id = path.split("/label/", 1)[1]
+            raw = self._read_body()
+            if raw is None:
+                return
+            try:
+                result = self.runner.label(alert_id, json.loads(raw or b"null"),
+                                           self.headers.get("X-Labeled-By"))
+            except (json.JSONDecodeError, ValueError) as e:
+                self._send_json(400, {"error": f"bad label: {e}"})
+                return
+            if result is None:
+                self._send_json(404, {"error": SHADOW_OFF})
+            else:
+                self._send_json(201, result)
             return
         if path == "/ingest":
             provider_name = "generic"
@@ -758,6 +817,9 @@ def main(argv=None):
     ap.add_argument("--topology",
                     help="service -> upstream services JSON; overrides the config's "
                          "[topology] (default: topology.json if the config has none)")
+    ap.add_argument("--shadow-log",
+                    help="turn on shadow mode, logging to this JSONL file; "
+                         "overrides the config's [shadow] log")
     ap.add_argument("--rate-limit", type=int, default=DEFAULT_RATE_LIMIT,
                     help=f"max ingests per minute (default: {DEFAULT_RATE_LIMIT})")
     ap.add_argument("--sweep-interval", type=float, default=10.0,
@@ -768,6 +830,8 @@ def main(argv=None):
         config = triage.load_config(args.config)
     except triage.ConfigError as e:
         sys.exit(f"config error: {e}")
+    if args.shadow_log:
+        config.shadow_log = args.shadow_log
 
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
@@ -804,6 +868,11 @@ def main(argv=None):
     print(f"  GET  /recent", file=sys.stderr)
     print(f"  GET  /pending             reviews waiting on an ack", file=sys.stderr)
     print(f"  GET  /dashboard           live HTML dashboard", file=sys.stderr)
+    if runner.shadow:
+        print(f"  shadow mode: logging to {runner.shadow.path}", file=sys.stderr)
+        print(f"  POST /label/<alert-id>    record what an alert really was", file=sys.stderr)
+        print(f"  GET  /shadow              compare with routing by configured severity",
+              file=sys.stderr)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
