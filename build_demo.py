@@ -128,7 +128,10 @@ def scripted_judge(batch, candidates, *args, **kwargs):
             severity={lvl: sev.get(lvl, 0.0) for lvl in triage.SEV_LEVELS},
             team={t: team.get(t, 0.0) for t in teams},
             duplicate_of=duplicate_of)
-    return judgments, {}, {}
+    calls = {aid: {"ms": ms, "usage": {}} for aid, ms in zip(
+        ["orders-db", "search-mem", "checkout", "payment", "tls-cert", "report-job", "homepage", "gc-pause"],
+        [320, 280, 410, 350, 190, 260, 310, 150]) if aid in judgments}
+    return judgments, {}, calls
 
 
 class DemoClock:
