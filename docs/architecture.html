@@ -7,12 +7,12 @@
 <meta name="description" content="How the jev-oncall server turns an alert into a decision, the review clock, and the default thresholds.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="site.css">
 <style>
   .page-head { padding-block: 72px 8px; }
   .page-head .container { display: grid; gap: 18px; max-width: 1160px; }
-  .page-head h1 { font: 600 clamp(40px, 6.4vw, 68px)/1.02 var(--sans); letter-spacing: -.045em; max-width: 14ch; }
+  .page-head h1 { font: 800 clamp(40px, 6.4vw, 72px)/1 var(--sans); font-stretch: 118%; letter-spacing: -.025em; max-width: 14ch; }
   .page-head .sub { color: var(--muted); font-size: 18px; max-width: 64ch; }
   main section:first-of-type { border-top: 0; }
   section { padding-block: 64px; }
@@ -22,7 +22,7 @@
   .fig svg.wide { min-width: 980px; }
   .fig svg.narrow { min-width: 720px; }
   .fig figcaption { color: var(--muted); font-size: 15px; max-width: 76ch; }
-  .scroll-hint { display: none; font: 500 12.5px/1 var(--mono); color: var(--dim); }
+  .scroll-hint { display: none; font-size: 14px; color: var(--muted); }
   @media (max-width: 1000px) { .scroll-hint { display: block; } }
 
   svg text { font-family: var(--sans); fill: var(--ink); }
@@ -31,13 +31,15 @@
   svg .n { font: 500 12px var(--mono); fill: var(--dim); }
   svg .lbl { font: 500 11px var(--mono); fill: var(--muted); }
   svg .lbl-red { font: 500 11px var(--mono); fill: var(--red); }
-  svg .sec { font: 500 11px var(--mono); letter-spacing: .06em; fill: var(--dim); }
+  svg .sec { font: 600 13px var(--sans); fill: var(--muted); }
   svg .box { fill: var(--surface-2); stroke: var(--border-2); stroke-width: 1; }
   svg .stage { fill: var(--bg-2); stroke: var(--border); stroke-width: 1; }
-  svg .jev { fill: rgba(196, 181, 253, .08); stroke: var(--violet); stroke-width: 1.25; }
+  svg .jev { fill: rgba(238, 241, 243, .05); stroke: var(--ink); stroke-width: 1.5; }
   svg .server { fill: rgba(255, 255, 255, .015); stroke: var(--border-2); stroke-width: 1.25; }
   svg .planned { fill: none; stroke: var(--border-2); stroke-width: 1.25; stroke-dasharray: 5 5; }
-  svg .pagebox { fill: rgba(248, 113, 113, .09); stroke: var(--red); stroke-width: 1.25; }
+  svg .pagebox { fill: var(--page-wash); stroke: var(--red); stroke-width: 1.25; }
+  /* Status dots in the diagrams: only paging and fail-open carry color */
+  svg circle[fill="var(--green)"], svg circle[fill="var(--blue)"], svg circle[fill="var(--violet)"], svg circle[fill="var(--text)"] { fill: var(--muted); }
   svg .flow { fill: none; stroke: var(--text); stroke-width: 1.5; }
   svg .aux { fill: none; stroke: var(--dim); stroke-width: 1.25; }
   svg .dash { stroke-dasharray: 5 5; }
@@ -47,13 +49,16 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <header class="nav">
   <div class="container">
     <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
     <nav class="nav-links" aria-label="Main">
+      <a href="./">Home</a>
       <a href="#pipeline">Pipeline</a>
       <a href="#clock">Review clock</a>
       <a href="#thresholds">Thresholds</a>
+      <a class="keep" href="demo/">Live demo</a>
       <a class="gh" href="https://github.com/mingleiw/jev-oncall">GitHub</a>
     </nav>
   </div>
@@ -61,13 +66,12 @@
 
 <div class="page-head">
   <div class="container">
-    <p class="eyebrow">Architecture</p>
     <h1>How an alert becomes a decision.</h1>
     <p class="sub">Jev answers four questions about each production alert, and plain code turns the answers into a decision. The server returns and shows decisions; it doesn't send pages, messages or tickets to anything yet.</p>
   </div>
 </div>
 
-<main>
+<main id="main">
   <section id="pipeline">
     <div class="container">
       <figure class="fig">
@@ -81,7 +85,7 @@
               <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="hd-a" d="M0 0 L10 5 L0 10 z"/></marker>
             </defs>
 
-            <text class="sec" x="20" y="28">SOURCES</text>
+            <text class="sec" x="20" y="28">Sources</text>
             <rect class="box" x="20" y="40" width="200" height="58" rx="9"/>
             <circle cx="36" cy="59" r="4" fill="var(--blue)"/>
             <text class="t" x="48" y="64">Prometheus</text>
@@ -98,8 +102,8 @@
             <rect class="box" x="20" y="214" width="200" height="72" rx="9"/>
             <circle cx="36" cy="233" r="4" fill="var(--blue)"/>
             <text class="t" x="48" y="238">Other providers</text>
-            <text class="s" x="36" y="258">Grafana · Datadog</text>
-            <text class="s" x="36" y="275">PagerDuty · generic JSON</text>
+            <text class="s" x="36" y="258">Grafana, Datadog</text>
+            <text class="s" x="36" y="275">PagerDuty, generic JSON</text>
             <path class="aux" d="M220 250 H234 V152"/>
 
             <rect class="box" x="20" y="382" width="200" height="88" rx="9"/>
@@ -120,7 +124,7 @@
             <text class="n" x="356" y="110">01</text>
             <text class="t" x="382" y="110">Normalize the alert</text>
             <text class="s" x="382" y="130">one id per firing: fingerprint + startsAt</text>
-            <text class="s" x="382" y="147">resend: skipped · resolved: cancels its REVIEW</text>
+            <text class="s" x="382" y="147">resend: skipped, resolved: cancels its REVIEW</text>
             <path class="flow" d="M550 158 V172" marker-end="url(#af)"/>
 
             <rect class="stage" x="340" y="174" width="420" height="74" rx="8"/>
@@ -134,13 +138,13 @@
             <text class="n" x="356" y="290">03</text>
             <text class="t" x="382" y="290">Pick candidate causes</text>
             <text class="s" x="382" y="310">prod alerts from 30 min before to 2 min after</text>
-            <text class="s" x="382" y="327">narrowed by topology when listed · at most 50</text>
+            <text class="s" x="382" y="327">narrowed by topology when listed, at most 50</text>
             <path class="flow" d="M550 338 V352" marker-end="url(#af)"/>
 
             <rect class="jev" x="340" y="354" width="420" height="74" rx="8"/>
             <text class="n" x="356" y="380" style="fill: var(--violet);">04</text>
             <text class="t" x="382" y="380">Ask Jev: one call, four questions</text>
-            <text class="s" x="382" y="400">actionable · severity · team · duplicate_of</text>
+            <text class="s" x="382" y="400">actionable, severity, team, duplicate_of</text>
             <text class="s" x="382" y="417">2 s timeout, 1 retry</text>
             <path class="flow" d="M550 428 V442" marker-end="url(#af)"/>
 
@@ -148,14 +152,14 @@
             <text class="n" x="356" y="470">05</text>
             <text class="t" x="382" y="470">Route on the probabilities</text>
             <text class="s" x="382" y="490">P(page) = P(SEV1) + P(SEV2)</text>
-            <text class="s" x="382" y="507">≥ 0.80 page · 0.20 to 0.80 REVIEW · else TICKET</text>
+            <text class="s" x="382" y="507">≥ 0.80 page, 0.20 to 0.80 REVIEW, else TICKET</text>
             <path class="flow" d="M550 518 V532" marker-end="url(#af)"/>
 
             <rect class="stage" x="340" y="534" width="420" height="74" rx="8"/>
             <text class="n" x="356" y="560">06</text>
             <text class="t" x="382" y="560">Dedup as a graph</text>
-            <text class="s" x="382" y="580">link at P ≥ 0.70 · root gets the most urgent action</text>
-            <text class="s" x="382" y="597">same team: DEDUP · other team: REVIEW</text>
+            <text class="s" x="382" y="580">link at P ≥ 0.70, root gets the most urgent action</text>
+            <text class="s" x="382" y="597">same team: DEDUP, other team: REVIEW</text>
             <path class="flow" d="M550 608 V622" marker-end="url(#af)"/>
 
             <rect class="stage" x="340" y="624" width="420" height="74" rx="8"/>
@@ -164,7 +168,7 @@
             <text class="s" x="382" y="670">decisions returned as JSON</text>
             <text class="s" x="382" y="687">each REVIEW starts a 15 min ack clock, kept on disk</text>
 
-            <text class="sec" x="880" y="28">READ DECISIONS TODAY</text>
+            <text class="sec" x="880" y="28">Read decisions today</text>
             <rect class="box" x="880" y="40" width="300" height="148" rx="9"/>
             <circle cx="896" cy="59" r="4" fill="var(--green)"/>
             <text class="t" x="908" y="64">Server endpoints</text>
@@ -179,7 +183,7 @@
             <rect class="planned" x="880" y="228" width="300" height="80" rx="9"/>
             <circle cx="896" cy="249" r="4" fill="var(--dim)"/>
             <text class="t" x="908" y="254" style="fill: var(--muted);">Not built yet</text>
-            <text class="s" x="896" y="276">PagerDuty · Slack · Jira</text>
+            <text class="s" x="896" y="276">PagerDuty, Slack, Jira</text>
             <text class="s" x="896" y="294">nothing is sent anywhere today</text>
             <path class="aux dash" d="M780 268 H878" marker-end="url(#aa)"/>
             <text class="lbl" x="830" y="260" text-anchor="middle">planned</text>
@@ -235,21 +239,21 @@
             <rect class="box" x="640" y="16" width="280" height="56" rx="9"/>
             <circle cx="656" cy="35" r="4" fill="var(--green)"/>
             <text class="t" x="668" y="40">Acked: someone is on it</text>
-            <text class="s" x="656" y="60">no page · alert not resolved</text>
+            <text class="s" x="656" y="60">no page, alert not resolved</text>
 
             <path class="flow" d="M250 116 H638" marker-end="url(#cf)"/>
             <text class="lbl" x="520" y="108" text-anchor="middle">resolved notification</text>
             <rect class="box" x="640" y="88" width="280" height="56" rx="9"/>
             <circle cx="656" cy="107" r="4" fill="var(--green)"/>
             <text class="t" x="668" y="112">Cancelled</text>
-            <text class="s" x="656" y="132">no page · alert cleared itself</text>
+            <text class="s" x="656" y="132">no page, alert cleared itself</text>
 
             <path class="redflow" d="M400 116 V188 H638" marker-end="url(#cr)"/>
             <text class="lbl-red" x="520" y="180" text-anchor="middle">15 min, nobody acked</text>
             <rect class="pagebox" x="640" y="160" width="280" height="56" rx="9"/>
             <circle cx="656" cy="179" r="4" fill="var(--red)"/>
             <text class="t" x="668" y="184" style="fill: var(--red);">Escalated to PAGE</text>
-            <text class="s" x="656" y="204">recorded once · not sent yet</text>
+            <text class="s" x="656" y="204">recorded once, not sent yet</text>
           </svg>
         </div>
         <figcaption>An ack doesn't resolve anything: the alert stays open until the monitoring system clears it. If the same alert is sent again, its first deadline stands, so repeated webhooks can't keep pushing the page back, and a closed review stays closed. With <code>[reviews] store</code> set, every open, ack, cancellation and escalation is written to disk before it counts: a restarted server restores pending reviews with their original deadlines, pages the ones whose deadline passed while it was down, and never repeats an escalation or reopens an acked or cancelled review. That supports one server process per store file, on local disk. Without a store, reviews live in memory and a restart drops them, and the server warns at startup.</figcaption>
@@ -272,7 +276,7 @@
             <tr><td class="k">drop_bar</td><td class="v">0.05</td><td>Not paging and P(actionable) at or below this: DROP, the only outcome nobody sees</td></tr>
             <tr><td class="k">dedup_bar</td><td class="v">0.70</td><td>Minimum P(duplicate_of = X) to link an alert to its cause</td></tr>
             <tr><td class="k">team_bar</td><td class="v">0.60</td><td>Below this, a page or REVIEW also notifies the runner-up team</td></tr>
-            <tr><td class="k">window_min · skew_min</td><td class="v">30 · 2</td><td>Minutes a cause may start before, or after, its symptom</td></tr>
+            <tr><td class="k">window_min, skew_min</td><td class="v">30, 2</td><td>Minutes a cause may start before, or after, its symptom</td></tr>
             <tr><td class="k">max_candidates</td><td class="v">50</td><td>Most candidate causes offered to Jev per alert</td></tr>
             <tr><td class="k">review_ack_min</td><td class="v">15</td><td>Minutes before an unacked REVIEW pages</td></tr>
           </tbody>
@@ -287,8 +291,9 @@
     <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
     <nav aria-label="Footer">
       <a href="./">Home</a>
+      <a href="demo/">Live demo</a>
       <a href="https://github.com/mingleiw/jev-oncall">GitHub</a>
-      <a href="https://github.com/mingleiw/jev-oncall/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/mingleiw/jev-oncall/blob/main/LICENSE">MIT license</a>
       <a href="https://typesafe.ai">Jev by TypeSafe</a>
     </nav>
   </div>

@@ -443,6 +443,17 @@ class DemoEngine(unittest.TestCase):
         pin = re.search(r'<a class="pin[^"]*" href="#alert-payment"[^>]*>', html).group(0)
         self.assertIn("threshold says page now; final: sent to review (different owning team)", pin)
 
+    def test_the_homepage_instrument_matches_the_demo(self):
+        """docs/index.html draws the demo's alerts by hand: keep it honest."""
+        with open(os.path.join(triage.BASE, "docs", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        drawn = {m.group(1): (m.group(2), m.group(3)) for m in re.finditer(
+            r'data-id="([^"]+)" data-p="([\d.]+)" data-final="([A-Z_]+)"', page)}
+        session = build_demo.DemoSession()
+        want = {a["id"]: (f'{triage.Judgment(**r["judgment"]).p_page:.2f}', r["action"])
+                for a, r in session.runner.records if r["judgment"]}
+        self.assertEqual(drawn, want)
+
     def test_chart_targets_are_44px_and_never_overlap(self):
         html = build_demo.build()
         self.assertIn("--hit: 44px; --step: 44px;", html)
