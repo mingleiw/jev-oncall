@@ -162,7 +162,7 @@
             <text class="n" x="356" y="650">07</text>
             <text class="t" x="382" y="650">Respond and record</text>
             <text class="s" x="382" y="670">decisions returned as JSON</text>
-            <text class="s" x="382" y="687">each REVIEW starts a 15 min ack clock</text>
+            <text class="s" x="382" y="687">each REVIEW starts a 15 min ack clock, kept on disk</text>
 
             <text class="sec" x="880" y="28">READ DECISIONS TODAY</text>
             <rect class="box" x="880" y="40" width="300" height="148" rx="9"/>
@@ -171,7 +171,7 @@
             <text class="s" x="896" y="88">/dashboard   live page, every 15 s</text>
             <text class="s" x="896" y="110">/recent      decisions as JSON</text>
             <text class="s" x="896" y="132">/pending     REVIEWs awaiting an ack</text>
-            <text class="s" x="896" y="154">POST /ack/&lt;id&gt;  close a REVIEW</text>
+            <text class="s" x="896" y="154">POST /ack/&lt;id&gt;  on it, no page</text>
             <text class="s" x="896" y="176">/health</text>
             <path class="aux" d="M780 114 H878" marker-end="url(#aa)"/>
             <text class="lbl" x="830" y="106" text-anchor="middle">HTTP</text>
@@ -196,9 +196,9 @@
 
             <rect class="box" x="880" y="534" width="300" height="74" rx="9"/>
             <circle cx="896" cy="555" r="4" fill="var(--text)"/>
-            <text class="t" x="908" y="560">Recent decisions</text>
-            <text class="s" x="896" y="580">last 500, in memory</text>
-            <text class="s" x="896" y="597">lost on restart</text>
+            <text class="t" x="908" y="560">Recent decisions and reviews</text>
+            <text class="s" x="896" y="580">decisions: last 500, in memory</text>
+            <text class="s" x="896" y="597">reviews: on disk, survive restart</text>
             <path class="aux" d="M880 571 H762" marker-end="url(#aa)"/>
             <text class="lbl" x="832" y="563" text-anchor="middle">prior alerts</text>
             <path class="aux" d="M760 661 H1030 V610" marker-end="url(#aa)"/>
@@ -220,7 +220,7 @@
         <div class="window">
           <div class="window-bar"><i></i><i></i><i></i><span class="tab">review clock</span></div>
           <svg class="narrow" viewBox="0 0 940 232" role="img"
-               aria-label="A REVIEW ends in one of three ways: an ack closes it without a page, a resolved notification cancels it without a page, and no ack within 15 minutes escalates it to a PAGE.">
+               aria-label="A REVIEW ends in one of three ways: an ack means someone is on it, so it closes without a page but the alert is not resolved; a resolved notification cancels it without a page; and no ack within 15 minutes escalates it to a PAGE. Each outcome is written to the review store, so it survives a restart.">
             <defs>
               <marker id="cf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="hd-f" d="M0 0 L10 5 L0 10 z"/></marker>
               <marker id="cr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="hd-r" d="M0 0 L10 5 L0 10 z"/></marker>
@@ -234,8 +234,8 @@
             <text class="lbl" x="520" y="36" text-anchor="middle">POST /ack/&lt;id&gt;</text>
             <rect class="box" x="640" y="16" width="280" height="56" rx="9"/>
             <circle cx="656" cy="35" r="4" fill="var(--green)"/>
-            <text class="t" x="668" y="40">Closed</text>
-            <text class="s" x="656" y="60">no page · acked_by recorded</text>
+            <text class="t" x="668" y="40">Acked: someone is on it</text>
+            <text class="s" x="656" y="60">no page · alert not resolved</text>
 
             <path class="flow" d="M250 116 H638" marker-end="url(#cf)"/>
             <text class="lbl" x="520" y="108" text-anchor="middle">resolved notification</text>
@@ -249,10 +249,10 @@
             <rect class="pagebox" x="640" y="160" width="280" height="56" rx="9"/>
             <circle cx="656" cy="179" r="4" fill="var(--red)"/>
             <text class="t" x="668" y="184" style="fill: var(--red);">Escalated to PAGE</text>
-            <text class="s" x="656" y="204">recorded in /recent</text>
+            <text class="s" x="656" y="204">recorded once · not sent yet</text>
           </svg>
         </div>
-        <figcaption>If the same alert is sent again, its first deadline stands, so repeated webhooks can't keep pushing the page back. Pending reviews live in memory, so a restart drops them instead of paging.</figcaption>
+        <figcaption>An ack doesn't resolve anything: the alert stays open until the monitoring system clears it. If the same alert is sent again, its first deadline stands, so repeated webhooks can't keep pushing the page back, and a closed review stays closed. With <code>[reviews] store</code> set, every open, ack, cancellation and escalation is written to disk before it counts: a restarted server restores pending reviews with their original deadlines, pages the ones whose deadline passed while it was down, and never repeats an escalation or reopens an acked or cancelled review. That supports one server process per store file, on local disk. Without a store, reviews live in memory and a restart drops them, and the server warns at startup.</figcaption>
       </figure>
     </div>
   </section>

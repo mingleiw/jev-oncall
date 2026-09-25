@@ -56,3 +56,10 @@ homepage = ["edge"]
 # Uncomment to make /ack and /label (and the dashboard's Ack and label buttons)
 # require Authorization: Bearer <JEV_WEBHOOK_SECRET>. Needs JEV_WEBHOOK_SECRET set.
 # require_token = true
+
+# [reviews]
+# Uncomment to keep reviews on disk so they survive a restart: pending ones keep
+# their deadlines, overdue ones page on startup, acked ones stay closed. One
+# server process per file, on local disk. Without it, reviews live in memory and
+# the server warns at startup. Overridden by --review-store.
+# store = "reviews.jsonl"

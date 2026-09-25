@@ -105,7 +105,7 @@ class LogAndReport(unittest.TestCase):
         counts = {c["key"]: c["count"] for c in s["comparisons"]}
         self.assertEqual((counts["agree"], counts["page_to_review"], counts["page_added"]),
                          (1, 1, 1))
-        self.assertEqual(s["pages"], {"your_routing": 2, "jev_oncall": 2})
+        self.assertEqual(s["pages"], {"your_routing": 2, "jev_oncall": 2, "escalated_reviews": 0})
         self.assertEqual(s["reviews"], {"acked": 1})
         self.assertEqual(s["labeled"], 1)
         self.assertEqual(s["unreadable_lines"], 1)
