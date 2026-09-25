@@ -45,7 +45,7 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(page.count('class="pin '), judged)
         for a in alerts:
             self.assertIn(f'id="alert-{a["id"]}"', page)
-        self.assertIn("flagged for paging", page)
+        self.assertRegex(page, r"\d+ paged")
         self.assertIn("Against the labels", page)
 
     def test_no_em_or_en_dashes_anywhere(self):

@@ -291,13 +291,13 @@ class Baselines(unittest.TestCase):
         report = evaluate.compute_report(results, alerts)
         self.assertEqual(summary["pages"]["your_routing"], 5)
         self.assertEqual(report["theirs"]["pages"], 5)  # was 4: the evaluation skipped staging
-        self.assertEqual((summary["pages"]["jev_oncall"], report["ours"]["pages"]), (2, 2))
+        self.assertEqual((summary["pages"]["jev_oncall"], report["ours"]["pages"]), (3, 3))
         self.assertEqual(summary["alerts"], len(report["decisions"]))
         # The staging alert: configured critical, so your routing pages it; jev-oncall logs it.
         self.assertEqual(evaluate.baseline_decisions(alerts)["staging-disk"].action, "PAGE")
         html = session.render()
         self.assertIn("Your current routing paged 5;", html)
-        self.assertIn('<td>Pages sent, all 9 alerts</td><td class="n">2</td><td class="n">5</td>', html)
+        self.assertIn('<td>Pages sent, all 8 alerts</td><td class="n">3</td><td class="n">5</td>', html)
         self.assertIn("Your current routing means configured severity only", html)
 
     def test_the_bundled_run_uses_the_shadow_baseline(self):
@@ -325,17 +325,17 @@ class DemoEngine(unittest.TestCase):
         s = build_demo.DemoSession()
         before = self.text(s.render())
         self.assertIn("Reviews waiting for an ack 2", before)
-        self.assertIn("Of the reviews, 2 still waiting.", before)
-        self.assertTrue(s.apply({"type": "ack", "id": "search-mem", "by": "alice"})["ok"])
+        self.assertIn("Of 2 sent to review, 2 still waiting.", before)
+        self.assertTrue(s.apply({"type": "ack", "id": "tls-cert", "by": "alice"})["ok"])
         self.assertTrue(s.apply({"type": "ack", "id": "payment", "by": "bob"})["ok"])
         after = s.render()
         text = self.text(after)
         self.assertIn("Reviews waiting for an ack 0", text)
-        self.assertIn("Now: acked by alice, won't page", text)
-        self.assertIn("Now: acked by bob, won't page", text)
-        self.assertIn("Of the reviews, 2 acked.", text)
-        self.assertIn("Acked by alice at 14:04 UTC: someone is on it, so it won't escalate. "
-                      "The alert itself isn't resolved.", text)
+        self.assertIn("Of 2 sent to review, 2 acked.", text)
+        for who in ("alice", "bob"):
+            self.assertIn(f"Acked by {who} at 14:04 UTC: someone is on it, so it won't escalate. "
+                          "The alert itself isn't resolved.", text)
+        self.assertNotIn("Waiting for an ack since", text)  # the cards moved on too
         self.assertNotIn('class="pend-left"', after)  # no countdown left running
         self.assertIn("Sent to review", text)  # the arrival decision is kept, not rewritten
         s.apply({"type": "advance"})
@@ -343,21 +343,22 @@ class DemoEngine(unittest.TestCase):
         self.assertFalse(s.apply({"type": "ack", "id": "payment"})["ok"])
 
     def test_advancing_the_clock_escalates_what_nobody_acked(self):
-        s = build_demo.DemoSession([{"type": "ack", "id": "search-mem", "by": "alice"}])
+        s = build_demo.DemoSession([{"type": "ack", "id": "tls-cert", "by": "alice"}])
         result = s.apply({"type": "advance"})
         self.assertIn("Nobody acked payment in time", result["message"])
         text = self.text(s.render())
-        self.assertIn("Demo clock: 14:19 UTC", text)
-        self.assertIn("Now: paged at 14:19 UTC, nobody acked", text)
-        self.assertIn("jev-oncall paged 2 on arrival, plus 1 review nobody acked, which then paged", text)
+        self.assertIn("Demo clock 14:19 UTC", text)
+        self.assertIn("Paged (escalated)", text)
+        self.assertIn("Nobody acked within 15 min, so it paged at 14:19 UTC.", text)
+        self.assertIn("jev-oncall paged 3 on arrival, plus 1 review nobody acked, which then paged", text)
 
     def test_an_alert_that_clears_cancels_its_review(self):
         s = build_demo.DemoSession()
-        self.assertTrue(s.apply({"type": "resolve", "id": "search-mem"})["ok"])
+        self.assertTrue(s.apply({"type": "resolve", "id": "tls-cert"})["ok"])
         s.apply({"type": "advance"})
         states = {aid: st["state"] for aid, st in s.runner.reviews.states().items()}
-        self.assertEqual(states, {"search-mem": "cancelled", "payment": "escalated"})
-        self.assertIn("Now: alert cleared, won't page", self.text(s.render()))
+        self.assertEqual(states, {"tls-cert": "cancelled", "payment": "escalated"})
+        self.assertIn("the alert cleared before anyone acked, so no page.", self.text(s.render()))
 
     def test_a_jev_timeout_falls_back_to_configured_severity(self):
         s = build_demo.DemoSession()
@@ -371,7 +372,7 @@ class DemoEngine(unittest.TestCase):
         self.assertIsNone(rec["judgment"])
         text = self.text(s.render())
         self.assertIn("1 alert fell back to configured severity because Jev was unavailable", text)
-        self.assertIn("Fallback: Jev unavailable", text)
+        self.assertIn("Jev unavailable (TimeoutError", text)  # on the alert's own card
         self.assertIn("1 by fallback", text)
         self.assertFalse(s.apply({"type": "timeout"})["ok"])  # once per session
 
@@ -394,7 +395,7 @@ class DemoEngine(unittest.TestCase):
         self.assertEqual(len(s.actions), 2)  # rejected actions aren't replayed
 
     def test_start_over_and_replay_are_exact(self):
-        actions = [{"type": "ack", "id": "search-mem", "by": "alice"}, {"type": "advance"},
+        actions = [{"type": "ack", "id": "tls-cert", "by": "alice"}, {"type": "advance"},
                    {"type": "timeout"},
                    {"type": "label", "id": "homepage", "label": {"severity": "SEV2", "actionable": True,
                                                                   "team": None, "duplicate_of": None}}]
@@ -405,7 +406,7 @@ class DemoEngine(unittest.TestCase):
         fresh = build_demo.DemoSession().render()  # Start over
         self.assertEqual(fresh, build_demo.build())
         self.assertIn("2 alerts labeled so far", self.text(fresh))
-        self.assertIn("Demo clock: 14:04 UTC", self.text(fresh))
+        self.assertIn("Demo clock 14:04 UTC", self.text(fresh))
 
     def test_the_published_demo_is_current(self):
         docs = os.path.join(triage.BASE, "docs", "demo")
@@ -415,14 +416,12 @@ class DemoEngine(unittest.TestCase):
             with open(os.path.join(triage.BASE, name), "rb") as a, open(os.path.join(docs, "engine", name), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"docs/demo/engine/{name} is stale: run python3 build_demo.py")
 
-    def test_scripted_wording_and_navigation(self):
+    def test_replayed_wording_and_navigation(self):
         html = build_demo.build()
         text = self.text(html)
-        self.assertNotIn("Jev calls", text)
-        self.assertNotIn("judged by Jev", text)
-        self.assertIn("8 scripted answers, no model calls", text)
-        self.assertIn("8 judged by scripted answers", text)
-        self.assertIn("the probability the scripted answer gives SEV1 or SEV2", text)
+        self.assertIn(f"replayed from the real {build_demo.MODEL} run on 2026-09-23", text)
+        self.assertIn("7 judged by Jev, 1 by rule, 0 by fallback", text)
+        self.assertNotIn("scripted", text)
         for href in ('href="../"', 'href="../architecture.html"', 'href="https://github.com/mingleiw/jev-oncall"'):
             self.assertIn(href, html)
         # A real run still says Jev, with its cost.
@@ -434,14 +433,12 @@ class DemoEngine(unittest.TestCase):
 
     def test_overrides_are_named_where_they_happen(self):
         html = build_demo.build()
-        row = re.search(r'id="alert-payment">.*?</details>', html, re.S).group(0)
-        self.assertIn('<span class="sub override">Review: different owning team</span>', row)
-        self.assertIn("On its own, its P(page) says page now. It joined incident orders-db, and database owns "
-                      "orders-db, so compute gets a review", row)
-        self.assertIn("Threshold: page", html)
-        self.assertIn("Dedup and ownership rules run next", html)
-        pin = re.search(r'<a class="pin[^"]*" href="#alert-payment"[^>]*>', html).group(0)
-        self.assertIn("threshold says page now; final: sent to review (different owning team)", pin)
+        item = re.search(r'<div class="insp-item" data-id="payment".*?(?=<div class="insp-item"|$)',
+                         html, re.S).group(0)
+        self.assertIn("Policy override", item)
+        self.assertIn("On its own, its P(page) says page. It joined incident checkout, and database owns "
+                      "checkout, so compute gets a review", self.text(item))
+        self.assertIn("root is owned by database, so compute gets a REVIEW", item)
 
     def test_the_homepage_instrument_matches_the_demo(self):
         """docs/index.html draws the demo's alerts by hand: keep it honest."""
@@ -454,15 +451,25 @@ class DemoEngine(unittest.TestCase):
                 for a, r in session.runner.records if r["judgment"]}
         self.assertEqual(drawn, want)
 
-    def test_chart_targets_are_44px_and_never_overlap(self):
+    def test_the_demo_links_alerts_to_their_cards(self):
         html = build_demo.build()
+        for a in build_demo.alerts():
+            self.assertIn(f'data-id="{a["id"]}"', html)
+        self.assertIn("a[href^=\"#alert-\"]", html)  # #alert-<id> links (and the homepage's) open the card
+        self.assertIn('location.hash.indexOf("#alert-")', html)
+
+    def test_chart_targets_are_44px_and_never_overlap(self):
+        results, alerts = bundled_run()
+        html = generate_dashboard.render(results, alerts)
         self.assertIn("--hit: 44px; --step: 44px;", html)
         self.assertIn("width: min(var(--hit), var(--w))", html)
-        pins = re.findall(r'<a class="pin[^"]*"[^>]*style="([^"]*)"[^>]*aria-label="([^"]+)"', html)
-        self.assertEqual(len(pins), 8)
+        pins = re.findall(r'<a class="(pin[^"]*)"[^>]*style="([^"]*)"[^>]*aria-label="([^"]+)"', html)
+        self.assertEqual(len(pins), sum(1 for r in results["alerts"] if r["judgment"]))
         for mode in "dtm":
             spots = set()
-            for style, label in pins:
+            for cls, style, label in pins:
+                if f"hide-{mode}" in cls:
+                    continue  # past the stack limit: counted in the "+n" label instead
                 v = dict(re.findall(r"--(\w+):([\d.]+)%?", style))
                 self.assertGreaterEqual(float(v[f"w{mode}"]) / 100, generate_dashboard.RAIL_GAPS[mode] - 1e-9)
                 spot = (v[f"x{mode}"], v[f"k{mode}"])

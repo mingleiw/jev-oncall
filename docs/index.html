@@ -23,7 +23,7 @@
   .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 
   .instrument { margin-top: 72px; }
-  .plot { position: relative; height: 148px; margin: 0 22px; }
+  .plot { position: relative; height: 184px; margin: 0 22px; }
   .alert { position: absolute; left: var(--x); bottom: calc(var(--k) * 44px); width: 44px; height: 44px;
     transform: translateX(-50%); display: grid; place-items: center; border-radius: 50%; }
   .alert > i { width: 14px; height: 14px; border-radius: 50%; transition: transform .15s ease; }
@@ -148,24 +148,23 @@
 
       <!-- The demo's staged incident, as build_demo.py triages it. test_reviews checks these against it. -->
       <figure class="instrument" aria-labelledby="instrument-cap" style="margin-inline: 0; margin-bottom: 0;">
-        <div class="plot" role="group" aria-label="Eight production alerts on the P(page) scale">
-          <a class="alert quiet at-start" data-id="gc-pause" data-p="0.00" data-final="DROP" style="--x:0%;--k:0;--i:0" href="demo/#alert-gc-pause" data-tip="gc-pause, P(page) 0.00: dropped as noise" aria-label="gc-pause, P(page) 0.00: dropped as noise"><i></i></a>
-          <a class="alert ticket at-start" data-id="report-job" data-p="0.00" data-final="TICKET" style="--x:0%;--k:1;--i:1" href="demo/#alert-report-job" data-tip="report-job, P(page) 0.00: ticketed" aria-label="report-job, P(page) 0.00: ticketed"><i></i></a>
-          <a class="alert ticket at-start" data-id="tls-cert" data-p="0.00" data-final="TICKET" style="--x:0%;--k:2;--i:2" href="demo/#alert-tls-cert" data-tip="tls-cert, P(page) 0.00: ticketed" aria-label="tls-cert, P(page) 0.00: ticketed"><i></i></a>
-          <a class="alert review" data-id="search-mem" data-p="0.35" data-final="REVIEW" style="--x:35%;--k:0;--i:3" href="demo/#alert-search-mem" data-tip="search-mem, P(page) 0.35: sent to review" aria-label="search-mem, P(page) 0.35: sent to review"><i></i></a>
-          <a class="alert page" data-id="homepage" data-p="0.85" data-final="PAGE" style="--x:85%;--k:0;--xm:90%;--km:0;--i:4" href="demo/#alert-homepage" data-tip="homepage, P(page) 0.85: paged" aria-label="homepage, P(page) 0.85: paged"><i></i></a>
-          <a class="alert linked at-end" data-id="checkout" data-p="0.90" data-final="DEDUP" style="--x:90%;--k:0;--xm:90%;--km:1;--i:5" href="demo/#alert-checkout" data-tip="checkout, P(page) 0.90: linked to orders-db, which already pages" aria-label="checkout, P(page) 0.90: linked to orders-db, which already pages"><i></i></a>
-          <a class="alert review at-end" data-id="payment" data-p="0.90" data-final="REVIEW" style="--x:90%;--k:1;--xm:90%;--km:2;--i:6" href="demo/#alert-payment" data-tip="payment, P(page) 0.90: sent to review, another team owns its incident" aria-label="payment, P(page) 0.90: sent to review, because another team owns its incident"><i></i></a>
-          <a class="alert page at-end" data-id="orders-db" data-p="0.95" data-final="PAGE_NOW" style="--x:95%;--k:0;--xm:90%;--km:3;--i:7" href="demo/#alert-orders-db" data-tip="orders-db, P(page) 0.95: paged now" aria-label="orders-db, P(page) 0.95: paged now"><i></i></a>
+        <div class="plot" role="group" aria-label="Seven production alerts on the P(page) scale">
+          <a class="alert ticket at-start" data-id="report-job" data-p="0.00" data-final="TICKET" style="--x:0%;--k:0;--i:0" href="demo/#alert-report-job" data-tip="report-job, P(page) 0.00: ticketed" aria-label="report-job, P(page) 0.00: ticketed"><i></i></a>
+          <a class="alert ticket" data-id="search-mem" data-p="0.07" data-final="TICKET" style="--x:7%;--k:0;--xm:0%;--km:1;--i:1" href="demo/#alert-search-mem" data-tip="search-mem, P(page) 0.07: ticketed" aria-label="search-mem, P(page) 0.07: ticketed"><i></i></a>
+          <a class="alert review" data-id="tls-cert" data-p="0.47" data-final="REVIEW" style="--x:47%;--k:0;--i:2" href="demo/#alert-tls-cert" data-tip="tls-cert, P(page) 0.47: unsure, sent to review" aria-label="tls-cert, P(page) 0.47: unsure, sent to review"><i></i></a>
+          <a class="alert page at-end" data-id="orders-db" data-p="1.00" data-final="PAGE" style="--x:100%;--k:0;--i:3" href="demo/#alert-orders-db" data-tip="orders-db, P(page) 1.00: paged" aria-label="orders-db, P(page) 1.00: paged"><i></i></a>
+          <a class="alert page at-end" data-id="checkout" data-p="1.00" data-final="PAGE_NOW" style="--x:100%;--k:1;--i:4" href="demo/#alert-checkout" data-tip="checkout, P(page) 1.00: paged now" aria-label="checkout, P(page) 1.00: paged now"><i></i></a>
+          <a class="alert review at-end" data-id="payment" data-p="1.00" data-final="REVIEW" style="--x:100%;--k:2;--i:5" href="demo/#alert-payment" data-tip="payment, P(page) 1.00: sent to review, because another team owns its incident (checkout)" aria-label="payment, P(page) 1.00: sent to review, because another team owns its incident (checkout)"><i></i></a>
+          <a class="alert page at-end" data-id="homepage" data-p="1.00" data-final="PAGE" style="--x:100%;--k:3;--i:6" href="demo/#alert-homepage" data-tip="homepage, P(page) 1.00: paged" aria-label="homepage, P(page) 1.00: paged"><i></i></a>
         </div>
         <div class="scale" aria-hidden="true"></div>
         <div class="bars" aria-hidden="true"><b style="left:20%"></b><b style="left:80%"></b></div>
         <div class="readout">
-          <div class="zone"><h2>No page<small>0 to 0.20</small></h2><p><b>3 alerts.</b> Ticketed, or dropped when it's clearly noise.</p></div>
-          <div class="zone"><h2>Review<small>0.20 to 0.80</small></h2><p><b>search-mem.</b> Unsure costs a human's attention, never silence: if nobody acks it within 15 minutes, it pages.</p></div>
-          <div class="zone"><h2>Page<small>0.80 to 1</small></h2><p><b>orders-db pages.</b> Checkout links to it. Payment goes to review: another team owns that incident.</p></div>
+          <div class="zone"><h2>No page<small>0 to 0.20</small></h2><p><b>2 alerts.</b> Ticketed, or dropped when it's clearly noise.</p></div>
+          <div class="zone"><h2>Review<small>0.20 to 0.80</small></h2><p><b>tls-cert.</b> Unsure costs a human's attention, never silence: if nobody acks it within 15 minutes, it pages.</p></div>
+          <div class="zone"><h2>Page<small>0.80 to 1</small></h2><p><b>orders-db, checkout and homepage page.</b> Payment is a duplicate of checkout, which another team owns, so it goes to review.</p></div>
         </div>
-        <figcaption id="instrument-cap">Each dot is an alert from the demo's staged incident, placed at P(page), the probability Jev's answer gives SEV1 or SEV2 (scripted in the demo). The thresholds decide first; dedup and ownership rules can change the outcome after. <a href="demo/">Open the demo</a> to ack, label and fail them yourself.</figcaption>
+        <figcaption id="instrument-cap">Each dot is an alert from the demo's staged incident, placed at P(page), the probability Jev's answer gives SEV1 or SEV2, from the real jev-1.13.0 run the demo replays. The staging alert is left off: a rule logs it without asking Jev. The thresholds decide first; dedup and ownership rules can change the outcome after. <a href="demo/">Open the demo</a> to ack, label and fail them yourself.</figcaption>
       </figure>
     </div>
   </div>
