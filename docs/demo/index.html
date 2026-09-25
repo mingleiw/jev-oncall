@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-
-<title>Triage run, Sep 24, 2026, 14:04 UTC</title>
+<title>jev-oncall &mdash; Sep 24, 2026, 14:04 UTC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;display=swap">
@@ -311,16 +310,230 @@ p.hint { margin: 12px 0 0; }
   .pend-btns { grid-column: 1 / -1; }
   .demo-btns { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Dark by default; light only when OS prefers it */
+body.app {
+  --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
+  --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+  --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
+  --sidebar-bg: #141920; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
+  color-scheme: dark;
+  display: flex; height: 100vh; overflow: hidden; margin: 0;
+}
+@media (prefers-color-scheme: light) {
+  body.app {
+    --ground: #F3F5F6; --face: #E7EBEE; --ink: #1C232B; --graphite: #5A6572; --rule: #CBD2D8;
+    --accent: #C21F3A; --accent-mid: #D87F8F; --accent-wash: rgba(194, 31, 58, .10); --accent-ink: #FFFFFF;
+    --review: #9A5B00; --review-wash: rgba(232, 163, 61, .20);
+    --sidebar-bg: #1C232B; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
+    color-scheme: light;
+  }
+}
+
+/* Sidebar */
+.sidebar { width: 220px; flex-shrink: 0; background: var(--sidebar-bg);
+  display: flex; flex-direction: column; z-index: 10; overflow-y: auto; }
+.sidebar-header { padding: 18px 16px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.sidebar-header .mark { color: #E5E9ED; }
+.sidebar-header .site-nav { margin-top: 8px; }
+.sidebar-header .site-nav a { color: var(--sidebar-text); font-size: 13px; min-height: 32px; padding: 0 8px; }
+.sidebar-header .site-nav a:hover { color: #E5E9ED; background: rgba(255,255,255,.06); }
+.sidebar-nav { flex: 1; padding: 8px 0; list-style: none; margin: 0; }
+.sidebar-nav li { margin: 0; }
+.sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; margin: 1px 8px;
+  border-radius: var(--radius); color: var(--sidebar-text); text-decoration: none;
+  font-size: 14px; font-weight: 500; transition: background .12s, color .12s; min-height: 38px; }
+.sidebar-nav a:hover { background: rgba(255,255,255,.06); color: #E5E9ED; }
+.sidebar-nav a.active { background: rgba(255,255,255,.10); color: var(--sidebar-active); font-weight: 600; }
+.sidebar-nav .nav-icon { flex: none; width: 16px; height: 16px; opacity: .7; }
+.sidebar-nav a.active .nav-icon { opacity: 1; }
+.sidebar-nav .badge { margin-left: auto; background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.07); }
+.sidebar-clock { display: grid; gap: 2px; margin-bottom: 10px; }
+.sidebar-clock .clock-time { font-size: 20px; font-weight: 700; color: #E5E9ED;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.sidebar-clock .clock-label { font-size: 11px; color: var(--sidebar-text); text-transform: uppercase;
+  letter-spacing: .06em; font-weight: 600; }
+.sidebar-clock .clock-speed { font-size: 12px; color: var(--review); font-weight: 600; }
+.sidebar-actions { display: grid; gap: 4px; }
+.sidebar-btn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;
+  text-align: left; padding: 7px 10px; border: none; border-radius: var(--radius);
+  background: rgba(255,255,255,.07); color: var(--sidebar-text); min-height: 34px;
+  transition: background .12s, color .12s; }
+.sidebar-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); color: #E5E9ED; }
+.sidebar-btn:disabled { opacity: .4; cursor: default; }
+.sidebar-btn.ghost { background: transparent; }
+.sidebar-btn.ghost:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.sidebar-btn.danger { color: var(--accent); }
+.sidebar-btn.danger:hover:not(:disabled) { background: rgba(255,90,114,.12); }
+
+/* Main content area */
+.app-main { flex: 1; min-width: 0; overflow-y: auto; background: var(--ground); }
+.view { display: none; }
+.view.active { display: block; }
+.view-inner { max-width: 1100px; margin: 0 auto; padding: 24px 32px 56px; }
+
+/* Override .page styles inside app shell */
+body.app .page { max-width: none; margin: 0; padding: 0; }
+body.app .hero { padding-top: 0; }
+
+/* Mobile tab strip */
+.mobile-tabs { display: none; overflow-x: auto; white-space: nowrap; padding: 0 16px;
+  border-bottom: 1px solid var(--rule); background: var(--ground); position: sticky; top: 0; z-index: 5; }
+.mobile-tabs button { font: inherit; font-size: 13px; font-weight: 600; padding: 12px 14px;
+  border: none; border-bottom: 2px solid transparent; background: none; color: var(--graphite);
+  cursor: pointer; white-space: nowrap; }
+.mobile-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
+
+/* Stat tiles */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 24px; }
+.stat-tile { padding: 16px; border-radius: 6px; background: var(--face); }
+.stat-tile .tile-val { font-size: 26px; font-weight: 700; font-stretch: 112%;
+  letter-spacing: -.02em; line-height: 1.1; }
+.stat-tile .tile-val.accent { color: var(--accent); }
+.stat-tile .tile-val.review-c { color: var(--review); }
+.stat-tile .tile-label { font-size: 13px; color: var(--graphite); margin-top: 4px; }
+
+/* Overview compact review list */
+.attn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.attn-item { display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--rule); font-size: 14px; }
+.attn-item:last-child { border-bottom: none; }
+.attn-title { flex: 1; min-width: 0; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attn-time { color: var(--review); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+.attn-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: var(--radius); border: none; cursor: pointer;
+  background: var(--ink); color: var(--ground); min-height: 28px; }
+
+/* Filter pills */
+.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-pill { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 14px;
+  border-radius: 16px; border: 1px solid var(--rule); background: none; color: var(--graphite);
+  cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.filter-pill:hover { border-color: var(--ink); color: var(--ink); }
+.filter-pill.active { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+.filter-count { font-size: 13px; color: var(--graphite); margin-left: auto; }
+
+/* Flat alert table */
+.alert-tbl { width: 100%; border-collapse: collapse; }
+.alert-tbl th { padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--graphite);
+  border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap;
+  cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .04em; }
+.alert-tbl th:hover { color: var(--ink); }
+.alert-tbl th .sort-ind { font-size: 10px; margin-left: 3px; opacity: .5; }
+.alert-tbl th.sorted .sort-ind { opacity: 1; }
+.alert-tbl th.n { text-align: right; }
+.alert-tbl td { padding: 10px 10px; border-bottom: 1px solid var(--rule); font-size: 14px;
+  vertical-align: middle; }
+.alert-tbl tr.tbl-row { cursor: pointer; transition: background .1s; }
+.alert-tbl tr.tbl-row:hover { background: var(--face); }
+.alert-tbl tr.tbl-row.selected { background: var(--accent-wash); }
+.alert-tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.alert-tbl .tbl-title { font-weight: 560; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-tbl .tbl-meta { font-size: 12px; color: var(--graphite); margin-top: 1px; }
+.alert-tbl .tbl-tag { display: inline-block; padding: 1px 7px; border-radius: var(--radius);
+  font-size: 12px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+
+/* Detail panel */
+.detail-panel { width: 0; flex-shrink: 0; background: var(--ground); border-left: 1px solid var(--rule);
+  overflow-y: auto; overflow-x: hidden; transition: width .25s ease; position: relative; }
+.detail-panel.open { width: 480px; }
+.detail-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--rule); position: sticky; top: 0;
+  background: var(--ground); z-index: 1; }
+.detail-close { font: inherit; font-size: 20px; width: 32px; height: 32px; display: flex;
+  align-items: center; justify-content: center; border: none; background: var(--face);
+  color: var(--ink); border-radius: var(--radius); cursor: pointer; flex: none; }
+.detail-close:hover { background: var(--rule); }
+.detail-title-text { font-size: 16px; font-weight: 640; line-height: 1.3; overflow-wrap: anywhere; }
+.detail-meta { font-size: 13px; color: var(--graphite); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.detail-body { padding: 0 24px 32px; }
+.detail-section { padding: 16px 0; border-bottom: 1px solid var(--rule); }
+.detail-section:last-child { border-bottom: none; }
+.detail-section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--graphite);
+  text-transform: uppercase; letter-spacing: .04em; }
+.detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; }
+.detail-facts dt { font-size: 13px; color: var(--graphite); }
+.detail-facts dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.detail-review-banner { padding: 10px 14px; border-radius: var(--radius);
+  border-left: 3px solid var(--review); background: var(--review-wash); font-size: 14px; margin-bottom: 12px; }
+.detail-review-banner.escalated { border-left-color: var(--accent); background: var(--accent-wash); }
+
+/* Overview section styling */
+.ov-section { margin-bottom: 32px; }
+.ov-section h2 { margin: 0 0 12px; font-size: 16px; font-weight: 680; font-stretch: 112%;
+  letter-spacing: -.01em; color: var(--ink); }
+.ov-banner { margin-bottom: 20px; }
+
+/* Demo banner in overview */
+body.app .demo-banner { margin: 0; }
+
+/* Reviews view adjustments */
+body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
+body.app .live-box + .live-box { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--rule); }
+body.app .demo-controls { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); }
+body.app .live-you { margin-top: 0; margin-bottom: 16px; }
+
+/* Compare + Eval view adjustments */
+body.app .eval { margin-top: 0; }
+body.app .facts { margin-top: 32px; }
+body.app .alerts { margin-top: 0; }
+
+/* Hide elements not needed in app shell */
+body.app .foot { display: none; }
+
+@media (max-width: 900px) {
+  body.app { flex-direction: column; }
+  .sidebar { display: none; }
+  .mobile-tabs { display: flex; }
+  .view-inner { padding: 16px 16px 56px; }
+  .detail-panel { position: fixed; inset: 0; width: 100% !important; z-index: 100;
+    transform: translateX(100%); transition: transform .25s ease; }
+  .detail-panel.open { transform: none; width: 100% !important; }
+  .stat-tiles { grid-template-columns: repeat(2, 1fr); }
+  .alert-tbl .tbl-title { max-width: 200px; }
+}
+@media (max-width: 560px) {
+  .stat-tiles { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-tile { padding: 12px; }
+  .stat-tile .tile-val { font-size: 22px; }
+}
 </style>
 </head>
-<body>
-<main class="page">
-  <header class="top">
+<body class="app" data-review-count="2" data-alert-count="9" data-demo-clock="14:04 UTC">
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
     <p class="mark">jev-oncall</p>
     <nav class="site-nav" aria-label="jev-oncall site"><a href="../">Home</a><a href="../architecture.html">Architecture</a><a href="https://github.com/mingleiw/jev-oncall">GitHub</a></nav>
-    <p class="run"><span>Triage run</span><span>Sep 24, 2026, 14:04 UTC</span></p>
-  </header>
+  </div>
+  <ul class="sidebar-nav"><li><a href="#" data-view="overview" class="active"><span class="nav-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></span>Overview</a></li><li><a href="#" data-view="alerts" class=""><span class="nav-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1.5c-3 0-5.5 3-5.5 7h11c0-4-2.5-7-5.5-7z"/><path d="M4 11.5h8M6.5 13.5a1.5 1.5 0 003 0"/></svg></span>Alerts<span class="badge">9</span></a></li><li><a href="#" data-view="reviews" class=""><span class="nav-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 4v4.5l3 1.5"/></svg></span>Reviews<span class="badge">2</span></a></li><li><a href="#" data-view="compare" class=""><span class="nav-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1v14M3 4h3M3 8h3M3 12h3M10 4h3M10 8h3M10 12h3"/></svg></span>Compare</a></li><li><a href="#" data-view="eval" class=""><span class="nav-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M2 14l3.5-5 3 3 5.5-8"/><path d="M10.5 4H14v3.5"/></svg></span>Evaluation</a></li></ul>
   
+<div class="sidebar-footer">
+  <div class="sidebar-clock">
+    <span class="clock-label">Demo clock</span>
+    <span class="clock-time" id="sidebar-clock">14:04 UTC</span>
+    <span class="clock-speed">15&times; speed</span>
+  </div>
+  <div class="sidebar-actions">
+    <button type="button" class="sidebar-btn" id="demo-advance" data-demo="advance">Advance 15 min</button>
+    <button type="button" class="sidebar-btn" id="demo-timeout" data-demo="timeout">Jev timeout</button>
+    <button type="button" class="sidebar-btn ghost danger" id="demo-reset">Start over</button>
+  </div>
+  <p class="live-status" id="demo-status" role="status" style="margin-top:8px;font-size:12px"></p>
+</div>
+</aside>
+<div class="app-main" id="app-main">
+  <nav class="mobile-tabs" id="mobile-tabs">
+    <button data-view="overview" class="active">Overview</button>
+    <button data-view="alerts">Alerts</button>
+    <button data-view="reviews">Reviews</button>
+    <button data-view="compare">Compare</button>
+    <button data-view="eval">Eval</button>
+  </nav>
+  <div class="view active" id="view-overview"><div class="view-inner" id="overview-content">
+  <div class="ov-banner">
 <section class="demo-banner" aria-label="About this demo">
   <p><b>Demo with sample data.</b> The alerts are the Docker demo's staged incident, and the model's
     answers are scripted (no model is called), so this shows how jev-oncall works, not how well Jev
@@ -328,12 +541,14 @@ p.hint { margin: 12px 0 0; }
     the review clock, shadow mode and the evaluation. jev-oncall records each decision, including a page. Sending pages to PagerDuty, Slack or Jira isn&#x27;t built yet.</p>
   <p>What you do here is kept in this browser only, until you press <b>Start over</b>. Nothing is
     sent anywhere and nobody is notified.</p>
-</section>
-  
+</section></div>
   <section class="hero" aria-labelledby="thesis">
     <h1 id="thesis">2 flagged for paging; 2 flagged for review.</h1>
     <p class="follow">1 more was linked to an incident that already paged, and 4 were ticketed, logged or dropped. Of the reviews, 2 still waiting.</p>
-    <ul class="stats"><li><b>9</b><span>alerts</span></li><li><b>8</b><span>scripted answers, no model calls</span></li></ul>
+  </section>
+  <div class="stat-tiles"><div class="stat-tile"><div class="tile-val ">9</div><div class="tile-label">Alerts</div></div><div class="stat-tile"><div class="tile-val accent">2</div><div class="tile-label">Paged</div></div><div class="stat-tile"><div class="tile-val review-c">2</div><div class="tile-label">In review</div></div><div class="stat-tile"><div class="tile-val ">2</div><div class="tile-label">Ticketed</div></div><div class="stat-tile"><div class="tile-val ">3</div><div class="tile-label">Quiet / linked</div></div></div>
+  
+  <div class="ov-section"><h2>P(page) scale</h2>
     
 <figure class="rail">
   <div class="instrument">
@@ -360,12 +575,21 @@ p.hint { margin: 12px 0 0; }
   <figcaption>Each dot is an alert, placed at P(page): the probability the scripted answer gives SEV1 or SEV2. The zones are the first step, the policy&#x27;s thresholds at 0.20 and 0.80. Dedup and ownership rules run next, so a dot&#x27;s fill is the final decision: a dot in the page zone may be linked to an incident that already pages, or sent to review because another team owns that incident. Select a dot to jump to its alert. 1 alert skipped the model and is listed below only.</figcaption>
   <ul class="legend" aria-label="Final decision"><li><span class="m m-page" aria-hidden="true"></span>Paged</li><li><span class="m m-linked" aria-hidden="true"></span>Linked to a paged incident</li><li><span class="m m-review" aria-hidden="true"></span>Sent to review</li><li><span class="m m-ticket" aria-hidden="true"></span>Ticketed</li><li><span class="m m-quiet" aria-hidden="true"></span>Logged or dropped</li></ul>
 </figure>
-  </section>
+  </div>
+  <div class="ov-section"><h2>Needs attention</h2><ul class="attn-list"><li class="attn-item"><span class="m m-review" aria-hidden="true"></span><span class="attn-title">SearchApiHighMemory: memory 88% of limit on search-api</span><span class="attn-time">14m 45s</span><button type="button" class="attn-btn ack" data-id="search-mem">Ack</button></li><li class="attn-item"><span class="m m-review" aria-hidden="true"></span><span class="attn-title">PaymentServiceErrors: payment authorization failures 18%</span><span class="attn-time">14m 45s</span><button type="button" class="attn-btn ack" data-id="payment">Ack</button></li></ul></div>
+</div></div>
+  <div class="view" id="view-alerts"><div class="view-inner" id="alerts-content">
+  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Alerts</h2>
+  <div class="filter-bar"><button class="filter-pill active" data-filter="all">All</button><button class="filter-pill" data-filter="page">Paged</button><button class="filter-pill" data-filter="review">Review</button><button class="filter-pill" data-filter="ticket">Ticketed</button><button class="filter-pill" data-filter="quiet">Quiet</button><button class="filter-pill" data-filter="linked">Linked</button><span class="filter-count">9 alerts</span></div>
+  <table class="alert-tbl"><thead><tr><th style="width:30px"></th><th data-sort="title">Alert <span class="sort-ind"></span></th><th data-sort="decision">Decision <span class="sort-ind"></span></th><th data-sort="owner">Owner <span class="sort-ind"></span></th><th class="n" data-sort="pp">P(page) <span class="sort-ind"></span></th><th class="n" data-sort="pa">Actionable <span class="sort-ind"></span></th></tr></thead><tbody><tr class="tbl-row" data-id="orders-db" data-kind="page" data-pp="0.9500" data-pa="0.9700"><td><span class="m m-page" style="width:10px;height:10px"></span></td><td><div class="tbl-title">OrdersDbPoolExhausted: connection pool 100% used (500/500) on the orders-db primary</div><div class="tbl-meta">orders-db · orders-db · 14:03 UTC</div></td><td><span class="tbl-tag tag-page">Paged now</span></td><td>database</td><td class="n">0.95</td><td class="n">0.97</td></tr><tr class="tbl-row" data-id="staging-disk" data-kind="quiet" data-pp="0" data-pa="0"><td><span class="m m-quiet" style="width:10px;height:10px"></span></td><td><div class="tbl-title">StagingDiskFull: disk 97% full on staging CI runner</div><div class="tbl-meta">staging-disk · ci-runner · 14:03 UTC</div></td><td><span class="tbl-tag tag-quiet">Logged</span></td><td>triage-rotation</td><td class="n">-</td><td class="n">-</td></tr><tr class="tbl-row" data-id="search-mem" data-kind="review" data-pp="0.3500" data-pa="0.6000"><td><span class="m m-review" style="width:10px;height:10px"></span></td><td><div class="tbl-title">SearchApiHighMemory: memory 88% of limit on search-api</div><div class="tbl-meta">search-mem · search-api · 14:03 UTC</div></td><td><span class="tbl-tag tag-review">Sent to review</span> <span class="state state-pending">waiting for an ack</span></td><td>compute</td><td class="n">0.35</td><td class="n">0.60</td></tr><tr class="tbl-row" data-id="checkout" data-kind="linked" data-pp="0.9000" data-pa="0.9500"><td><span class="m m-linked" style="width:10px;height:10px"></span></td><td><div class="tbl-title">CheckoutApiErrorRate: 5xx rate 31% for 5m</div><div class="tbl-meta">checkout · checkout-api · 14:03 UTC</div></td><td><span class="tbl-tag tag-linked">Linked to orders-db</span></td><td>database</td><td class="n">0.90</td><td class="n">0.95</td></tr><tr class="tbl-row" data-id="payment" data-kind="review" data-pp="0.9000" data-pa="0.9300"><td><span class="m m-review" style="width:10px;height:10px"></span></td><td><div class="tbl-title">PaymentServiceErrors: payment authorization failures 18%</div><div class="tbl-meta">payment · payment-service · 14:03 UTC</div></td><td><span class="tbl-tag tag-review">Sent to review</span> <span class="state state-pending">waiting for an ack</span></td><td>compute</td><td class="n">0.90</td><td class="n">0.93</td></tr><tr class="tbl-row" data-id="tls-cert" data-kind="ticket" data-pp="0.0000" data-pa="0.9000"><td><span class="m m-ticket" style="width:10px;height:10px"></span></td><td><div class="tbl-title">TlsCertExpiringSoon: TLS certificate for api.example.com expires in 25 days</div><div class="tbl-meta">tls-cert · edge · 14:03 UTC</div></td><td><span class="tbl-tag tag-ticket">Ticketed</span></td><td>network</td><td class="n">0.00</td><td class="n">0.90</td></tr><tr class="tbl-row" data-id="report-job" data-kind="ticket" data-pp="0.0000" data-pa="0.3000"><td><span class="m m-ticket" style="width:10px;height:10px"></span></td><td><div class="tbl-title">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</div><div class="tbl-meta">report-job · report-batch · 14:03 UTC</div></td><td><span class="tbl-tag tag-ticket">Ticketed</span></td><td>compute</td><td class="n">0.00</td><td class="n">0.30</td></tr><tr class="tbl-row" data-id="homepage" data-kind="page" data-pp="0.8500" data-pa="0.9000"><td><span class="m m-page" style="width:10px;height:10px"></span></td><td><div class="tbl-title">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</div><div class="tbl-meta">homepage · homepage · 14:03 UTC</div></td><td><span class="tbl-tag tag-page">Paged</span></td><td>compute</td><td class="n">0.85</td><td class="n">0.90</td></tr><tr class="tbl-row" data-id="gc-pause" data-kind="quiet" data-pp="0.0000" data-pa="0.0200"><td><span class="m m-quiet" style="width:10px;height:10px"></span></td><td><div class="tbl-title">GcPauseSpike: GC pause p99 120ms on batch-worker</div><div class="tbl-meta">gc-pause · batch-worker · 14:03 UTC</div></td><td><span class="tbl-tag tag-quiet">Dropped</span></td><td>compute</td><td class="n">0.00</td><td class="n">0.02</td></tr></tbody></table>
+</div></div>
+  <div class="view" id="view-reviews"><div class="view-inner" id="reviews-content">
   
 <section class="live-you" aria-label="Who is acting">
   <label for="you-name">Your name<input id="you-name" autocomplete="name" placeholder="shown on acks and labels"></label>
   
 </section>
+  
 <section class="live-box" id="reviews" aria-labelledby="pending-h">
   <h2 id="pending-h" tabindex="-1">Reviews waiting for an ack <span class="count">2</span></h2>
   <p class="live-lede">Ack means someone is on it: the review closes and won&#x27;t escalate to a page. It doesn&#x27;t resolve the incident; the alert stays open until your monitoring clears it. If nobody acks before the deadline, the review escalates to a page.</p>
@@ -385,6 +609,7 @@ p.hint { margin: 12px 0 0; }
   
   
 </section>
+  
 <section class="live-box demo-controls" id="demo-controls" aria-labelledby="demo-h">
   <h2 id="demo-h">Try the safety paths</h2>
   <p class="live-lede">Demo clock: <b id="demo-clock">14:04 UTC</b>. It only moves when you advance it.</p>
@@ -399,6 +624,10 @@ p.hint { margin: 12px 0 0; }
   <p class="hint">To resolve a review before its deadline, use <b>Alert clears</b> beside it above.</p>
   <p class="live-status" id="demo-status" role="status"></p>
 </section>
+</div></div>
+  <div class="view" id="view-compare"><div class="view-inner" id="compare-content">
+  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Compare with current routing</h2>
+  
 <section class="live-box" aria-labelledby="shadow-h">
   <h2 id="shadow-h">Compared with your current routing</h2>
   <p class="live-lede">Since Sep 24, 2026, 14:03 UTC: 9 alerts. Your current routing paged 5;
@@ -408,17 +637,20 @@ p.hint { margin: 12px 0 0; }
   <ul class="cmp-list"><li class=""><span class="n">2</span>Same as your current routing</li><li class=""><span class="n">1</span>Would page, your routing didn&#x27;t</li><li class=""><span class="n">1</span>Would ask for a review, your routing didn&#x27;t page</li><li class=""><span class="n">1</span>Your routing paged, would ask for a review instead</li><li class=""><span class="n">1</span>Your routing paged, would fold into an incident that already pages</li><li class=""><span class="n">2</span>Your routing paged, would not page</li><li class="cmp-drop"><span class="n">1</span>Would drop, nobody sees it</li></ul>
   <div class="table-wrap"><table class="diffs"><thead><tr><th>Latest differences</th><th>Your routing → jev-oncall</th></tr></thead><tbody><tr><td><a href="#alert-gc-pause">GcPauseSpike: GC pause p99 120ms on batch-worker</a><span class="pend-meta">P(page)=0.00 P(actionable)=0.02 team=compute@1.00</span></td><td class="act">LOG → DROP</td></tr><tr><td><a href="#alert-staging-disk">StagingDiskFull: disk 97% full on staging CI runner</a><span class="pend-meta">env=staging: non-production never pages (rule, no model call)</span></td><td class="act">PAGE → LOG</td></tr><tr><td><a href="#alert-search-mem">SearchApiHighMemory: memory 88% of limit on search-api</a><span class="pend-meta">P(page)=0.35 P(actionable)=0.60 team=compute@0.85</span></td><td class="act">TICKET → REVIEW</td></tr><tr><td><a href="#alert-checkout">CheckoutApiErrorRate: 5xx rate 31% for 5m</a><span class="pend-meta">P(page)=0.90 P(actionable)=0.95 team=database@0.75</span></td><td class="act">PAGE → DEDUP</td></tr><tr><td><a href="#alert-payment">PaymentServiceErrors: payment authorization failures 18%</a><span class="pend-meta">P(page)=0.90 P(actionable)=0.93 team=compute@0.80</span></td><td class="act">PAGE → REVIEW</td></tr><tr><td><a href="#alert-report-job">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</a><span class="pend-meta">P(page)=0.00 P(actionable)=0.30 team=compute@0.90</span></td><td class="act">PAGE → TICKET</td></tr><tr><td><a href="#alert-homepage">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</a><span class="pend-meta">P(page)=0.85 P(actionable)=0.90 team=compute@0.55</span></td><td class="act">TICKET → PAGE</td></tr></tbody></table></div>
 </section>
-  
-  <section class="alerts" aria-labelledby="alerts-h"><h2 id="alerts-h">Alerts by outcome</h2><div class="colhead" aria-hidden="true"><span></span><span>Alert</span><span>Decision</span><span>Owner</span><span>Severity, low to high</span><span class="r">P(page)</span><span class="r">Actionable</span></div><section class="group" aria-labelledby="g-page-now"><h3 id="g-page-now">Paged now<span class="count">1</span><span class="count sub">+2 linked</span></h3><ul class="rows">
-<li class="row" id="alert-orders-db">
-  <span class="glyph m m-page" aria-hidden="true"></span>
-  <div class="main"><div class="title">OrdersDbPoolExhausted: connection pool 100% used (500/500) on the orders-db primary</div><div class="meta"><span>orders-db</span><span>orders-db</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-page">Paged now</span></div>
-  <div class="owner">database</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.70, SEV2 0.25, SEV3 0.05, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0500"></span><span class="s2" style="flex-grow:0.2500"></span><span class="s1" style="flex-grow:0.7000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.95</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.97</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.70, SEV2 0.25, SEV3 0.05, SEV4 0.00</dd><dt>Owner</dt><dd>database 0.92, compute 0.08</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>search-mem, checkout, payment, tls-cert, report-job, homepage, gc-pause</dd><dt>Configured</dt><dd>critical</dd><dt>Labeled</dt><dd>actionable, SEV1, database</dd></dl>
+</div></div>
+  <div class="view" id="view-eval"><div class="view-inner" id="eval-content">
+  <section class="eval" aria-labelledby="eval-h"><h2 id="eval-h">Against the labels</h2><p class="caveat">2 labeled alerts is a smoke test. Trust these numbers, and the calibration especially, only after replaying a few hundred labeled alerts.</p><div class="eval-grid"><div><h3>Outcomes</h3><div class="table-wrap"><table><thead><tr><th>What happened</th><th class="n">jev-oncall</th><th class="n">Your current routing</th></tr></thead><tbody><tr class="zero"><td>Needed a human, reached no one</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a ticket</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a review</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Paged when it shouldn&#x27;t have</td><td class="n">0</td><td class="n">1</td></tr><tr class="zero"><td>Paged twice for one incident</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Reached the wrong team</td><td class="n">0</td><td class="n">n/a</td></tr><tr class="zero"><td>Linked to the wrong incident</td><td class="n">0</td><td class="n">n/a</td></tr><tr class="zero"><td>Review that wasn&#x27;t needed</td><td class="n">0</td><td class="n">0</td></tr><tr class=""><td>Ticket for noise</td><td class="n">1</td><td class="n">0</td></tr><tr class="total"><td>Pages sent, all 9 alerts</td><td class="n">2</td><td class="n">5</td></tr><tr><td>Reviews sent, all 9 alerts</td><td class="n">2</td><td class="n">0</td></tr></tbody></table></div><p class="stat">Rows above the line count the 2 labeled alerts; pages and reviews count every alert, as decided on arrival. Your current routing means configured severity only: critical pages, warning tickets, info logs, in every environment. jev-oncall also never pages for non-production alerts, which is part of the difference.</p></div><div class="eval-side"><p class="caveat">These score the scripted answers against the labels. They show how scoring works, not how accurate Jev is.</p><div><h3>Agreement with labels</h3><div class="table-wrap"><table><thead><tr><th>Question</th><th class="n">Matched</th><th class="n">95% interval</th></tr></thead><tbody><tr><td>Actionable</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Page or not</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Severity</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Owner</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Cause</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr></tbody></table></div></div><div><h3>Calibration of P(page)</h3><div class="table-wrap"><table><thead><tr><th>P(page)</th><th class="n">Alerts</th><th class="n">Predicted</th><th class="n">Paged by label</th></tr></thead><tbody><tr><td>0.0 to 0.2</td><td class="n">1</td><td class="n">0.00</td><td class="n">0.00</td></tr><tr><td>0.8 to 1.0</td><td class="n">1</td><td class="n">0.95</td><td class="n">1.00</td></tr></tbody></table></div><p class="stat">Brier score 0.001, calibration error 0.025. Lower is better for both.</p></div></div></div></section>
+  <section class="facts" aria-labelledby="facts-h"><h2 id="facts-h">About this run</h2><dl><div><dt>Model</dt><dd>None: the answers are scripted (a real run asks jev-1.13.0)</dd></div><div><dt>Alerts</dt><dd>9: 8 judged by scripted answers, 1 by rule, 0 by fallback</dd></div><div><dt>Cost</dt><dd>No model calls</dd></div><div><dt>Latency per call</dt><dd>No model calls</dd></div><div><dt>Policy</dt><dd>Page at 0.80, review above 0.20, drop at 0.05 actionable, link at 0.70</dd></div><div><dt>Safety checks</dt><dd>All invariants held</dd></div></dl></section>
+</div></div>
+</div>
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-top">
+    <div id="detail-top-info"></div>
+    <button class="detail-close" id="detail-close" aria-label="Close detail panel">&times;</button>
+  </div>
+  <div class="detail-body" id="detail-body"></div>
+</div>
+<div id="detail-data" style="display:none"><div class="detail-item" id="ddata-orders-db" data-id="orders-db"><div class="detail-top-content"><div><div class="detail-title-text">OrdersDbPoolExhausted: connection pool 100% used (500/500) on the orders-db primary</div><div class="detail-meta"><span>orders-db</span><span>orders-db</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-page">Paged now</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Severity</dt><dd>SEV1 0.70, SEV2 0.25, SEV3 0.05, SEV4 0.00</dd><dt>Owner</dt><dd>database 0.92, compute 0.08</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>search-mem, checkout, payment, tls-cert, report-job, homepage, gc-pause</dd><dt>Configured</dt><dd>critical</dd><dt>Labeled</dt><dd>actionable, SEV1, database</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.70, SEV2 0.25, SEV3 0.05, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.0500"></span><span class="s2" style="flex-grow:0.2500"></span><span class="s1" style="flex-grow:0.7000"></span></div></div><div class="detail-section">
 <form class="label-form" data-id="orders-db" novalidate aria-label="Label orders-db">
   <p class="lf-title">What was this really?</p>
   <div class="lf-grid">
@@ -428,137 +660,7 @@ p.hint { margin: 12px 0 0; }
     <label for="lf-orders-db-dup">Caused by<select id="lf-orders-db-dup" name="duplicate_of"><option value="">Nothing</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
   </div>
   <div class="lf-actions"><button type="submit" class="live-btn" id="lf-orders-db-save">Update label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li>
-<li class="row child" id="alert-checkout">
-  <span class="glyph m m-linked" aria-hidden="true"></span>
-  <div class="main"><div class="title">CheckoutApiErrorRate: 5xx rate 31% for 5m</div><div class="meta"><span>checkout</span><span>checkout-api</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-linked">Linked to orders-db</span></div>
-  <div class="owner">database</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.50, SEV2 0.40, SEV3 0.10, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1000"></span><span class="s2" style="flex-grow:0.4000"></span><span class="s1" style="flex-grow:0.5000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.90</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.95</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>duplicate_of orders-db (0.91); incident root orders-db</li></ul><dl><dt>Severity</dt><dd>SEV1 0.50, SEV2 0.40, SEV3 0.10, SEV4 0.00</dd><dt>Owner</dt><dd>database 0.75, compute 0.25</dd><dt>Cause</dt><dd>orders-db at 0.91</dd><dt>Candidates</dt><dd>orders-db</dd><dt>Configured</dt><dd>critical</dd></dl>
-<form class="label-form" data-id="checkout" novalidate aria-label="Label checkout">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-checkout-sev">Severity (required)<select id="lf-checkout-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
-    <label for="lf-checkout-act">Needed a human? (required)<select id="lf-checkout-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
-    <label for="lf-checkout-team">Owner<select id="lf-checkout-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-checkout-dup">Caused by<select id="lf-checkout-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-checkout-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li>
-<li class="row child" id="alert-payment">
-  <span class="glyph m m-review" aria-hidden="true"></span>
-  <div class="main"><div class="title">PaymentServiceErrors: payment authorization failures 18%</div><div class="meta"><span>payment</span><span>payment-service</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-review">Sent to review</span><span class="sub override">Review: different owning team</span><span class="sub">Linked to orders-db</span><span class="state state-pending">Now: waiting, <span class="left" data-left="885">14m 45s left</span> (demo clock)</span></div>
-  <div class="owner">compute</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.45, SEV2 0.45, SEV3 0.10, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1000"></span><span class="s2" style="flex-grow:0.4500"></span><span class="s1" style="flex-grow:0.4500"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.90</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.93</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>duplicate_of checkout (0.88); incident root orders-db</li><li>root is owned by database, so compute gets a REVIEW, not silence</li></ul><dl><dt>Policy override</dt><dd>On its own, its P(page) says page now. It joined incident orders-db, and database owns orders-db, so compute gets a review instead of a page: a person on the right team decides, and nobody is paged twice for one incident.</dd><dt>Review</dt><dd>Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</dd><dt>Severity</dt><dd>SEV1 0.45, SEV2 0.45, SEV3 0.10, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.80, database 0.20</dd><dt>Cause</dt><dd>checkout at 0.88</dd><dt>Candidates</dt><dd>checkout, orders-db</dd><dt>Configured</dt><dd>critical</dd></dl>
-<form class="label-form" data-id="payment" novalidate aria-label="Label payment">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-payment-sev">Severity (required)<select id="lf-payment-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
-    <label for="lf-payment-act">Needed a human? (required)<select id="lf-payment-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
-    <label for="lf-payment-team">Owner<select id="lf-payment-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-payment-dup">Caused by<select id="lf-payment-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-payment-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li></ul></section><section class="group" aria-labelledby="g-page"><h3 id="g-page">Paged<span class="count">1</span></h3><ul class="rows">
-<li class="row" id="alert-homepage">
-  <span class="glyph m m-page" aria-hidden="true"></span>
-  <div class="main"><div class="title">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</div><div class="meta"><span>homepage</span><span>homepage</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-page">Paged</span></div>
-  <div class="owner">compute<span class="sub">Also notifies network</span></div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.10, SEV2 0.75, SEV3 0.15, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1500"></span><span class="s2" style="flex-grow:0.7500"></span><span class="s1" style="flex-grow:0.1000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.85</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.90</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>owner uncertain: also notifying network (0.45)</li></ul><dl><dt>Severity</dt><dd>SEV1 0.10, SEV2 0.75, SEV3 0.15, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.55, network 0.45</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>gc-pause, report-job, tls-cert, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>warning</dd></dl>
-<form class="label-form" data-id="homepage" novalidate aria-label="Label homepage">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-homepage-sev">Severity (required)<select id="lf-homepage-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
-    <label for="lf-homepage-act">Needed a human? (required)<select id="lf-homepage-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
-    <label for="lf-homepage-team">Owner<select id="lf-homepage-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-homepage-dup">Caused by<select id="lf-homepage-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-homepage-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li></ul></section><section class="group" aria-labelledby="g-review"><h3 id="g-review">Sent to review<span class="count">1</span><span class="count sub">1 still waiting</span></h3><ul class="rows">
-<li class="row" id="alert-search-mem">
-  <span class="glyph m m-review" aria-hidden="true"></span>
-  <div class="main"><div class="title">SearchApiHighMemory: memory 88% of limit on search-api</div><div class="meta"><span>search-mem</span><span>search-api</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-review">Sent to review</span><span class="state state-pending">Now: waiting, <span class="left" data-left="885">14m 45s left</span> (demo clock)</span></div>
-  <div class="owner">compute</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.35, SEV3 0.50, SEV4 0.15"><span class="s4" style="flex-grow:0.1500"></span><span class="s3" style="flex-grow:0.5000"></span><span class="s2" style="flex-grow:0.3500"></span><span class="s1" style="flex-grow:0.0000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.35</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.60</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>unsure whether to page (0.2 &lt; P(page) &lt; 0.8): a human decides within 15m or it pages</li></ul><dl><dt>Review</dt><dd>Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</dd><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.35, SEV3 0.50, SEV4 0.15</dd><dt>Owner</dt><dd>compute 0.85, database 0.15</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>checkout, orders-db, payment, tls-cert, report-job, homepage, gc-pause</dd><dt>Configured</dt><dd>warning</dd></dl>
-<form class="label-form" data-id="search-mem" novalidate aria-label="Label search-mem">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-search-mem-sev">Severity (required)<select id="lf-search-mem-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
-    <label for="lf-search-mem-act">Needed a human? (required)<select id="lf-search-mem-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
-    <label for="lf-search-mem-team">Owner<select id="lf-search-mem-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-search-mem-dup">Caused by<select id="lf-search-mem-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-search-mem-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li></ul></section><section class="group" aria-labelledby="g-ticket"><h3 id="g-ticket">Ticketed<span class="count">2</span></h3><ul class="rows">
-<li class="row" id="alert-tls-cert">
-  <span class="glyph m m-ticket" aria-hidden="true"></span>
-  <div class="main"><div class="title">TlsCertExpiringSoon: TLS certificate for api.example.com expires in 25 days</div><div class="meta"><span>tls-cert</span><span>edge</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-ticket">Ticketed</span></div>
-  <div class="owner">network</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.70, SEV4 0.30"><span class="s4" style="flex-grow:0.3000"></span><span class="s3" style="flex-grow:0.7000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.00</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.90</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.70, SEV4 0.30</dd><dt>Owner</dt><dd>network 0.95, deploy 0.05</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>payment, report-job, checkout, homepage, gc-pause, search-mem, orders-db</dd><dt>Configured</dt><dd>warning</dd></dl>
-<form class="label-form" data-id="tls-cert" novalidate aria-label="Label tls-cert">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-tls-cert-sev">Severity (required)<select id="lf-tls-cert-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
-    <label for="lf-tls-cert-act">Needed a human? (required)<select id="lf-tls-cert-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
-    <label for="lf-tls-cert-team">Owner<select id="lf-tls-cert-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-tls-cert-dup">Caused by<select id="lf-tls-cert-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-tls-cert-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li>
-<li class="row" id="alert-report-job">
-  <span class="glyph m m-ticket" aria-hidden="true"></span>
-  <div class="main"><div class="title">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</div><div class="meta"><span>report-job</span><span>report-batch</span><span>14:03 UTC</span></div><div class="flags"><span class="">Ticket for noise</span></div></div>
-  <div class="decision"><span class="tag tag-ticket">Ticketed</span></div>
-  <div class="owner">compute</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.20, SEV4 0.80"><span class="s4" style="flex-grow:0.8000"></span><span class="s3" style="flex-grow:0.2000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.00</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.30</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>probably noise, but P(actionable) &gt; 0.05: ticket, not drop</li></ul><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.20, SEV4 0.80</dd><dt>Owner</dt><dd>compute 0.90, deploy 0.10</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>homepage, tls-cert, gc-pause, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>critical</dd><dt>Labeled</dt><dd>not actionable, SEV4, compute</dd></dl>
-<form class="label-form" data-id="report-job" novalidate aria-label="Label report-job">
-  <p class="lf-title">What was this really?</p>
-  <div class="lf-grid">
-    <label for="lf-report-job-sev">Severity (required)<select id="lf-report-job-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4" selected>SEV4</option></select></label>
-    <label for="lf-report-job-act">Needed a human? (required)<select id="lf-report-job-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false" selected>No</option></select></label>
-    <label for="lf-report-job-team">Owner<select id="lf-report-job-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute" selected>compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
-    <label for="lf-report-job-dup">Caused by<select id="lf-report-job-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
-  </div>
-  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-report-job-save">Update label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li></ul></section><section class="group" aria-labelledby="g-quiet"><h3 id="g-quiet">Logged or dropped<span class="count">2</span></h3><ul class="rows">
-<li class="row" id="alert-staging-disk">
-  <span class="glyph m m-quiet" aria-hidden="true"></span>
-  <div class="main"><div class="title">StagingDiskFull: disk 97% full on staging CI runner</div><div class="meta"><span>staging-disk</span><span>ci-runner</span><span>14:03 UTC</span><span>staging</span></div></div>
-  <div class="decision"><span class="tag tag-quiet">Logged</span><span class="sub">Rule: not production</span></div>
-  <div class="owner">triage-rotation</div>
-  <span class="no-dist">No model answer</span>
-  <div class="num num-page"><span class="k">P(page)</span>-</div>
-  <div class="num num-act"><span class="k">Actionable</span>-</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><ul class=reasons><li>env=staging: non-production never pages (rule, no model call)</li></ul><dl><dt>Configured</dt><dd>critical</dd></dl>
+</form></div></div><div class="detail-item" id="ddata-staging-disk" data-id="staging-disk"><div class="detail-top-content"><div><div class="detail-title-text">StagingDiskFull: disk 97% full on staging CI runner</div><div class="detail-meta"><span>staging-disk</span><span>ci-runner</span><span>14:03 UTC</span><span>staging</span></div></div><span class="tbl-tag tag-quiet">Logged</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Configured</dt><dd>critical</dd></dl></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>env=staging: non-production never pages (rule, no model call)</li></ul></div><div class="detail-section">
 <form class="label-form" data-id="staging-disk" novalidate aria-label="Label staging-disk">
   <p class="lf-title">What was this really?</p>
   <div class="lf-grid">
@@ -568,17 +670,67 @@ p.hint { margin: 12px 0 0; }
     <label for="lf-staging-disk-dup">Caused by<select id="lf-staging-disk-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
   </div>
   <div class="lf-actions"><button type="submit" class="live-btn" id="lf-staging-disk-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li>
-<li class="row" id="alert-gc-pause">
-  <span class="glyph m m-quiet" aria-hidden="true"></span>
-  <div class="main"><div class="title">GcPauseSpike: GC pause p99 120ms on batch-worker</div><div class="meta"><span>gc-pause</span><span>batch-worker</span><span>14:03 UTC</span></div></div>
-  <div class="decision"><span class="tag tag-quiet">Dropped</span></div>
-  <div class="owner">compute</div>
-  <div class="dist" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97"><span class="s4" style="flex-grow:0.9700"></span><span class="s3" style="flex-grow:0.0300"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div>
-  <div class="num num-page"><span class="k">P(page)</span>0.00</div>
-  <div class="num num-act"><span class="k">Actionable</span>0.02</div>
-  <details class="why"><summary>Why</summary><div class="why-body"><dl><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97</dd><dt>Owner</dt><dd>compute 1.00</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>homepage, report-job, tls-cert, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>info</dd></dl>
+</form></div></div><div class="detail-item" id="ddata-search-mem" data-id="search-mem"><div class="detail-top-content"><div><div class="detail-title-text">SearchApiHighMemory: memory 88% of limit on search-api</div><div class="detail-meta"><span>search-mem</span><span>search-api</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-review">Sent to review</span></div><div class="detail-review-banner">Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Review</dt><dd>Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</dd><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.35, SEV3 0.50, SEV4 0.15</dd><dt>Owner</dt><dd>compute 0.85, database 0.15</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>checkout, orders-db, payment, tls-cert, report-job, homepage, gc-pause</dd><dt>Configured</dt><dd>warning</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.35, SEV3 0.50, SEV4 0.15"><span class="s4" style="flex-grow:0.1500"></span><span class="s3" style="flex-grow:0.5000"></span><span class="s2" style="flex-grow:0.3500"></span><span class="s1" style="flex-grow:0.0000"></span></div></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>unsure whether to page (0.2 &lt; P(page) &lt; 0.8): a human decides within 15m or it pages</li></ul></div><div class="detail-section">
+<form class="label-form" data-id="search-mem" novalidate aria-label="Label search-mem">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-search-mem-sev">Severity (required)<select id="lf-search-mem-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
+    <label for="lf-search-mem-act">Needed a human? (required)<select id="lf-search-mem-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    <label for="lf-search-mem-team">Owner<select id="lf-search-mem-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-search-mem-dup">Caused by<select id="lf-search-mem-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-search-mem-save">Save label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-checkout" data-id="checkout"><div class="detail-top-content"><div><div class="detail-title-text">CheckoutApiErrorRate: 5xx rate 31% for 5m</div><div class="detail-meta"><span>checkout</span><span>checkout-api</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-linked">Linked to orders-db</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Severity</dt><dd>SEV1 0.50, SEV2 0.40, SEV3 0.10, SEV4 0.00</dd><dt>Owner</dt><dd>database 0.75, compute 0.25</dd><dt>Cause</dt><dd>orders-db at 0.91</dd><dt>Candidates</dt><dd>orders-db</dd><dt>Configured</dt><dd>critical</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.50, SEV2 0.40, SEV3 0.10, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1000"></span><span class="s2" style="flex-grow:0.4000"></span><span class="s1" style="flex-grow:0.5000"></span></div></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>duplicate_of orders-db (0.91); incident root orders-db</li></ul></div><div class="detail-section">
+<form class="label-form" data-id="checkout" novalidate aria-label="Label checkout">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-checkout-sev">Severity (required)<select id="lf-checkout-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
+    <label for="lf-checkout-act">Needed a human? (required)<select id="lf-checkout-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    <label for="lf-checkout-team">Owner<select id="lf-checkout-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-checkout-dup">Caused by<select id="lf-checkout-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-checkout-save">Save label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-payment" data-id="payment"><div class="detail-top-content"><div><div class="detail-title-text">PaymentServiceErrors: payment authorization failures 18%</div><div class="detail-meta"><span>payment</span><span>payment-service</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-review">Sent to review</span></div><div class="detail-review-banner">Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Policy override</dt><dd>On its own, its P(page) says page now. It joined incident orders-db, and database owns orders-db, so compute gets a review instead of a page: a person on the right team decides, and nobody is paged twice for one incident.</dd><dt>Review</dt><dd>Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages.</dd><dt>Severity</dt><dd>SEV1 0.45, SEV2 0.45, SEV3 0.10, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.80, database 0.20</dd><dt>Cause</dt><dd>checkout at 0.88</dd><dt>Candidates</dt><dd>checkout, orders-db</dd><dt>Configured</dt><dd>critical</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.45, SEV2 0.45, SEV3 0.10, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1000"></span><span class="s2" style="flex-grow:0.4500"></span><span class="s1" style="flex-grow:0.4500"></span></div></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>duplicate_of checkout (0.88); incident root orders-db</li><li>root is owned by database, so compute gets a REVIEW, not silence</li></ul></div><div class="detail-section">
+<form class="label-form" data-id="payment" novalidate aria-label="Label payment">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-payment-sev">Severity (required)<select id="lf-payment-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
+    <label for="lf-payment-act">Needed a human? (required)<select id="lf-payment-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    <label for="lf-payment-team">Owner<select id="lf-payment-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-payment-dup">Caused by<select id="lf-payment-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-payment-save">Save label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-tls-cert" data-id="tls-cert"><div class="detail-top-content"><div><div class="detail-title-text">TlsCertExpiringSoon: TLS certificate for api.example.com expires in 25 days</div><div class="detail-meta"><span>tls-cert</span><span>edge</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-ticket">Ticketed</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.70, SEV4 0.30</dd><dt>Owner</dt><dd>network 0.95, deploy 0.05</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>payment, report-job, checkout, homepage, gc-pause, search-mem, orders-db</dd><dt>Configured</dt><dd>warning</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.70, SEV4 0.30"><span class="s4" style="flex-grow:0.3000"></span><span class="s3" style="flex-grow:0.7000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div></div><div class="detail-section">
+<form class="label-form" data-id="tls-cert" novalidate aria-label="Label tls-cert">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-tls-cert-sev">Severity (required)<select id="lf-tls-cert-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
+    <label for="lf-tls-cert-act">Needed a human? (required)<select id="lf-tls-cert-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    <label for="lf-tls-cert-team">Owner<select id="lf-tls-cert-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-tls-cert-dup">Caused by<select id="lf-tls-cert-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="report-job">report-job</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-tls-cert-save">Save label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-report-job" data-id="report-job"><div class="detail-top-content"><div><div class="detail-title-text">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</div><div class="detail-meta"><span>report-job</span><span>report-batch</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-ticket">Ticketed</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.20, SEV4 0.80</dd><dt>Owner</dt><dd>compute 0.90, deploy 0.10</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>homepage, tls-cert, gc-pause, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>critical</dd><dt>Labeled</dt><dd>not actionable, SEV4, compute</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.20, SEV4 0.80"><span class="s4" style="flex-grow:0.8000"></span><span class="s3" style="flex-grow:0.2000"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>probably noise, but P(actionable) &gt; 0.05: ticket, not drop</li></ul></div><div class="detail-section">
+<form class="label-form" data-id="report-job" novalidate aria-label="Label report-job">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-report-job-sev">Severity (required)<select id="lf-report-job-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4" selected>SEV4</option></select></label>
+    <label for="lf-report-job-act">Needed a human? (required)<select id="lf-report-job-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false" selected>No</option></select></label>
+    <label for="lf-report-job-team">Owner<select id="lf-report-job-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute" selected>compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-report-job-dup">Caused by<select id="lf-report-job-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="homepage">homepage</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-report-job-save">Update label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-homepage" data-id="homepage"><div class="detail-top-content"><div><div class="detail-title-text">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</div><div class="detail-meta"><span>homepage</span><span>homepage</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-page">Paged</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Also notifies</dt><dd>network</dd><dt>Severity</dt><dd>SEV1 0.10, SEV2 0.75, SEV3 0.15, SEV4 0.00</dd><dt>Owner</dt><dd>compute 0.55, network 0.45</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>gc-pause, report-job, tls-cert, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>warning</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.10, SEV2 0.75, SEV3 0.15, SEV4 0.00"><span class="s4" style="flex-grow:0.0000"></span><span class="s3" style="flex-grow:0.1500"></span><span class="s2" style="flex-grow:0.7500"></span><span class="s1" style="flex-grow:0.1000"></span></div></div><div class="detail-section"><h4>Routing reasons</h4><ul class="reasons"><li>owner uncertain: also notifying network (0.45)</li></ul></div><div class="detail-section">
+<form class="label-form" data-id="homepage" novalidate aria-label="Label homepage">
+  <p class="lf-title">What was this really?</p>
+  <div class="lf-grid">
+    <label for="lf-homepage-sev">Severity (required)<select id="lf-homepage-sev" name="severity" required><option value="">Choose</option><option value="SEV1">SEV1</option><option value="SEV2">SEV2</option><option value="SEV3">SEV3</option><option value="SEV4">SEV4</option></select></label>
+    <label for="lf-homepage-act">Needed a human? (required)<select id="lf-homepage-act" name="actionable" required><option value="">Choose</option><option value="true">Yes</option><option value="false">No</option></select></label>
+    <label for="lf-homepage-team">Owner<select id="lf-homepage-team" name="team"><option value="">Not sure</option><option value="database">database</option><option value="compute">compute</option><option value="network">network</option><option value="deploy">deploy</option></select></label>
+    <label for="lf-homepage-dup">Caused by<select id="lf-homepage-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="gc-pause">gc-pause</option></select></label>
+  </div>
+  <div class="lf-actions"><button type="submit" class="live-btn" id="lf-homepage-save">Save label</button><span class="live-status" role="status"></span></div>
+</form></div></div><div class="detail-item" id="ddata-gc-pause" data-id="gc-pause"><div class="detail-top-content"><div><div class="detail-title-text">GcPauseSpike: GC pause p99 120ms on batch-worker</div><div class="detail-meta"><span>gc-pause</span><span>batch-worker</span><span>14:03 UTC</span></div></div><span class="tbl-tag tag-quiet">Dropped</span></div><div class="detail-section"><h4>Analysis</h4><dl class="detail-facts"><dt>Severity</dt><dd>SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97</dd><dt>Owner</dt><dd>compute 1.00</dd><dt>Cause</dt><dd>none at 1.00</dd><dt>Candidates</dt><dd>homepage, report-job, tls-cert, payment, checkout, search-mem, orders-db</dd><dt>Configured</dt><dd>info</dd></dl></div><div class="detail-section"><h4>Severity distribution</h4><div class="dist" style="height:12px;border-radius:4px" role="img" aria-label="Severity: SEV1 0.00, SEV2 0.00, SEV3 0.03, SEV4 0.97"><span class="s4" style="flex-grow:0.9700"></span><span class="s3" style="flex-grow:0.0300"></span><span class="s2" style="flex-grow:0.0000"></span><span class="s1" style="flex-grow:0.0000"></span></div></div><div class="detail-section">
 <form class="label-form" data-id="gc-pause" novalidate aria-label="Label gc-pause">
   <p class="lf-title">What was this really?</p>
   <div class="lf-grid">
@@ -588,23 +740,18 @@ p.hint { margin: 12px 0 0; }
     <label for="lf-gc-pause-dup">Caused by<select id="lf-gc-pause-dup" name="duplicate_of"><option value="">Nothing</option><option value="orders-db">orders-db</option><option value="staging-disk">staging-disk</option><option value="search-mem">search-mem</option><option value="checkout">checkout</option><option value="payment">payment</option><option value="tls-cert">tls-cert</option><option value="report-job">report-job</option><option value="homepage">homepage</option></select></label>
   </div>
   <div class="lf-actions"><button type="submit" class="live-btn" id="lf-gc-pause-save">Save label</button><span class="live-status" role="status"></span></div>
-</form></div></details>
-</li></ul></section></section>
-  <section class="facts" aria-labelledby="facts-h"><h2 id="facts-h">About this run</h2><dl><div><dt>Model</dt><dd>None: the answers are scripted (a real run asks jev-1.13.0)</dd></div><div><dt>Alerts</dt><dd>9: 8 judged by scripted answers, 1 by rule, 0 by fallback</dd></div><div><dt>Cost</dt><dd>No model calls</dd></div><div><dt>Latency per call</dt><dd>No model calls</dd></div><div><dt>Policy</dt><dd>Page at 0.80, review above 0.20, drop at 0.05 actionable, link at 0.70</dd></div><div><dt>Safety checks</dt><dd>All invariants held</dd></div></dl></section>
-  <section class="eval" aria-labelledby="eval-h"><h2 id="eval-h">Against the labels</h2><p class="caveat">2 labeled alerts is a smoke test. Trust these numbers, and the calibration especially, only after replaying a few hundred labeled alerts.</p><div class="eval-grid"><div><h3>Outcomes</h3><div class="table-wrap"><table><thead><tr><th>What happened</th><th class="n">jev-oncall</th><th class="n">Your current routing</th></tr></thead><tbody><tr class="zero"><td>Needed a human, reached no one</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a ticket</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Should have paged, got a review</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Paged when it shouldn&#x27;t have</td><td class="n">0</td><td class="n">1</td></tr><tr class="zero"><td>Paged twice for one incident</td><td class="n">0</td><td class="n">0</td></tr><tr class="zero"><td>Reached the wrong team</td><td class="n">0</td><td class="n">n/a</td></tr><tr class="zero"><td>Linked to the wrong incident</td><td class="n">0</td><td class="n">n/a</td></tr><tr class="zero"><td>Review that wasn&#x27;t needed</td><td class="n">0</td><td class="n">0</td></tr><tr class=""><td>Ticket for noise</td><td class="n">1</td><td class="n">0</td></tr><tr class="total"><td>Pages sent, all 9 alerts</td><td class="n">2</td><td class="n">5</td></tr><tr><td>Reviews sent, all 9 alerts</td><td class="n">2</td><td class="n">0</td></tr></tbody></table></div><p class="stat">Rows above the line count the 2 labeled alerts; pages and reviews count every alert, as decided on arrival. Your current routing means configured severity only: critical pages, warning tickets, info logs, in every environment. jev-oncall also never pages for non-production alerts, which is part of the difference.</p></div><div class="eval-side"><p class="caveat">These score the scripted answers against the labels. They show how scoring works, not how accurate Jev is.</p><div><h3>Agreement with labels</h3><div class="table-wrap"><table><thead><tr><th>Question</th><th class="n">Matched</th><th class="n">95% interval</th></tr></thead><tbody><tr><td>Actionable</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Page or not</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Severity</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Owner</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr><tr><td>Cause</td><td class="n">2 of 2</td><td class="n">34% to 100%</td></tr></tbody></table></div></div><div><h3>Calibration of P(page)</h3><div class="table-wrap"><table><thead><tr><th>P(page)</th><th class="n">Alerts</th><th class="n">Predicted</th><th class="n">Paged by label</th></tr></thead><tbody><tr><td>0.0 to 0.2</td><td class="n">1</td><td class="n">0.00</td><td class="n">0.00</td></tr><tr><td>0.8 to 1.0</td><td class="n">1</td><td class="n">0.95</td><td class="n">1.00</td></tr></tbody></table></div><p class="stat">Brier score 0.001, calibration error 0.025. Lower is better for both.</p></div></div></div></section>
-  <footer class="foot"><p>Built by build_demo.py from sample data. Run the real thing with the Docker demo: cd demo &amp;&amp; docker compose up.</p></footer>
-</main>
-<script>window.JEV_DEMO = {engine: {"pyodide": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/", "base": "engine/", "files": ["triage.py", "server.py", "shadow.py", "evaluate.py", "generate_dashboard.py", "build_demo.py", "demo/jev-oncall.toml"]}};</script><div id="live-announce" class="sr-only" role="status" aria-live="polite"></div><script>
+</form></div></div></div>
+<script>window.JEV_DEMO = {engine: {"pyodide": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/", "base": "engine/", "files": ["triage.py", "server.py", "shadow.py", "evaluate.py", "generate_dashboard.py", "build_demo.py", "demo/jev-oncall.toml"]}};</script>
+<div id="live-announce" class="sr-only" role="status" aria-live="polite"></div>
+<script>
 (function () {
-  // One set of handlers on the document, so they keep working after the page
-  // body is swapped for a fresh render (live refresh, or the demo engine).
   var DEMO = window.JEV_DEMO || null, KEY = "jev-oncall-demo-v2";
   var store = {
     get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
-  store.del("jev-oncall-demo");  // the old demo's state; it can't be replayed
+  store.del("jev-oncall-demo");
   var announcer = document.getElementById("live-announce");
   function field(id) { return document.getElementById(id); }
   function who() { var n = field("you-name"); return (n && n.value.trim()) || ""; }
@@ -623,37 +770,141 @@ p.hint { margin: 12px 0 0; }
     if (announcer) { announcer.textContent = ""; announcer.textContent = text; }
   }
 
-  // Replace the page body with a fresh render, keeping the reader's place:
-  // scroll position, open Why panels, unsaved labels and keyboard focus.
+  // ---- Partial swap: replace view contents, keep shell ----
   function swap(html, after) {
     var doc = new DOMParser().parseFromString(html, "text/html");
-    var fresh = doc.querySelector("main.page"), cur = document.querySelector("main.page");
-    if (!fresh || !cur) return;
-    var open = [], drafts = {}, focus = document.activeElement && document.activeElement.id;
-    cur.querySelectorAll("details.why[open]").forEach(function (d) {
-      var row = d.closest("[id]"); if (row) open.push(row.id);
-    });
-    cur.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
+    var ids = ["overview-content", "alerts-content", "reviews-content", "compare-content", "eval-content", "detail-data"];
+    var drafts = {};
+    document.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
       drafts[f.dataset.id] = [].map.call(f.elements, function (el) { return [el.name, el.value]; });
     });
-    var y = window.scrollY;
-    fresh = document.importNode(fresh, true);
-    cur.replaceWith(fresh);
-    open.forEach(function (id) { var d = document.querySelector("#" + CSS.escape(id) + " details.why"); if (d) d.open = true; });
+    var focus = document.activeElement && document.activeElement.id;
+    ids.forEach(function (id) {
+      var fresh = doc.getElementById(id), cur = document.getElementById(id);
+      if (fresh && cur) {
+        var node = document.importNode(fresh, true);
+        cur.replaceWith(node);
+      }
+    });
+    // Restore form drafts
     Object.keys(drafts).forEach(function (id) {
       var f = document.querySelector('form.label-form[data-id="' + CSS.escape(id) + '"]');
       if (!f) return;
       drafts[id].forEach(function (p) { if (p[0] && f.elements[p[0]]) f.elements[p[0]].value = p[1]; });
       f.dataset.dirty = "1";
     });
+    // Update sidebar badges
+    var newBody = doc.querySelector("body");
+    if (newBody) {
+      var bc = newBody.dataset.reviewCount;
+      var badge = document.querySelector('[data-view="reviews"] .badge');
+      if (badge && bc !== undefined) badge.textContent = bc;
+      var ac = newBody.dataset.alertCount;
+      badge = document.querySelector('[data-view="alerts"] .badge');
+      if (badge && ac !== undefined) badge.textContent = ac;
+      var clk = newBody.dataset.demoClock;
+      var ce = field("sidebar-clock");
+      if (ce && clk) ce.textContent = clk;
+    }
     document.title = doc.title;
     remember();
-    window.scrollTo(0, y);
     var target = (after && field(after)) || (focus && field(focus));
     if (target) target.focus({preventScroll: true});
   }
 
-  // ---- A live server: act through its endpoints, then re-render from it.
+  // ---- View switching ----
+  var curView = store.get("jev-app-view") || "overview";
+  function switchView(name) {
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
+    document.querySelectorAll(".sidebar-nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.view === name); });
+    document.querySelectorAll(".mobile-tabs button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === name); });
+    curView = name;
+    store.set("jev-app-view", name);
+    // Close detail panel when switching away from alerts
+    if (name !== "alerts") closeDetail();
+  }
+  // Init
+  switchView(curView);
+
+  document.addEventListener("click", function (e) {
+    var nav = e.target.closest("[data-view]");
+    if (nav && (nav.closest(".sidebar-nav") || nav.closest(".mobile-tabs"))) {
+      e.preventDefault();
+      switchView(nav.dataset.view);
+      return;
+    }
+  });
+
+  // ---- Detail panel ----
+  function openDetail(id) {
+    var panel = field("detail-panel"), body = field("detail-body");
+    var data = document.querySelector('#detail-data .detail-item[data-id="' + CSS.escape(id) + '"]');
+    if (!panel || !body || !data) return;
+    body.innerHTML = data.innerHTML;
+    panel.classList.add("open");
+    document.querySelectorAll(".tbl-row").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
+    remember();
+  }
+  function closeDetail() {
+    var panel = field("detail-panel");
+    if (panel) panel.classList.remove("open");
+    document.querySelectorAll(".tbl-row.selected").forEach(function (r) { r.classList.remove("selected"); });
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("#detail-close") || e.target.id === "detail-close") { closeDetail(); return; }
+    var row = e.target.closest(".tbl-row");
+    if (row) { openDetail(row.dataset.id); return; }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeDetail();
+  });
+
+  // ---- Table sorting ----
+  document.addEventListener("click", function (e) {
+    var th = e.target.closest(".alert-tbl th[data-sort]");
+    if (!th) return;
+    var key = th.dataset.sort, tbody = th.closest("table").querySelector("tbody");
+    if (!tbody) return;
+    var asc = th.classList.contains("sorted") && !th.classList.contains("desc");
+    th.closest("thead").querySelectorAll("th").forEach(function (h) { h.classList.remove("sorted", "desc"); });
+    th.classList.add("sorted");
+    if (asc) th.classList.add("desc");
+    var rows = [].slice.call(tbody.querySelectorAll("tr.tbl-row"));
+    rows.sort(function (a, b) {
+      var va, vb;
+      if (key === "pp") { va = parseFloat(a.dataset.pp); vb = parseFloat(b.dataset.pp); }
+      else if (key === "pa") { va = parseFloat(a.dataset.pa); vb = parseFloat(b.dataset.pa); }
+      else if (key === "title") { va = a.querySelector(".tbl-title").textContent; vb = b.querySelector(".tbl-title").textContent; }
+      else if (key === "decision") { va = a.querySelector(".tbl-tag").textContent; vb = b.querySelector(".tbl-tag").textContent; }
+      else if (key === "owner") { va = a.cells[3].textContent; vb = b.cells[3].textContent; }
+      else return 0;
+      if (typeof va === "number") { var r = va - vb; return asc ? -r : r; }
+      return asc ? vb.localeCompare(va) : va.localeCompare(vb);
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+  });
+
+  // ---- Filter pills ----
+  document.addEventListener("click", function (e) {
+    var pill = e.target.closest(".filter-pill");
+    if (!pill) return;
+    var filter = pill.dataset.filter;
+    pill.closest(".filter-bar").querySelectorAll(".filter-pill").forEach(function (p) {
+      p.classList.toggle("active", p === pill);
+    });
+    var tbody = document.querySelector(".alert-tbl tbody");
+    if (!tbody) return;
+    var count = 0;
+    tbody.querySelectorAll("tr.tbl-row").forEach(function (r) {
+      var show = filter === "all" || r.dataset.kind === filter;
+      r.style.display = show ? "" : "none";
+      if (show) count++;
+    });
+    var ce = document.querySelector(".filter-count");
+    if (ce) ce.textContent = count + " alert" + (count === 1 ? "" : "s");
+  });
+
+  // ---- Live server endpoints ----
   function headers(extra) {
     var h = {"Content-Type": "application/json"}, t = field("you-token");
     if (t && t.value.trim()) h["Authorization"] = "Bearer " + t.value.trim();
@@ -676,14 +927,14 @@ p.hint { margin: 12px 0 0; }
     return (body && body.error) || ("Failed (" + status + ")");
   }
 
-  // ---- The demo: the same Python, in the browser, on a demo clock.
+  // ---- Demo engine ----
   var engine = null, session = null;
   function actions() {
     try { return JSON.parse(store.get(KEY) || "[]"); } catch (e) { return []; }
   }
   function demoStatus(text, good) { show(field("demo-status"), text, good); }
   function setBusy(busy) {
-    document.querySelectorAll(".live-btn, .label-form select").forEach(function (b) {
+    document.querySelectorAll(".live-btn, .sidebar-btn, .attn-btn, .label-form select").forEach(function (b) {
       if (b.id === "demo-reset") return;
       if (busy) { b.dataset.wasDisabled = b.disabled ? "1" : ""; b.disabled = true; }
       else if (b.dataset.wasDisabled !== undefined) { b.disabled = b.dataset.wasDisabled === "1"; delete b.dataset.wasDisabled; }
@@ -736,7 +987,7 @@ p.hint { margin: 12px 0 0; }
         swap(py.runPython("session.render()"), after);
       }
       setBusy(false);
-      var el = statusSel && document.querySelector(statusSel);  // in the fresh render
+      var el = statusSel && document.querySelector(statusSel);
       if (el) show(el, result.message, result.ok);
       show(field("demo-status"), result.message, result.ok);
     }).catch(function (err) {
@@ -746,7 +997,7 @@ p.hint { margin: 12px 0 0; }
     });
   }
 
-  // ---- Buttons and forms, for both.
+  // ---- Buttons and forms ----
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("button");
     if (!btn || btn.disabled) return;
@@ -757,19 +1008,18 @@ p.hint { margin: 12px 0 0; }
       btn.disabled = true;
       post("/ack/" + encodeURIComponent(id), {}, {"X-Acked-By": who()}).then(function (r) {
         if (r.status === 200) {
-          show(status, "Acked by " + r.body.acked_by + ". The review is closed and won't page; the alert isn't resolved.", true);
+          show(status, "Acked by " + r.body.acked_by + ".", true);
           return refresh("pending-h");
         }
         show(status, r.status === 409 || r.status === 404 ? explain(r.status, r.body) + ". Refreshing."
-                                                         : explain(r.status, r.body), false);
+                                                           : explain(r.status, r.body), false);
         btn.disabled = false;
         if (r.status === 409 || r.status === 404) return refresh();
       }).catch(function () { show(status, "Couldn't reach the server.", false); btn.disabled = false; });
     } else if (btn.classList.contains("resolve") && DEMO) {
       run({type: "resolve", id: btn.dataset.id}, null, "pending-h");
     } else if (btn.dataset.demo && DEMO) {
-      var after = btn.id;
-      run({type: btn.dataset.demo}, null, after);
+      run({type: btn.dataset.demo}, null, btn.id);
     } else if (btn.id === "demo-reset" && DEMO) {
       store.del(KEY);
       location.reload();
@@ -806,7 +1056,6 @@ p.hint { margin: 12px 0 0; }
 
   remember();
   if (DEMO) {
-    // Restore what this visitor already did: replay it on the engine.
     if (actions().length) {
       setBusy(true);
       demoStatus("Restoring your demo: replaying what you did on the demo engine.", true);
@@ -822,18 +1071,12 @@ p.hint { margin: 12px 0 0; }
     }
     return;
   }
-
-  // Live: review clocks count down between refreshes, and the page re-renders
-  // from the server every 15 seconds unless someone is typing.
   setInterval(function () {
-    var due = false;
     document.querySelectorAll("[data-left]").forEach(function (el) {
       var left = Math.max(0, parseInt(el.dataset.left, 10) - 1);
       el.dataset.left = left;
-      if (!left && !el.dataset.done) { el.dataset.done = "1"; due = true; }
-      el.textContent = left ? Math.floor(left / 60) + "m " + ("0" + left % 60).slice(-2) + "s left" : "deadline passed, escalating";
+      el.textContent = left ? Math.floor(left / 60) + "m " + ("0" + left % 60).slice(-2) + "s left" : "deadline passed";
     });
-    if (due) setTimeout(function () { refresh().catch(function () {}); }, 11000);  // after the next sweep
   }, 1000);
   setInterval(function () {
     var a = document.activeElement;
