@@ -5,8 +5,8 @@
 
 It runs the real server pipeline (candidate causes, routing, the dedup
 graph, the review queue, shadow mode) on the Docker demo's staged incident.
-Only Jev's answers are scripted, chosen so every behavior shows up once, and
-the page says so.
+Jev's answers are replayed from the real jev-1.13.0 run on 2026-09-23 (no
+model is called when the page loads), and the page says so.
 
 The page is the starting state, prerendered. When a visitor acts (Ack, a
 label, advancing the clock, a simulated Jev timeout, an alert clearing), the
@@ -74,22 +74,23 @@ ALERTS = [
     ("homepage", 40, "HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO",
      "30% of homepage requests are over the SLO for the last 10 minutes and the checkout conversion "
      "rate dropped 22%.", "homepage", "prod", "warning"),
-    ("gc-pause", 45, "GcPauseSpike: GC pause p99 120ms on batch-worker",
-     "One spike during a scheduled compaction; back to 15ms within a minute.", "batch-worker", "prod", "info"),
 ]
 
-# Scripted answers: (P(actionable), severity, team, duplicate_of).
+# Jev's answers, replayed from the real jev-1.13.0 run on 2026-09-23 (8 alerts,
+# replayed as separate webhook deliveries; decisions captured in the session
+# notes as demo-decisions.json). Format: (P(actionable), severity, team,
+# duplicate_of). The run recorded top answers rather than full distributions,
+# so severity/team carry the model's top label at its recorded confidence;
+# severity's SEV1/SEV2 remainder sits on SEV2, which reproduces the recorded
+# P(page) (= SEV1 + SEV2) and the top label exactly.
 ANSWERS = {
-    "orders-db": (0.97, {"SEV1": 0.70, "SEV2": 0.25, "SEV3": 0.05}, {"database": 0.92, "compute": 0.08}, None),
-    "search-mem": (0.60, {"SEV2": 0.35, "SEV3": 0.50, "SEV4": 0.15}, {"compute": 0.85, "database": 0.15}, None),
-    "checkout": (0.95, {"SEV1": 0.50, "SEV2": 0.40, "SEV3": 0.10}, {"database": 0.75, "compute": 0.25},
-                 {"orders-db": 0.91}),
-    "payment": (0.93, {"SEV1": 0.45, "SEV2": 0.45, "SEV3": 0.10}, {"compute": 0.80, "database": 0.20},
-                {"checkout": 0.88}),
-    "tls-cert": (0.90, {"SEV3": 0.70, "SEV4": 0.30}, {"network": 0.95, "deploy": 0.05}, None),
-    "report-job": (0.30, {"SEV3": 0.20, "SEV4": 0.80}, {"compute": 0.90, "deploy": 0.10}, None),
-    "homepage": (0.90, {"SEV1": 0.10, "SEV2": 0.75, "SEV3": 0.15}, {"compute": 0.55, "network": 0.45}, None),
-    "gc-pause": (0.02, {"SEV3": 0.03, "SEV4": 0.97}, {"compute": 1.0}, None),
+    "orders-db": (0.96, {"SEV2": 1.0}, {"database": 1.00}, None),
+    "search-mem": (0.38, {"SEV3": 0.93, "SEV2": 0.07}, {"compute": 1.00}, None),
+    "checkout": (0.97, {"SEV1": 1.0}, {"database": 0.99}, None),
+    "payment": (0.94, {"SEV2": 1.0}, {"compute": 0.99}, {"checkout": 0.87}),
+    "tls-cert": (0.96, {"SEV3": 0.53, "SEV2": 0.47}, {"network": 1.00}, None),
+    "report-job": (0.22, {"SEV4": 1.0}, {"compute": 1.00}, None),
+    "homepage": (0.96, {"SEV2": 1.0}, {"compute": 0.97}, None),
 }
 
 # Labels someone added after the incident review, so the page shows scoring.
@@ -98,7 +99,7 @@ LABELS = {
     "report-job": {"severity": "SEV4", "actionable": False, "team": "compute", "duplicate_of": None},
 }
 
-MODEL = "scripted-demo"
+MODEL = "jev-1.13.0"
 
 
 def alerts():
@@ -109,8 +110,8 @@ def alerts():
     return out
 
 
-def scripted_judge(batch, candidates, *args, **kwargs):
-    """Stands in for triage.judge_all: the scripted answers, as Judgments."""
+def replay_judge(batch, candidates, *args, **kwargs):
+    """Stands in for triage.judge_all: the real run's judgments, replayed."""
     judgments = {}
     for a in batch:
         if not triage.is_prod(a):
@@ -128,9 +129,11 @@ def scripted_judge(batch, candidates, *args, **kwargs):
             severity={lvl: sev.get(lvl, 0.0) for lvl in triage.SEV_LEVELS},
             team={t: team.get(t, 0.0) for t in teams},
             duplicate_of=duplicate_of)
-    calls = {aid: {"ms": ms, "usage": {}} for aid, ms in zip(
-        ["orders-db", "search-mem", "checkout", "payment", "tls-cert", "report-job", "homepage", "gc-pause"],
-        [48, 35, 62, 54, 29, 41, 44, 22]) if aid in judgments}
+    # Per-call latency, replayed from the real run.
+    real_ms = {"orders-db": 753, "search-mem": 234, "checkout": 200,
+               "payment": 221, "tls-cert": 257, "report-job": 228,
+               "homepage": 178}
+    calls = {aid: {"ms": real_ms[aid], "usage": {}} for aid in judgments}
     return judgments, {}, calls
 
 
@@ -171,7 +174,7 @@ class DemoSession:
                                           config=config, clock=self.clock)
         # The alerts arrived over the minute before the page opens.
         self.clock.t = OPENED - 15
-        with mock.patch.object(triage, "judge_all", side_effect=scripted_judge):
+        with mock.patch.object(triage, "judge_all", side_effect=replay_judge):
             self.runner.triage(alerts())
         self.clock.t = OPENED
         for aid, label in LABELS.items():
@@ -238,15 +241,15 @@ class DemoSession:
     def render(self):
         results, page_alerts = self.runner.results()
         results["meta"]["note"] = ""  # the demo banner says it, first
-        results["meta"]["answer_source"] = "scripted"
+        results["meta"]["answer_source"] = "real"
         live = self.runner.live_view()
         live["demo_clock"] = True
         demo = {"clock": live["now"], "timeout_used": self.timeout_used, "advance_min": ADVANCE_MIN,
                 "engine": {"pyodide": PYODIDE, "base": "engine/", "files": ENGINE_FILES}}
         return generate_dashboard.render_app(
             results, page_alerts, "build_demo.py", live=live, demo=demo, nav=NAV,
-            footer="Built by build_demo.py from sample data. Run the real thing with the Docker demo: "
-                   "cd demo && docker compose up.")
+            footer="Built by build_demo.py from the real jev-1.13.0 run on 2026-09-23. "
+                   "Run the real thing with the Docker demo: cd demo && docker compose up.")
 
 
 def build():

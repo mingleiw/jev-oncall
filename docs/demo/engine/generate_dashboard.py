@@ -1039,12 +1039,12 @@ COMPARISON_DROP = shadow.COMPARISON_LABELS["dropped"]
 def demo_banner(demo):
     return """
 <section class="demo-banner" aria-label="About this demo">
-  <p><b>Interactive demo</b> &middot; Sample alerts and scripted model answers.
+  <p><b>Interactive demo</b> &middot; Staged alerts, real Jev judgments.
     Routing and review logic run in your browser. No notifications are sent.</p>
   <details><summary>How this demo works</summary>
-  <p>The alerts are the Docker demo's staged incident. The model's answers are scripted
-    (no model is called), so this shows how jev-oncall routes and reviews, not how well
-    Jev judges. Everything else is the real pipeline: routing, the dedup graph,
+  <p>The alerts are the Docker demo's staged incident. The model's answers are replayed
+    from the real jev-1.13.0 run on 2026-09-23 (no model is called in your browser).
+    Everything else is the real pipeline: routing, the dedup graph,
     the review clock, shadow mode and evaluation. Sending pages to PagerDuty,
     Slack or Jira isn't built yet.</p></details>
 </section>"""
