@@ -119,23 +119,24 @@ class TokenOption(Serving):
 
 
 class Demo(unittest.TestCase):
-    def test_demo_page_shows_every_behavior_and_says_it_is_scripted(self):
+    def test_demo_page_shows_every_behavior_and_says_where_answers_come_from(self):
         import build_demo
         html = build_demo.build()
-        self.assertIn("Demo with sample data", html)
-        self.assertIn("answers are scripted (no model is called)", html)
+        flat = " ".join(html.split())
+        self.assertIn("Interactive demo", flat)
+        self.assertIn(f"replayed from the real {build_demo.MODEL} run", flat)
+        self.assertIn("no model is called in your browser", flat)
         self.assertIn("window.JEV_DEMO = {engine:", html)
         for control in ('id="demo-reset"', 'id="demo-advance"', 'id="demo-timeout"', 'class="live-btn ghost resolve"'):
             self.assertIn(control, html)
         import html as htmllib
-        for label in shadow.COMPARISON_LABELS.values():
-            self.assertIn(htmllib.escape(label), html)  # agreement and every kind of difference
+        # The real run has no dedup and no drop, so those two kinds don't occur.
+        for key in ("agree", "page_added", "review_added", "page_to_review", "page_held_back"):
+            self.assertIn(htmllib.escape(shadow.COMPARISON_LABELS[key]), html)
         self.assertEqual(html.count('class="live-btn ack"'), 2)  # an unsure and a cross-team review
         self.assertIn("root is owned by database, so compute gets a REVIEW", html)
-        self.assertIn("Also notifies", html)
-        self.assertIn("isn&#x27;t built yet", html)  # decisions are recorded, not delivered
+        self.assertIn("isn't built yet", html)  # decisions are recorded, not delivered
         self.assertNotIn("No alert in this run has an expected label", html)
-        self.assertNotIn(build_demo.MODEL, html.split("<h1")[0])  # the banner, not a fake model name, explains
 
 
 class LivePage(Serving):

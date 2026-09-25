@@ -900,7 +900,20 @@ body.app .live-lede { font-size: 13px; }
     if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]") ||
         e.target.closest(".insp-tab") || e.target.closest(".label-form")) stopAutoRotate();
   });
-  startAutoRotate();
+  function openAlert(id) {
+    var card = document.querySelector('.ev-card[data-id="' + CSS.escape(id) + '"]');
+    if (!card) return false;
+    stopAutoRotate();
+    selectCard(id);
+    card.scrollIntoView({block: "center"});
+    return true;
+  }
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest('a[href^="#alert-"]');
+    if (a && openAlert(decodeURIComponent(a.getAttribute("href").slice(7)))) e.preventDefault();
+  });
+  var hashId = location.hash.indexOf("#alert-") === 0 ? decodeURIComponent(location.hash.slice(7)) : "";
+  if (!(hashId && openAlert(hashId))) startAutoRotate();
 
   // ---- Live server endpoints ----
   function headers(extra) {
