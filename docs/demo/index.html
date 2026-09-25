@@ -445,8 +445,12 @@ body.app {
 /* Right column: inspector panel */
 .insp-header { padding: 14px 16px; border-bottom: 1px solid var(--rule); position: sticky;
   top: 0; background: var(--panel-bg); z-index: 2; }
-.insp-header h2 { margin: 0; font-size: 14px; font-weight: 680; }
+.insp-header h2 { margin: 0; font-size: 14px; font-weight: 680; display: flex; align-items: center; gap: 8px; }
 .insp-header .insp-sub { font-size: 12px; color: var(--graphite); margin-top: 2px; }
+.auto-play-btn { background: none; border: 1px solid var(--rule); border-radius: 50%; width: 24px; height: 24px;
+  font-size: 11px; cursor: pointer; color: var(--graphite); display: flex; align-items: center; justify-content: center;
+  padding: 0; line-height: 1; }
+.auto-play-btn:hover { background: var(--accent-wash); color: var(--accent); border-color: var(--accent); }
 .insp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--rule); position: sticky;
   top: 50px; background: var(--panel-bg); z-index: 2; }
 .insp-tab { font: inherit; font-size: 12px; font-weight: 600; padding: 8px 14px; border: none;
@@ -524,6 +528,11 @@ body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
 body.app .eval { margin-top: 0; }
 body.app .facts { margin-top: 0; }
 
+body.app .pend { grid-template-columns: 1fr; gap: 6px; }
+body.app .pend-left { order: -1; }
+body.app .pend-btns { margin-top: 4px; }
+body.app .live-box h2 { font-size: 15px; }
+body.app .live-lede { font-size: 13px; }
 @media (max-width: 1100px) {
   .col-right { width: 300px; }
   .col-left { width: 240px; }
@@ -540,7 +549,7 @@ body.app .facts { margin-top: 0; }
 </style>
 </head>
 <body class="app" data-demo-clock="14:04 UTC">
-<div class="ticker"><div class="ticker-inner" id="ticker-inner"><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #1 paged now: OrdersDbPoolExhausted: connection pool 1 p=0.95 48 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #2 logged: StagingDiskFull: disk 97% full on stagin  </span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #3 sent to review: SearchApiHighMemory: memory 88% of limit p=0.35 35 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-linked)"></span>jev #4 linked: CheckoutApiErrorRate: 5xx rate 31% for 5 p=0.90 62 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #5 sent to review: PaymentServiceErrors: payment authorizat p=0.90 54 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #6 ticketed: TlsCertExpiringSoon: TLS certificate for p=0.00 29 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #7 ticketed: ReportJobSlow: nightly revenue report fi p=0.00 41 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #8 paged: HomepageLatencyHigh: p99 latency 2.4s ag p=0.85 44 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #9 dropped: GcPauseSpike: GC pause p99 120ms on batc p=0.00 22 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #1 paged now: OrdersDbPoolExhausted: connection pool 1 p=0.95 48 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #2 logged: StagingDiskFull: disk 97% full on stagin  </span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #3 sent to review: SearchApiHighMemory: memory 88% of limit p=0.35 35 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-linked)"></span>jev #4 linked: CheckoutApiErrorRate: 5xx rate 31% for 5 p=0.90 62 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #5 sent to review: PaymentServiceErrors: payment authorizat p=0.90 54 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #6 ticketed: TlsCertExpiringSoon: TLS certificate for p=0.00 29 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #7 ticketed: ReportJobSlow: nightly revenue report fi p=0.00 41 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #8 paged: HomepageLatencyHigh: p99 latency 2.4s ag p=0.85 44 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #9 dropped: GcPauseSpike: GC pause p99 120ms on batc p=0.00 22 ms</span></div></div>
+<div class="ticker"><div class="ticker-inner" id="ticker-inner"><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #1 page: OrdersDbPoolExhausted: connection pool 1 p=0.95 48 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #2 quiet: StagingDiskFull: disk 97% full on stagin  </span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #3 review: SearchApiHighMemory: memory 88% of limit p=0.35 35 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-linked)"></span>jev #4 linked: CheckoutApiErrorRate: 5xx rate 31% for 5 p=0.90 62 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #5 review: PaymentServiceErrors: payment authorizat p=0.90 54 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #6 ticket: TlsCertExpiringSoon: TLS certificate for p=0.00 29 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #7 ticket: ReportJobSlow: nightly revenue report fi p=0.00 41 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #8 page: HomepageLatencyHigh: p99 latency 2.4s ag p=0.85 44 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #9 quiet: GcPauseSpike: GC pause p99 120ms on batc p=0.00 22 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #1 page: OrdersDbPoolExhausted: connection pool 1 p=0.95 48 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #2 quiet: StagingDiskFull: disk 97% full on stagin  </span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #3 review: SearchApiHighMemory: memory 88% of limit p=0.35 35 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-linked)"></span>jev #4 linked: CheckoutApiErrorRate: 5xx rate 31% for 5 p=0.90 62 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-review)"></span>jev #5 review: PaymentServiceErrors: payment authorizat p=0.90 54 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #6 ticket: TlsCertExpiringSoon: TLS certificate for p=0.00 29 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-ticket)"></span>jev #7 ticket: ReportJobSlow: nightly revenue report fi p=0.00 41 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-page)"></span>jev #8 page: HomepageLatencyHigh: p99 latency 2.4s ag p=0.85 44 ms</span><span class="ticker-item"><span class="ticker-dot" style="background:var(--c-quiet)"></span>jev #9 quiet: GcPauseSpike: GC pause p99 120ms on batc p=0.00 22 ms</span></div></div>
 <header class="app-header">
   <p class="mark">jev-oncall</p>
   <span style="font-size:13px;color:var(--graphite)">Sep 24, 2026, 14:04 UTC</span>
@@ -577,15 +586,15 @@ body.app .facts { margin-top: 0; }
 </section></div></div>
   <div class="col-center">
     <div class="feed-header">
-      <h1>2 flagged for paging; 2 flagged for review.</h1>
-      <div class="feed-sub">1 more was linked to an incident that already paged, and 4 were ticketed, logged or dropped. Of the reviews, 2 still waiting.</div>
+      <h1>2 paged; 2 in review.</h1>
+      <div class="feed-sub">1 linked to an incident, and 4 ticketed, logged or dropped. Of 2 sent to review, 2 still waiting.</div>
     </div>
     <div class="feed-scroll"><div id="feed-content"><div class="ev-card" data-id="orders-db" data-idx="0"><div class="ev-top"><span class="ev-dot" style="background:var(--c-page)"></span><span class="ev-kind-badge" style="background:var(--c-page);color:#fff">Page</span><span class="ev-num">#1</span><span class="ev-title">OrdersDbPoolExhausted: connection pool 100% used (500/500) on the orders-db primary</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Paged now</span><span class="ev-latency">48 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.9500;background:var(--c-page)"><span class="prob-label">page</span> <span class="prob-val">0.95</span></div><div class="prob-seg" style="flex-grow:0.0200;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.02</span></div><div class="prob-seg" style="flex-grow:0.0300;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.03</span></div></div><div class="ev-bottom"><code>database</code></div></div><div class="ev-card" data-id="staging-disk" data-idx="1"><div class="ev-top"><span class="ev-dot" style="background:var(--c-quiet)"></span><span class="ev-kind-badge" style="background:var(--c-quiet);color:#fff">Quiet</span><span class="ev-num">#2</span><span class="ev-title">StagingDiskFull: disk 97% full on staging CI runner</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Logged</span><span class="ev-latency"></span></div><div class="ev-bottom"><code>triage-rotation</code> env=staging: non-production never pages (rule, no model call)</div></div><div class="ev-card" data-id="search-mem" data-idx="2"><div class="ev-top"><span class="ev-dot" style="background:var(--c-review)"></span><span class="ev-kind-badge" style="background:var(--c-review);color:#fff">Review</span><span class="ev-num">#3</span><span class="ev-title">SearchApiHighMemory: memory 88% of limit on search-api</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Sent to review</span><span class="ev-latency">35 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.3500;background:var(--c-page)"><span class="prob-label">page</span> <span class="prob-val">0.35</span></div><div class="prob-seg" style="flex-grow:0.2500;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.25</span></div><div class="prob-seg" style="flex-grow:0.4000;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.40</span></div></div><div class="ev-review-banner">Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages. <span class="attn-time">14m 45s</span><button type="button" class="ev-ack-btn ack" data-id="search-mem">Ack</button></div><div class="ev-bottom"><code>compute</code> unsure whether to page (0.2 &lt; P(page) &lt; 0.8): a human decides within 15m or it pages</div></div><div class="ev-card" data-id="checkout" data-idx="3"><div class="ev-top"><span class="ev-dot" style="background:var(--c-linked)"></span><span class="ev-kind-badge" style="background:var(--c-linked);color:#fff">Linked</span><span class="ev-num">#4</span><span class="ev-title">CheckoutApiErrorRate: 5xx rate 31% for 5m</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Linked to orders-db</span><span class="ev-latency">62 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.9000;background:var(--c-page)"><span class="prob-label">page</span> <span class="prob-val">0.90</span></div><div class="prob-seg" style="flex-grow:0.0500;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.05</span></div><div class="prob-seg" style="flex-grow:0.0500;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.05</span></div></div><div class="ev-bottom"><code>database</code> duplicate_of orders-db (0.91); incident root orders-db</div></div><div class="ev-card" data-id="payment" data-idx="4"><div class="ev-top"><span class="ev-dot" style="background:var(--c-review)"></span><span class="ev-kind-badge" style="background:var(--c-review);color:#fff">Review</span><span class="ev-num">#5</span><span class="ev-title">PaymentServiceErrors: payment authorization failures 18%</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Sent to review</span><span class="ev-latency">54 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.9000;background:var(--c-page)"><span class="prob-label">page</span> <span class="prob-val">0.90</span></div><div class="prob-seg" style="flex-grow:0.0300;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.03</span></div><div class="prob-seg" style="flex-grow:0.0700;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.07</span></div></div><div class="ev-review-banner">Waiting for an ack since 14:03 UTC. If nobody acks by 14:18 UTC, it pages. <span class="attn-time">14m 45s</span><button type="button" class="ev-ack-btn ack" data-id="payment">Ack</button></div><div class="ev-bottom"><code>compute</code> duplicate_of checkout (0.88); incident root orders-db</div></div><div class="ev-card" data-id="tls-cert" data-idx="5"><div class="ev-top"><span class="ev-dot" style="background:var(--c-ticket)"></span><span class="ev-kind-badge" style="background:var(--c-ticket);color:#fff">Ticket</span><span class="ev-num">#6</span><span class="ev-title">TlsCertExpiringSoon: TLS certificate for api.example.com expires in 25 days</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Ticketed</span><span class="ev-latency">29 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.9000;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.90</span></div><div class="prob-seg" style="flex-grow:0.1000;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.10</span></div></div><div class="ev-bottom"><code>network</code></div></div><div class="ev-card" data-id="report-job" data-idx="6"><div class="ev-top"><span class="ev-dot" style="background:var(--c-ticket)"></span><span class="ev-kind-badge" style="background:var(--c-ticket);color:#fff">Ticket</span><span class="ev-num">#7</span><span class="ev-title">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Ticketed</span><span class="ev-latency">41 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.3000;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.30</span></div><div class="prob-seg" style="flex-grow:0.7000;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.70</span></div></div><div class="ev-bottom"><code>compute</code> probably noise, but P(actionable) &gt; 0.05: ticket, not drop</div></div><div class="ev-card" data-id="homepage" data-idx="7"><div class="ev-top"><span class="ev-dot" style="background:var(--c-page)"></span><span class="ev-kind-badge" style="background:var(--c-page);color:#fff">Page</span><span class="ev-num">#8</span><span class="ev-title">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Paged</span><span class="ev-latency">44 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.8500;background:var(--c-page)"><span class="prob-label">page</span> <span class="prob-val">0.85</span></div><div class="prob-seg" style="flex-grow:0.0500;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.05</span></div><div class="prob-seg" style="flex-grow:0.1000;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.10</span></div></div><div class="ev-bottom"><code>compute</code> owner uncertain: also notifying network (0.45)</div></div><div class="ev-card" data-id="gc-pause" data-idx="8"><div class="ev-top"><span class="ev-dot" style="background:var(--c-quiet)"></span><span class="ev-kind-badge" style="background:var(--c-quiet);color:#fff">Quiet</span><span class="ev-num">#9</span><span class="ev-title">GcPauseSpike: GC pause p99 120ms on batch-worker</span><span class="ev-arrow">&rarr;</span><span class="ev-decision">Dropped</span><span class="ev-latency">22 ms</span></div><div class="prob-bar"><div class="prob-seg" style="flex-grow:0.0200;background:var(--c-review)"><span class="prob-label">act</span> <span class="prob-val">0.02</span></div><div class="prob-seg" style="flex-grow:0.9800;background:var(--c-quiet)"><span class="prob-label">quiet</span> <span class="prob-val">0.98</span></div></div><div class="ev-bottom"><code>compute</code></div></div></div></div>
   </div>
   <div class="col-right" id="col-right">
     <div class="insp-header">
-      <h2>Inspector</h2>
-      <div class="insp-sub">Auto-cycling &middot; click to pause</div>
+      <h2>Inspector <button type="button" id="auto-play" class="auto-play-btn" title="Pause">&#9208;</button></h2>
+      <div class="insp-sub">Auto-cycling</div>
     </div>
     <nav class="insp-tabs">
       <button class="insp-tab active" data-tab="analysis">Analysis</button>
@@ -613,7 +622,7 @@ body.app .facts { margin-top: 0; }
   <ul class="cmp-list"><li class=""><span class="n">2</span>Same as your current routing</li><li class=""><span class="n">1</span>Would page, your routing didn&#x27;t</li><li class=""><span class="n">1</span>Would ask for a review, your routing didn&#x27;t page</li><li class=""><span class="n">1</span>Your routing paged, would ask for a review instead</li><li class=""><span class="n">1</span>Your routing paged, would fold into an incident that already pages</li><li class=""><span class="n">2</span>Your routing paged, would not page</li><li class="cmp-drop"><span class="n">1</span>Would drop, nobody sees it</li></ul>
   <div class="table-wrap"><table class="diffs"><thead><tr><th>Latest differences</th><th>Your routing → jev-oncall</th></tr></thead><tbody><tr><td><a href="#alert-gc-pause">GcPauseSpike: GC pause p99 120ms on batch-worker</a><span class="pend-meta">P(page)=0.00 P(actionable)=0.02 team=compute@1.00</span></td><td class="act">LOG → DROP</td></tr><tr><td><a href="#alert-staging-disk">StagingDiskFull: disk 97% full on staging CI runner</a><span class="pend-meta">env=staging: non-production never pages (rule, no model call)</span></td><td class="act">PAGE → LOG</td></tr><tr><td><a href="#alert-search-mem">SearchApiHighMemory: memory 88% of limit on search-api</a><span class="pend-meta">P(page)=0.35 P(actionable)=0.60 team=compute@0.85</span></td><td class="act">TICKET → REVIEW</td></tr><tr><td><a href="#alert-checkout">CheckoutApiErrorRate: 5xx rate 31% for 5m</a><span class="pend-meta">P(page)=0.90 P(actionable)=0.95 team=database@0.75</span></td><td class="act">PAGE → DEDUP</td></tr><tr><td><a href="#alert-payment">PaymentServiceErrors: payment authorization failures 18%</a><span class="pend-meta">P(page)=0.90 P(actionable)=0.93 team=compute@0.80</span></td><td class="act">PAGE → REVIEW</td></tr><tr><td><a href="#alert-report-job">ReportJobSlow: nightly revenue report finished 12 minutes later than usual</a><span class="pend-meta">P(page)=0.00 P(actionable)=0.30 team=compute@0.90</span></td><td class="act">PAGE → TICKET</td></tr><tr><td><a href="#alert-homepage">HomepageLatencyHigh: p99 latency 2.4s against a 400ms SLO</a><span class="pend-meta">P(page)=0.85 P(actionable)=0.90 team=compute@0.55</span></td><td class="act">TICKET → PAGE</td></tr></tbody></table></div>
 </section></div>
-      <div class="insp-pane" id="insp-log"><table class="dec-log" id="log-content"><thead><tr><th>#</th><th></th><th>Decision</th><th>P(page)</th><th>ms</th></tr></thead><tbody><tr data-id="orders-db"><td>#1</td><td><span class="log-dot" style="background:var(--c-page)"></span></td><td>paged now</td><td>0.95</td><td>48</td></tr><tr data-id="staging-disk"><td>#2</td><td><span class="log-dot" style="background:var(--c-quiet)"></span></td><td>logged</td><td>-</td><td>-</td></tr><tr data-id="search-mem"><td>#3</td><td><span class="log-dot" style="background:var(--c-review)"></span></td><td>sent to review</td><td>0.35</td><td>35</td></tr><tr data-id="checkout"><td>#4</td><td><span class="log-dot" style="background:var(--c-linked)"></span></td><td>linked</td><td>0.90</td><td>62</td></tr><tr data-id="payment"><td>#5</td><td><span class="log-dot" style="background:var(--c-review)"></span></td><td>sent to review</td><td>0.90</td><td>54</td></tr><tr data-id="tls-cert"><td>#6</td><td><span class="log-dot" style="background:var(--c-ticket)"></span></td><td>ticketed</td><td>0.00</td><td>29</td></tr><tr data-id="report-job"><td>#7</td><td><span class="log-dot" style="background:var(--c-ticket)"></span></td><td>ticketed</td><td>0.00</td><td>41</td></tr><tr data-id="homepage"><td>#8</td><td><span class="log-dot" style="background:var(--c-page)"></span></td><td>paged</td><td>0.85</td><td>44</td></tr><tr data-id="gc-pause"><td>#9</td><td><span class="log-dot" style="background:var(--c-quiet)"></span></td><td>dropped</td><td>0.00</td><td>22</td></tr></tbody></table></div>
+      <div class="insp-pane" id="insp-log"><table class="dec-log" id="log-content"><thead><tr><th>#</th><th></th><th>Decision</th><th>P(page)</th><th>ms</th></tr></thead><tbody><tr data-id="orders-db"><td>#1</td><td><span class="log-dot" style="background:var(--c-page)"></span></td><td>page</td><td>0.95</td><td>48</td></tr><tr data-id="staging-disk"><td>#2</td><td><span class="log-dot" style="background:var(--c-quiet)"></span></td><td>quiet</td><td>-</td><td>-</td></tr><tr data-id="search-mem"><td>#3</td><td><span class="log-dot" style="background:var(--c-review)"></span></td><td>review</td><td>0.35</td><td>35</td></tr><tr data-id="checkout"><td>#4</td><td><span class="log-dot" style="background:var(--c-linked)"></span></td><td>linked</td><td>0.90</td><td>62</td></tr><tr data-id="payment"><td>#5</td><td><span class="log-dot" style="background:var(--c-review)"></span></td><td>review</td><td>0.90</td><td>54</td></tr><tr data-id="tls-cert"><td>#6</td><td><span class="log-dot" style="background:var(--c-ticket)"></span></td><td>ticket</td><td>0.00</td><td>29</td></tr><tr data-id="report-job"><td>#7</td><td><span class="log-dot" style="background:var(--c-ticket)"></span></td><td>ticket</td><td>0.00</td><td>41</td></tr><tr data-id="homepage"><td>#8</td><td><span class="log-dot" style="background:var(--c-page)"></span></td><td>page</td><td>0.85</td><td>44</td></tr><tr data-id="gc-pause"><td>#9</td><td><span class="log-dot" style="background:var(--c-quiet)"></span></td><td>quiet</td><td>0.00</td><td>22</td></tr></tbody></table></div>
     </div>
   </div>
 </div>
@@ -774,14 +783,14 @@ body.app .facts { margin-top: 0; }
 
   // ---- Card selection → inspector ----
   var selectedId = null;
-  function selectCard(id) {
+  function selectCard(id, autoRotating) {
     selectedId = id;
     document.querySelectorAll(".ev-card").forEach(function (c) { c.classList.toggle("selected", c.dataset.id === id); });
     document.querySelectorAll(".dec-log tr[data-id]").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
     var data = document.querySelector('#detail-data .insp-item[data-id="' + CSS.escape(id) + '"]');
     var pane = field("insp-analysis");
     if (pane && data) { pane.innerHTML = data.innerHTML; }
-    switchTab("analysis");
+    if (!autoRotating) switchTab("analysis");
     remember();
   }
   document.addEventListener("click", function (e) {
@@ -804,17 +813,23 @@ body.app .facts { margin-top: 0; }
   });
 
   // ---- Auto-rotate cards to show triage speed ----
-  var autoTimer = null, autoPaused = false, autoIdx = -1;
+  var autoTimer = null, autoRunning = false, autoIdx = -1;
   var SCALE = 8;
   function cardEls() { return [].slice.call(document.querySelectorAll(".ev-card[data-id]")); }
   function cardMs(card) { var m = card.querySelector(".ev-latency"); return m ? parseInt(m.textContent, 10) || 40 : 40; }
+  function updatePlayBtn() {
+    var btn = field("auto-play");
+    if (btn) { btn.textContent = autoRunning ? "⏸" : "▶"; btn.title = autoRunning ? "Pause" : "Play"; }
+    var sub = document.querySelector(".insp-sub");
+    if (sub) sub.textContent = autoRunning ? "Auto-cycling" : "Paused";
+  }
   function autoNext() {
-    if (autoPaused) { autoTimer = setTimeout(autoNext, 200); return; }
+    if (!autoRunning) return;
     var cards = cardEls();
     if (!cards.length) return;
     autoIdx = (autoIdx + 1) % cards.length;
     var card = cards[autoIdx];
-    selectCard(card.dataset.id);
+    selectCard(card.dataset.id, true);
     card.classList.remove("auto-entering");
     void card.offsetWidth;
     card.classList.add("auto-entering");
@@ -823,17 +838,22 @@ body.app .facts { margin-top: 0; }
     autoTimer = setTimeout(autoNext, delay);
   }
   function startAutoRotate() {
-    if (autoTimer) return;
+    if (autoRunning) return;
+    autoRunning = true;
+    updatePlayBtn();
     autoTimer = setTimeout(autoNext, 300);
   }
-  function pauseAutoRotate() {
-    autoPaused = true;
-    clearTimeout(autoResumeTimer);
-    autoResumeTimer = setTimeout(function () { autoPaused = false; }, 12000);
+  function stopAutoRotate() {
+    autoRunning = false;
+    clearTimeout(autoTimer);
+    autoTimer = null;
+    updatePlayBtn();
   }
-  var autoResumeTimer = null;
+  function toggleAutoRotate() { autoRunning ? stopAutoRotate() : startAutoRotate(); }
   document.addEventListener("click", function (e) {
-    if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]")) pauseAutoRotate();
+    if (e.target.closest("#auto-play")) { toggleAutoRotate(); return; }
+    if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]") ||
+        e.target.closest(".insp-tab") || e.target.closest(".label-form")) stopAutoRotate();
   });
   startAutoRotate();
 
