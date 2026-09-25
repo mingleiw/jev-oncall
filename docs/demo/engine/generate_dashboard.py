@@ -1591,6 +1591,13 @@ body.app {
 .ev-card.triaging .ev-bottom,
 .ev-card.triaging .ev-review-banner,
 .ev-card.triaging .ev-kind-badge { visibility: hidden; opacity: 0; }
+.ev-card.untriaged .ev-arrow,
+.ev-card.untriaged .ev-decision,
+.ev-card.untriaged .ev-latency,
+.ev-card.untriaged .prob-bar,
+.ev-card.untriaged .ev-bottom,
+.ev-card.untriaged .ev-review-banner,
+.ev-card.untriaged .ev-kind-badge { visibility: hidden; opacity: 0; }
 .ev-card.triaging::after { content: "Triaging…"; position: absolute; right: 14px; top: 11px;
   font-size: 12px; color: var(--accent); font-weight: 600; animation: triageBlink .6s ease-in-out infinite alternate; }
 .ev-card { position: relative; }
@@ -2074,15 +2081,20 @@ APP_LIVE_JS = r"""
   var revealTimer = null;
   function clearTriage() {
     clearTimeout(revealTimer);
-    cardEls().forEach(function (c) { c.classList.remove("triaging", "triaged"); });
+    cardEls().forEach(function (c) { c.classList.remove("triaging", "triaged", "untriaged"); });
   }
+  // On load, hide all card judgments until rotation reaches them
+  cardEls().forEach(function (c) { c.classList.add("untriaged"); });
   function autoNext() {
     if (!autoRunning) return;
     var cards = cardEls();
     if (!cards.length) return;
-    clearTriage();
+    // Only clear triaging/triaged from the previous card, not untriaged from others
+    cards.forEach(function (c) { c.classList.remove("triaging", "triaged"); });
+    clearTimeout(revealTimer);
     autoIdx = (autoIdx + 1) % cards.length;
     var card = cards[autoIdx];
+    card.classList.remove("untriaged");
     card.classList.add("triaging");
     selectCard(card.dataset.id, true);
     card.classList.remove("auto-entering");
