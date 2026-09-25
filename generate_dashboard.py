@@ -1472,294 +1472,326 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
 
 
 # --------------------------------------------------------------------------
-# App shell: Datadog-style sidebar + multi-view layout for the demo page
+# App shell: three-column observability dashboard for the demo page
 # --------------------------------------------------------------------------
 
-SIDEBAR_ICONS = {
-    "overview": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>',
-    "alerts": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1.5c-3 0-5.5 3-5.5 7h11c0-4-2.5-7-5.5-7z"/><path d="M4 11.5h8M6.5 13.5a1.5 1.5 0 003 0"/></svg>',
-    "reviews": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 4v4.5l3 1.5"/></svg>',
-    "compare": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1v14M3 4h3M3 8h3M3 12h3M10 4h3M10 8h3M10 12h3"/></svg>',
-    "eval": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M2 14l3.5-5 3 3 5.5-8"/><path d="M10.5 4H14v3.5"/></svg>',
-}
-
 APP_CSS = """
-/* Dark by default; light only when OS prefers it */
+/* Warm observability palette — light by default, dark follows OS */
 body.app {
-  --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
-  --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
-  --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
-  --sidebar-bg: #141920; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
-  color-scheme: dark;
-  display: flex; height: 100vh; overflow: hidden; margin: 0;
+  --ground: #FFF8F4; --face: #FFF0EA; --ink: #2C1810; --graphite: #7A5C4F; --rule: #E8D5CB;
+  --accent: #D4421E; --accent-mid: #E88A70; --accent-wash: rgba(212, 66, 30, .10); --accent-ink: #FFFFFF;
+  --review: #B8860B; --review-wash: rgba(184, 134, 11, .14);
+  --c-page: #D4421E; --c-review: #E8A33D; --c-ticket: #6B8E23; --c-quiet: #7A5C4F; --c-linked: #9B8EC4;
+  --panel-bg: #FFF0EA; --ticker-bg: #2C1810; --ticker-text: #FFD5C8;
+  color-scheme: light;
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden; margin: 0;
 }
-@media (prefers-color-scheme: light) {
-  body.app {
-    --ground: #F3F5F6; --face: #E7EBEE; --ink: #1C232B; --graphite: #5A6572; --rule: #CBD2D8;
-    --accent: #C21F3A; --accent-mid: #D87F8F; --accent-wash: rgba(194, 31, 58, .10); --accent-ink: #FFFFFF;
-    --review: #9A5B00; --review-wash: rgba(232, 163, 61, .20);
-    --sidebar-bg: #1C232B; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
-    color-scheme: light;
+@media (prefers-color-scheme: dark) {
+  body.app:not([data-theme="light"]) {
+    --ground: #1A1210; --face: #241A16; --ink: #F0E0D8; --graphite: #A08878; --rule: #3A2A22;
+    --accent: #FF6B47; --accent-mid: #C85A3A; --accent-wash: rgba(255, 107, 71, .14); --accent-ink: #1A1210;
+    --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
+    --c-page: #FF6B47; --c-review: #E8A33D; --c-ticket: #8FBC5A; --c-quiet: #A08878; --c-linked: #B8AAE0;
+    --panel-bg: #241A16; --ticker-bg: #0E0A08; --ticker-text: #C89080;
+    color-scheme: dark;
   }
 }
 
-/* Sidebar */
-.sidebar { width: 220px; flex-shrink: 0; background: var(--sidebar-bg);
-  display: flex; flex-direction: column; z-index: 10; overflow-y: auto; }
-.sidebar-header { padding: 18px 16px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
-.sidebar-header .mark { color: #E5E9ED; }
-.sidebar-header .site-nav { margin-top: 8px; }
-.sidebar-header .site-nav a { color: var(--sidebar-text); font-size: 13px; min-height: 32px; padding: 0 8px; }
-.sidebar-header .site-nav a:hover { color: #E5E9ED; background: rgba(255,255,255,.06); }
-.sidebar-nav { flex: 1; padding: 8px 0; list-style: none; margin: 0; }
-.sidebar-nav li { margin: 0; }
-.sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; margin: 1px 8px;
-  border-radius: var(--radius); color: var(--sidebar-text); text-decoration: none;
-  font-size: 14px; font-weight: 500; transition: background .12s, color .12s; min-height: 38px; }
-.sidebar-nav a:hover { background: rgba(255,255,255,.06); color: #E5E9ED; }
-.sidebar-nav a.active { background: rgba(255,255,255,.10); color: var(--sidebar-active); font-weight: 600; }
-.sidebar-nav .nav-icon { flex: none; width: 16px; height: 16px; opacity: .7; }
-.sidebar-nav a.active .nav-icon { opacity: 1; }
-.sidebar-nav .badge { margin-left: auto; background: var(--accent); color: #fff;
-  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; }
-.sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.07); }
-.sidebar-clock { display: grid; gap: 2px; margin-bottom: 10px; }
-.sidebar-clock .clock-time { font-size: 20px; font-weight: 700; color: #E5E9ED;
-  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.sidebar-clock .clock-label { font-size: 11px; color: var(--sidebar-text); text-transform: uppercase;
-  letter-spacing: .06em; font-weight: 600; }
-.sidebar-clock .clock-speed { font-size: 12px; color: var(--review); font-weight: 600; }
-.sidebar-actions { display: grid; gap: 4px; }
-.sidebar-btn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;
-  text-align: left; padding: 7px 10px; border: none; border-radius: var(--radius);
-  background: rgba(255,255,255,.07); color: var(--sidebar-text); min-height: 34px;
-  transition: background .12s, color .12s; }
-.sidebar-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); color: #E5E9ED; }
-.sidebar-btn:disabled { opacity: .4; cursor: default; }
-.sidebar-btn.ghost { background: transparent; }
-.sidebar-btn.ghost:hover:not(:disabled) { background: rgba(255,255,255,.06); }
-.sidebar-btn.danger { color: var(--accent); }
-.sidebar-btn.danger:hover:not(:disabled) { background: rgba(255,90,114,.12); }
+/* Ticker bar */
+.ticker { height: 28px; background: var(--ticker-bg); color: var(--ticker-text); overflow: hidden;
+  font-size: 12px; font-weight: 500; display: flex; align-items: center; flex-shrink: 0;
+  font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.ticker-inner { display: flex; gap: 32px; white-space: nowrap; animation: tickerScroll 30s linear infinite;
+  padding-left: 100%; }
+.ticker-item { display: flex; align-items: center; gap: 6px; }
+.ticker-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+@keyframes tickerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
 
-/* Main content area */
-.app-main { flex: 1; min-width: 0; overflow-y: auto; background: var(--ground); }
-.view { display: none; }
-.view.active { display: block; }
-.view-inner { max-width: 1100px; margin: 0 auto; padding: 24px 32px 56px; }
+/* Three-column layout */
+.app-body { display: flex; flex: 1; min-height: 0; }
+.col-left { width: 280px; flex-shrink: 0; overflow-y: auto; padding: 16px; border-right: 1px solid var(--rule);
+  background: var(--ground); display: flex; flex-direction: column; gap: 16px; }
+.col-center { flex: 1; min-width: 0; overflow-y: auto; padding: 0; background: var(--ground); }
+.col-right { width: 360px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid var(--rule);
+  background: var(--panel-bg); display: flex; flex-direction: column; }
+
+/* Left column panels */
+.lp { background: var(--face); border-radius: 6px; padding: 14px; border: 1px solid var(--rule); }
+.lp-title { font-size: 12px; font-weight: 600; color: var(--graphite); text-transform: uppercase;
+  letter-spacing: .05em; margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+.lp-big { font-size: 32px; font-weight: 700; font-stretch: 112%; letter-spacing: -.02em; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.lp-sub { font-size: 12px; color: var(--graphite); margin-top: 2px; }
+.lp-row { display: flex; align-items: center; gap: 8px; }
+.lp-row .lp-big { flex-shrink: 0; }
+
+/* Donut chart */
+.donut-wrap { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+.donut-wrap svg { width: 100%; height: 100%; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; }
+.donut-center .donut-num { font-size: 18px; font-weight: 700; line-height: 1; }
+.donut-center .donut-label { font-size: 9px; color: var(--graphite); text-transform: uppercase;
+  letter-spacing: .04em; font-weight: 600; }
+
+/* Decision breakdown mini-legend */
+.breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 8px; }
+.breakdown-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--graphite); }
+.breakdown-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.breakdown-item strong { color: var(--ink); font-weight: 600; margin-right: 2px; }
+
+/* Latency bars */
+.lat-bars { display: grid; gap: 3px; margin-top: 6px; }
+.lat-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.lat-label { width: 50px; text-align: right; color: var(--graphite); font-weight: 500; flex-shrink: 0; }
+.lat-bar { flex: 1; height: 10px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.lat-fill { height: 100%; border-radius: 3px; }
+.lat-val { width: 50px; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 11px; }
+
+/* Demo controls in left column */
+.lp-actions { display: grid; gap: 4px; }
+.lp-btn { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; width: 100%;
+  text-align: left; padding: 6px 10px; border: none; border-radius: var(--radius);
+  background: var(--face); color: var(--graphite); min-height: 30px; border: 1px solid var(--rule);
+  transition: background .12s, color .12s; }
+.lp-btn:hover:not(:disabled) { background: var(--ground); color: var(--ink); border-color: var(--ink); }
+.lp-btn:disabled { opacity: .4; cursor: default; }
+.lp-btn.danger { color: var(--accent); border-color: var(--accent-wash); }
+.lp-btn.danger:hover:not(:disabled) { background: var(--accent-wash); }
+.lp-clock { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lp-speed { font-size: 11px; color: var(--review); font-weight: 600; }
+
+/* Center column: event feed */
+.feed-header { padding: 16px 24px 12px; border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; background: var(--ground); z-index: 3; }
+.feed-header h1 { margin: 0; font-size: 16px; font-weight: 680; font-stretch: 112%; }
+.feed-header .feed-sub { font-size: 13px; color: var(--graphite); margin-top: 2px; }
+.feed-scroll { padding: 0 24px 40px; }
+
+/* Event cards */
+.ev-card { border: 1px solid var(--rule); border-radius: 6px; margin-top: 12px; background: var(--face);
+  cursor: pointer; transition: border-color .12s, box-shadow .12s; overflow: hidden; }
+.ev-card:hover { border-color: var(--accent-mid); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.ev-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ev-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+.ev-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ev-kind-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius);
+  text-transform: uppercase; letter-spacing: .04em; }
+.ev-num { font-size: 12px; color: var(--graphite); font-weight: 500; }
+.ev-arrow { color: var(--graphite); font-size: 11px; margin-left: auto; }
+.ev-decision { font-size: 13px; font-weight: 600; }
+.ev-latency { font-size: 12px; color: var(--graphite); font-variant-numeric: tabular-nums; }
+.ev-title { font-weight: 580; font-size: 14px; flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+
+/* Probability distribution bar */
+.prob-bar { display: flex; height: 28px; border-radius: var(--radius); overflow: hidden; margin: 0 14px; }
+.prob-seg { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; white-space: nowrap; min-width: 0; overflow: hidden;
+  transition: flex-grow .3s; }
+.prob-seg .prob-label { opacity: .85; font-weight: 600; }
+.prob-seg .prob-val { font-variant-numeric: tabular-nums; }
+
+/* Event bottom row */
+.ev-bottom { padding: 8px 14px; font-size: 12px; color: var(--graphite); display: flex;
+  align-items: center; gap: 8px; border-top: 1px solid var(--rule); }
+.ev-bottom code { font-size: 11px; padding: 1px 5px; border-radius: 3px; background: var(--ground); }
+
+/* Pending review cards in feed */
+.ev-review-banner { padding: 6px 14px; background: var(--review-wash); border-top: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ev-review-banner .attn-time { color: var(--review); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ev-ack-btn { font: inherit; font-size: 12px; font-weight: 700; padding: 4px 12px;
+  border-radius: var(--radius); border: none; cursor: pointer;
+  background: var(--ink); color: var(--ground); margin-left: auto; }
+
+/* Right column: inspector panel */
+.insp-header { padding: 14px 16px; border-bottom: 1px solid var(--rule); position: sticky;
+  top: 0; background: var(--panel-bg); z-index: 2; }
+.insp-header h2 { margin: 0; font-size: 14px; font-weight: 680; }
+.insp-header .insp-sub { font-size: 12px; color: var(--graphite); margin-top: 2px; }
+.insp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--rule); position: sticky;
+  top: 50px; background: var(--panel-bg); z-index: 2; }
+.insp-tab { font: inherit; font-size: 12px; font-weight: 600; padding: 8px 14px; border: none;
+  border-bottom: 2px solid transparent; background: none; color: var(--graphite); cursor: pointer; }
+.insp-tab:hover { color: var(--ink); }
+.insp-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.insp-body { padding: 16px; flex: 1; overflow-y: auto; }
+.insp-pane { display: none; }
+.insp-pane.active { display: block; }
+
+/* Inspector: decision detail */
+.insp-decision { padding: 14px; background: var(--face); border-radius: 6px;
+  border: 1px solid var(--rule); margin-bottom: 16px; }
+.insp-decision .insp-dec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.insp-decision .prob-ring { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
+.insp-decision .prob-ring svg { width: 100%; height: 100%; }
+.insp-decision .prob-ring-val { position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
+.insp-options { display: grid; gap: 5px; }
+.insp-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.insp-opt-rank { width: 14px; height: 14px; border-radius: 50%; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+.insp-opt-bar { flex: 1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.insp-opt-fill { height: 100%; border-radius: 3px; }
+.insp-opt-val { font-weight: 600; font-variant-numeric: tabular-nums; width: 36px; text-align: right; }
+
+/* Inspector: facts */
+.insp-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; }
+.insp-facts dt { font-size: 12px; color: var(--graphite); }
+.insp-facts dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Inspector: decision log */
+.dec-log { width: 100%; border-collapse: collapse; }
+.dec-log th { font-size: 11px; font-weight: 600; color: var(--graphite); text-transform: uppercase;
+  letter-spacing: .04em; padding: 5px 6px; border-bottom: 1px solid var(--rule); text-align: left; }
+.dec-log td { font-size: 12px; padding: 5px 6px; border-bottom: 1px solid var(--rule);
+  font-variant-numeric: tabular-nums; }
+.dec-log tr { cursor: pointer; transition: background .1s; }
+.dec-log tr:hover { background: var(--face); }
+.dec-log tr.selected { background: var(--accent-wash); }
+.dec-log .log-dots { display: flex; gap: 2px; }
+.dec-log .log-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+/* Review banner in inspector */
+.insp-review-banner { padding: 10px 14px; border-radius: var(--radius);
+  border-left: 3px solid var(--review); background: var(--review-wash); font-size: 13px; margin-bottom: 12px; }
+.insp-review-banner.escalated { border-left-color: var(--accent); background: var(--accent-wash); }
+
+/* Severity dist in inspector */
+.insp-dist { height: 12px; border-radius: 4px; overflow: hidden; display: flex; margin-top: 8px; }
+
+/* P(page) gauge */
+.p-gauge { position: relative; height: 18px; border-radius: 9px; background: var(--rule);
+  overflow: hidden; margin-top: 6px; }
+.p-gauge-fill { height: 100%; border-radius: 9px; transition: width .3s; }
+.p-gauge-label { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; font-weight: 700; }
+.p-gauge-marks { position: absolute; inset: 0; }
+.p-gauge-mark { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ground); opacity: .5; }
+
+/* Site nav in header area */
+.app-header { display: flex; align-items: center; gap: 12px; padding: 8px 20px;
+  border-bottom: 1px solid var(--rule); background: var(--ground); flex-shrink: 0; }
+.app-header .mark { margin: 0; }
+.app-header .site-nav { display: flex; gap: 4px; margin-left: auto; }
+.app-header .site-nav a { font-size: 13px; color: var(--graphite); text-decoration: none;
+  padding: 4px 8px; border-radius: var(--radius); }
+.app-header .site-nav a:hover { color: var(--ink); background: var(--face); }
 
 /* Override .page styles inside app shell */
 body.app .page { max-width: none; margin: 0; padding: 0; }
 body.app .hero { padding-top: 0; }
-
-/* Mobile tab strip */
-.mobile-tabs { display: none; overflow-x: auto; white-space: nowrap; padding: 0 16px;
-  border-bottom: 1px solid var(--rule); background: var(--ground); position: sticky; top: 0; z-index: 5; }
-.mobile-tabs button { font: inherit; font-size: 13px; font-weight: 600; padding: 12px 14px;
-  border: none; border-bottom: 2px solid transparent; background: none; color: var(--graphite);
-  cursor: pointer; white-space: nowrap; }
-.mobile-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
-
-/* Stat tiles */
-.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px; margin-bottom: 24px; }
-.stat-tile { padding: 16px; border-radius: 6px; background: var(--face); }
-.stat-tile .tile-val { font-size: 26px; font-weight: 700; font-stretch: 112%;
-  letter-spacing: -.02em; line-height: 1.1; }
-.stat-tile .tile-val.accent { color: var(--accent); }
-.stat-tile .tile-val.review-c { color: var(--review); }
-.stat-tile .tile-label { font-size: 13px; color: var(--graphite); margin-top: 4px; }
-
-/* Overview compact review list */
-.attn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-.attn-item { display: flex; align-items: center; gap: 12px; padding: 10px 0;
-  border-bottom: 1px solid var(--rule); font-size: 14px; }
-.attn-item:last-child { border-bottom: none; }
-.attn-title { flex: 1; min-width: 0; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attn-time { color: var(--review); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
-.attn-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px;
-  border-radius: var(--radius); border: none; cursor: pointer;
-  background: var(--ink); color: var(--ground); min-height: 28px; }
-
-/* Filter pills */
-.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-.filter-pill { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 14px;
-  border-radius: 16px; border: 1px solid var(--rule); background: none; color: var(--graphite);
-  cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
-.filter-pill:hover { border-color: var(--ink); color: var(--ink); }
-.filter-pill.active { background: var(--ink); color: var(--ground); border-color: var(--ink); }
-.filter-count { font-size: 13px; color: var(--graphite); margin-left: auto; }
-
-/* Flat alert table */
-.alert-tbl { width: 100%; border-collapse: collapse; }
-.alert-tbl th { padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--graphite);
-  border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap;
-  cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .04em; }
-.alert-tbl th:hover { color: var(--ink); }
-.alert-tbl th .sort-ind { font-size: 10px; margin-left: 3px; opacity: .5; }
-.alert-tbl th.sorted .sort-ind { opacity: 1; }
-.alert-tbl th.n { text-align: right; }
-.alert-tbl td { padding: 10px 10px; border-bottom: 1px solid var(--rule); font-size: 14px;
-  vertical-align: middle; }
-.alert-tbl tr.tbl-row { cursor: pointer; transition: background .1s; }
-.alert-tbl tr.tbl-row:hover { background: var(--face); }
-.alert-tbl tr.tbl-row.selected { background: var(--accent-wash); }
-.alert-tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
-.alert-tbl .tbl-title { font-weight: 560; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alert-tbl .tbl-meta { font-size: 12px; color: var(--graphite); margin-top: 1px; }
-.alert-tbl .tbl-tag { display: inline-block; padding: 1px 7px; border-radius: var(--radius);
-  font-size: 12px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
-
-/* Detail panel */
-.detail-panel { width: 0; flex-shrink: 0; background: var(--ground); border-left: 1px solid var(--rule);
-  overflow-y: auto; overflow-x: hidden; transition: width .25s ease; position: relative; }
-.detail-panel.open { width: 480px; }
-.detail-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  padding: 20px 24px 16px; border-bottom: 1px solid var(--rule); position: sticky; top: 0;
-  background: var(--ground); z-index: 1; }
-.detail-close { font: inherit; font-size: 20px; width: 32px; height: 32px; display: flex;
-  align-items: center; justify-content: center; border: none; background: var(--face);
-  color: var(--ink); border-radius: var(--radius); cursor: pointer; flex: none; }
-.detail-close:hover { background: var(--rule); }
-.detail-title-text { font-size: 16px; font-weight: 640; line-height: 1.3; overflow-wrap: anywhere; }
-.detail-meta { font-size: 13px; color: var(--graphite); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 2px 12px; }
-.detail-body { padding: 0 24px 32px; }
-.detail-section { padding: 16px 0; border-bottom: 1px solid var(--rule); }
-.detail-section:last-child { border-bottom: none; }
-.detail-section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--graphite);
-  text-transform: uppercase; letter-spacing: .04em; }
-.detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; }
-.detail-facts dt { font-size: 13px; color: var(--graphite); }
-.detail-facts dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.detail-review-banner { padding: 10px 14px; border-radius: var(--radius);
-  border-left: 3px solid var(--review); background: var(--review-wash); font-size: 14px; margin-bottom: 12px; }
-.detail-review-banner.escalated { border-left-color: var(--accent); background: var(--accent-wash); }
-
-/* Overview section styling */
-.ov-section { margin-bottom: 32px; }
-.ov-section h2 { margin: 0 0 12px; font-size: 16px; font-weight: 680; font-stretch: 112%;
-  letter-spacing: -.01em; color: var(--ink); }
-.ov-banner { margin-bottom: 20px; }
-
-/* Demo banner in overview */
-body.app .demo-banner { margin: 0; }
-
-/* Reviews view adjustments */
-body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
-body.app .live-box + .live-box { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--rule); }
-body.app .demo-controls { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); }
-body.app .live-you { margin-top: 0; margin-bottom: 16px; }
-
-/* Compare + Eval view adjustments */
-body.app .eval { margin-top: 0; }
-body.app .facts { margin-top: 32px; }
-body.app .alerts { margin-top: 0; }
-
-/* Hide elements not needed in app shell */
 body.app .foot { display: none; }
+body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
+body.app .eval { margin-top: 0; }
+body.app .facts { margin-top: 0; }
 
-@media (max-width: 900px) {
-  body.app { flex-direction: column; }
-  .sidebar { display: none; }
-  .mobile-tabs { display: flex; }
-  .view-inner { padding: 16px 16px 56px; }
-  .detail-panel { position: fixed; inset: 0; width: 100% !important; z-index: 100;
-    transform: translateX(100%); transition: transform .25s ease; }
-  .detail-panel.open { transform: none; width: 100% !important; }
-  .stat-tiles { grid-template-columns: repeat(2, 1fr); }
-  .alert-tbl .tbl-title { max-width: 200px; }
+@media (max-width: 1100px) {
+  .col-right { width: 300px; }
+  .col-left { width: 240px; }
 }
-@media (max-width: 560px) {
-  .stat-tiles { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .stat-tile { padding: 12px; }
-  .stat-tile .tile-val { font-size: 22px; }
+@media (max-width: 900px) {
+  .app-body { flex-direction: column; }
+  .col-left { display: none; }
+  .col-right { display: none; }
+  .col-right.mobile-open { display: flex; position: fixed; inset: 0; width: 100% !important;
+    z-index: 100; background: var(--panel-bg); }
+  .col-center { border: none; }
+  .feed-scroll { padding: 0 16px 40px; }
 }
 """
 
 THRESHOLD_SAYS = {"PAGE_NOW": "page now", "PAGE": "page", "REVIEW": "review",
                   "TICKET": "ticket", "LOG": "log", "DROP": "drop"}
 
-
-def app_stat_tiles(results, decisions):
-    s = results["summary"]
-    counts = {}
-    for d in decisions.values():
-        counts[kind(d)] = counts.get(kind(d), 0) + 1
-    paged = counts.get("page", 0)
-    review_n = counts.get("review", 0)
-    tiles = [
-        (str(s["alerts"]), "Alerts", ""),
-        (str(paged), "Paged", "accent" if paged else ""),
-        (str(review_n), "In review", "review-c" if review_n else ""),
-        (str(counts.get("ticket", 0)), "Ticketed", ""),
-        (str(counts.get("quiet", 0) + counts.get("linked", 0)), "Quiet / linked", ""),
-    ]
-    if s.get("cost_usd"):
-        tiles.append((f"${s['cost_usd']:.4f}", "Total cost", ""))
-    items = "".join(f'<div class="stat-tile"><div class="tile-val {c}">{esc(v)}</div>'
-                    f'<div class="tile-label">{esc(k)}</div></div>' for v, k, c in tiles)
-    return f'<div class="stat-tiles">{items}</div>'
+KIND_COLORS = {"page": "var(--c-page)", "review": "var(--c-review)",
+               "ticket": "var(--c-ticket)", "quiet": "var(--c-quiet)", "linked": "var(--c-linked)"}
+KIND_LABEL = {"page": "Page", "review": "Review", "ticket": "Ticket", "quiet": "Quiet", "linked": "Linked"}
 
 
-def app_compact_reviews(live, alerts_by_id, demo=None):
-    items = (live or {}).get("pending") or []
-    if not items:
-        return ""
-    rows = []
-    for it in items:
-        title = display_title(alerts_by_id.get(it["id"], {"id": it["id"], "title": it.get("title") or it["id"]}))
-        rows.append(f'<li class="attn-item"><span class="m m-review" aria-hidden="true"></span>'
-                    f'<span class="attn-title">{esc(title)}</span>'
-                    f'<span class="attn-time">{_minutes(it["seconds_left"])}</span>'
-                    f'<button type="button" class="attn-btn ack" data-id="{esc(it["id"])}">Ack</button></li>')
-    return (f'<div class="ov-section"><h2>Needs attention</h2>'
-            f'<ul class="attn-list">{"".join(rows)}</ul></div>')
-
-
-def flat_alert_table(alerts, decisions, judgments, records, report, live=None):
-    known = [a["id"] for a in alerts]
-    rows = []
-    for a in alerts:
-        aid = a["id"]
-        d = decisions.get(aid)
-        if not d:
+def donut_svg(counts, total):
+    if total == 0:
+        return '<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="var(--rule)" stroke-width="4"/></svg>'
+    segments = []
+    offset = 25
+    order = ["page", "review", "ticket", "quiet", "linked"]
+    for k in order:
+        n = counts.get(k, 0)
+        if n == 0:
             continue
-        j = judgments.get(aid)
-        lab = evaluate.labels(a)
-        k = kind(d)
-        p_page = f"{j.p_page:.2f}" if j else "-"
-        p_act = f"{j.p_actionable:.2f}" if j else "-"
-        p_page_n = f"{j.p_page:.4f}" if j else "0"
-        p_act_n = f"{j.p_actionable:.4f}" if j else "0"
-        label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
-        bits = [aid, a.get("service"), clock(a.get("started_at"))]
-        meta = " · ".join(esc(b) for b in bits if b)
-        st = review_state(aid, live) if d.action == "REVIEW" else None
-        state_html = ""
-        if st:
-            state_html = f' <span class="state state-{esc(st["state"])}">{esc(REVIEW_STATE[st["state"]])}</span>'
-        rows.append(
-            f'<tr class="tbl-row" data-id="{esc(aid)}" data-kind="{k}" '
-            f'data-pp="{p_page_n}" data-pa="{p_act_n}">'
-            f'<td><span class="m m-{k}" style="width:10px;height:10px"></span></td>'
-            f'<td><div class="tbl-title">{esc(display_title(a))}</div><div class="tbl-meta">{meta}</div></td>'
-            f'<td><span class="tbl-tag tag-{k}">{esc(label)}</span>{state_html}</td>'
-            f'<td>{esc(d.team)}</td>'
-            f'<td class="n">{p_page}</td>'
-            f'<td class="n">{p_act}</td></tr>')
-    return (f'<table class="alert-tbl"><thead><tr>'
-            f'<th style="width:30px"></th>'
-            f'<th data-sort="title">Alert <span class="sort-ind"></span></th>'
-            f'<th data-sort="decision">Decision <span class="sort-ind"></span></th>'
-            f'<th data-sort="owner">Owner <span class="sort-ind"></span></th>'
-            f'<th class="n" data-sort="pp">P(page) <span class="sort-ind"></span></th>'
-            f'<th class="n" data-sort="pa">Actionable <span class="sort-ind"></span></th>'
-            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+        pct = n / total * 100
+        segments.append(f'<circle cx="18" cy="18" r="14" fill="none" stroke="{KIND_COLORS.get(k, "var(--rule)")}" '
+                        f'stroke-width="4" stroke-dasharray="{pct:.1f} {100 - pct:.1f}" '
+                        f'stroke-dashoffset="{offset:.1f}"/>')
+        offset -= pct
+    return f'<svg viewBox="0 0 36 36">{"".join(segments)}</svg>'
 
 
-def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
+def event_card(idx, a, d, j, record, live=None):
+    aid = a["id"]
+    k = kind(d)
+    color = KIND_COLORS.get(k, "var(--graphite)")
+    label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
+    call = record.get("call")
+    latency = f"{call['ms']} ms" if call else ""
+
+    prob_bar = ""
+    if j:
+        segs = [
+            (j.p_page, "page", "var(--c-page)"),
+            (max(0, j.p_actionable - j.p_page), "act", "var(--c-review)"),
+            (max(0, 1 - j.p_actionable), "quiet", "var(--c-quiet)"),
+        ]
+        prob_bar = '<div class="prob-bar">' + "".join(
+            f'<div class="prob-seg" style="flex-grow:{max(v, .01):.4f};background:{c}">'
+            f'<span class="prob-label">{lbl}</span> <span class="prob-val">{v:.2f}</span></div>'
+            for v, lbl, c in segs if v > 0.005) + '</div>'
+
+    st = review_state(aid, live) if d.action == "REVIEW" else None
+    review_html = ""
+    if st:
+        story = review_story(st, live)
+        pending = (live or {}).get("pending") or []
+        time_html = ""
+        ack_html = ""
+        for p in pending:
+            if p["id"] == aid:
+                time_html = f'<span class="attn-time">{_minutes(p["seconds_left"])}</span>'
+                ack_html = f'<button type="button" class="ev-ack-btn ack" data-id="{esc(aid)}">Ack</button>'
+                break
+        cls = " escalated" if st["state"] == "escalated" else ""
+        review_html = (f'<div class="ev-review-banner{cls}">'
+                       f'{esc(story)} {time_html}{ack_html}</div>')
+
+    bottom_parts = []
+    if d.team:
+        bottom_parts.append(f'<code>{esc(d.team)}</code>')
+    if d.reasons:
+        first = next((r for r in d.reasons if not r.startswith("P(page)=")), None)
+        if first:
+            bottom_parts.append(esc(first))
+    bottom_html = ""
+    if bottom_parts:
+        bottom_html = f'<div class="ev-bottom">{" ".join(bottom_parts)}</div>'
+
+    return (f'<div class="ev-card" data-id="{esc(aid)}" data-idx="{idx}">'
+            f'<div class="ev-top">'
+            f'<span class="ev-dot" style="background:{color}"></span>'
+            f'<span class="ev-kind-badge" style="background:{color};color:#fff">{esc(KIND_LABEL.get(k, k))}</span>'
+            f'<span class="ev-num">#{idx + 1}</span>'
+            f'<span class="ev-title">{esc(display_title(a))}</span>'
+            f'<span class="ev-arrow">&rarr;</span>'
+            f'<span class="ev-decision">{esc(label)}</span>'
+            f'<span class="ev-latency">{esc(latency)}</span>'
+            f'</div>'
+            f'{prob_bar}{review_html}{bottom_html}</div>')
+
+
+def inspector_data(alerts, decisions, judgments, records, report, live=None):
     known = [a["id"] for a in alerts]
     details = []
-    for a in alerts:
+    for idx, a in enumerate(alerts):
         aid = a["id"]
         d = decisions.get(aid)
         if not d:
@@ -1768,18 +1800,55 @@ def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
         record = records.get(aid, {})
         lab = evaluate.labels(a)
         k = kind(d)
+        color = KIND_COLORS.get(k, "var(--graphite)")
         label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
         bits = [aid, a.get("service"), clock(a.get("started_at"))]
         if not triage.is_prod(a):
             bits.append(a.get("env"))
-        meta_items = "".join(f"<span>{esc(b)}</span>" for b in bits if b)
+        meta_items = " &middot; ".join(esc(b) for b in bits if b)
 
         st = review_state(aid, live) if d.action == "REVIEW" else None
         banner = ""
         if st:
             story = review_story(st, live)
             cls = " escalated" if st["state"] == "escalated" else ""
-            banner = f'<div class="detail-review-banner{cls}">{esc(story)}</div>'
+            banner = f'<div class="insp-review-banner{cls}">{esc(story)}</div>'
+
+        # Decision ring + options
+        p_val = j.p_page if j else 0
+        ring_pct = p_val * 100
+        ring_color = color
+        ring_html = (f'<div class="prob-ring"><svg viewBox="0 0 36 36">'
+                     f'<circle cx="18" cy="18" r="14" fill="none" stroke="var(--rule)" stroke-width="3.5"/>'
+                     f'<circle cx="18" cy="18" r="14" fill="none" stroke="{ring_color}" stroke-width="3.5" '
+                     f'stroke-dasharray="{ring_pct:.1f} {100 - ring_pct:.1f}" stroke-dashoffset="25"/>'
+                     f'</svg><span class="prob-ring-val">{p_val:.2f}</span></div>')
+
+        options = []
+        if j:
+            ranked = [
+                (j.p_page, "page", "var(--c-page)"),
+                (j.p_actionable, "actionable", "var(--c-review)"),
+            ]
+            for lvl in reversed(triage.SEV_LEVELS):
+                ranked.append((j.severity[lvl], lvl, "var(--graphite)"))
+            teams = sorted(j.team.items(), key=lambda kv: -kv[1])[:3]
+            for t, p in teams:
+                ranked.append((p, t, "var(--c-ticket)"))
+            ranked.sort(key=lambda x: -x[0])
+            for i, (val, lbl, c) in enumerate(ranked[:6]):
+                pct = val * 100
+                options.append(
+                    f'<div class="insp-opt">'
+                    f'<span class="insp-opt-rank" style="background:{c}">{i + 1}</span>'
+                    f'<span style="min-width:70px;font-size:12px">{esc(lbl)}</span>'
+                    f'<span class="insp-opt-bar"><span class="insp-opt-fill" style="width:{pct:.1f}%;background:{c}"></span></span>'
+                    f'<span class="insp-opt-val">{val:.2f}</span></div>')
+
+        decision_html = (f'<div class="insp-decision"><div class="insp-dec-head">{ring_html}'
+                         f'<div><div style="font-size:14px;font-weight:680">{esc(label)}</div>'
+                         f'<div style="font-size:12px;color:var(--graphite)">{meta_items}</div></div></div>'
+                         f'<div class="insp-options">{"".join(options)}</div></div>')
 
         facts = []
         if d.notify:
@@ -1792,8 +1861,8 @@ def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
         if j:
             facts.append(("Severity", ", ".join(f"{lvl} {fmt(j.severity[lvl])}"
                                                 for lvl in reversed(triage.SEV_LEVELS))))
-            teams = sorted(j.team.items(), key=lambda kv: (-kv[1], kv[0]))[:2]
-            facts.append(("Owner", ", ".join(f"{t} {fmt(p)}" for t, p in teams if p > 0)))
+            teams_list = sorted(j.team.items(), key=lambda kv: (-kv[1], kv[0]))[:2]
+            facts.append(("Owner", ", ".join(f"{t} {fmt(p)}" for t, p in teams_list if p > 0)))
             if j.duplicate_of:
                 cause = triage.top(j.duplicate_of)
                 facts.append(("Cause", f"{cause} at {fmt(j.duplicate_of[cause])}"))
@@ -1814,43 +1883,38 @@ def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
                 labeled.append(f"caused by {lab['duplicate_of']}")
             facts.append(("Labeled", ", ".join(labeled)))
 
-        reasons_html = ""
-        if d.reasons:
-            filtered = [r for r in d.reasons if not r.startswith("P(page)=")]
-            if filtered:
-                items = "".join(f"<li>{esc(r)}</li>" for r in filtered)
-                reasons_html = f'<div class="detail-section"><h4>Routing reasons</h4><ul class="reasons">{items}</ul></div>'
-
         dl = "".join(f"<dt>{esc(k2)}</dt><dd>{esc(v)}</dd>" for k2, v in facts)
+
         dist_html = ""
         if j:
             aria = ", ".join(f"{lvl} {fmt(j.severity[lvl])}" for lvl in reversed(triage.SEV_LEVELS))
             segs = "".join(f'<span class="s{lvl[-1]}" style="flex-grow:{j.severity[lvl]:.4f}"></span>'
                            for lvl in triage.SEV_LEVELS)
-            dist_html = (f'<div class="detail-section"><h4>Severity distribution</h4>'
-                         f'<div class="dist" style="height:12px;border-radius:4px" role="img" '
-                         f'aria-label="Severity: {esc(aria)}">{segs}</div></div>')
+            dist_html = (f'<div style="margin-top:12px"><div style="font-size:12px;color:var(--graphite);'
+                         f'font-weight:600;margin-bottom:4px">SEVERITY</div>'
+                         f'<div class="insp-dist dist" role="img" aria-label="Severity: {esc(aria)}">{segs}</div></div>')
+
+        reasons_html = ""
+        if d.reasons:
+            filtered = [r for r in d.reasons if not r.startswith("P(page)=")]
+            if filtered:
+                items = "".join(f"<li style=\"font-size:13px;margin-bottom:2px\">{esc(r)}</li>" for r in filtered)
+                reasons_html = f'<div style="margin-top:12px"><div style="font-size:12px;color:var(--graphite);font-weight:600;margin-bottom:4px">ROUTING REASONS</div><ul class="reasons" style="margin:0;padding-left:18px">{items}</ul></div>'
 
         form = (label_form(aid, live["teams"], lab, known)
                 if live and live.get("shadow_on") else "")
-        form_html = f'<div class="detail-section">{form}</div>' if form else ""
+        form_html = f'<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--rule)">{form}</div>' if form else ""
 
         details.append(
-            f'<div class="detail-item" id="ddata-{esc(re.sub(r"[^A-Za-z0-9_-]", "_", aid))}" '
-            f'data-id="{esc(aid)}">'
-            f'<div class="detail-top-content">'
-            f'<div><div class="detail-title-text">{esc(display_title(a))}</div>'
-            f'<div class="detail-meta">{meta_items}</div></div>'
-            f'<span class="tbl-tag tag-{k}">{esc(label)}</span></div>'
-            f'{banner}'
-            f'<div class="detail-section"><h4>Analysis</h4>'
-            f'<dl class="detail-facts">{dl}</dl></div>'
+            f'<div class="insp-item" data-id="{esc(aid)}" data-idx="{idx}">'
+            f'{banner}{decision_html}'
+            f'<dl class="insp-facts" style="margin-top:12px">{dl}</dl>'
             f'{dist_html}{reasons_html}{form_html}</div>')
     return f'<div id="detail-data" style="display:none">{"".join(details)}</div>'
 
 
-REVIEW_STATE = {"pending": "waiting for an ack", "acked": "acked",
-                "cancelled": "alert cleared", "escalated": "paged, nobody acked"}
+REVIEW_STATE_APP = {"pending": "waiting for an ack", "acked": "acked",
+                    "cancelled": "alert cleared", "escalated": "paged, nobody acked"}
 
 
 APP_LIVE_JS = r"""
@@ -1880,10 +1944,10 @@ APP_LIVE_JS = r"""
     if (announcer) { announcer.textContent = ""; announcer.textContent = text; }
   }
 
-  // ---- Partial swap: replace view contents, keep shell ----
+  // ---- Partial swap: replace columns, keep shell ----
   function swap(html, after) {
     var doc = new DOMParser().parseFromString(html, "text/html");
-    var ids = ["overview-content", "alerts-content", "reviews-content", "compare-content", "eval-content", "detail-data"];
+    var ids = ["left-content", "feed-content", "detail-data", "log-content", "ticker-inner"];
     var drafts = {};
     document.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
       drafts[f.dataset.id] = [].map.call(f.elements, function (el) { return [el.name, el.value]; });
@@ -1896,122 +1960,54 @@ APP_LIVE_JS = r"""
         cur.replaceWith(node);
       }
     });
-    // Restore form drafts
     Object.keys(drafts).forEach(function (id) {
       var f = document.querySelector('form.label-form[data-id="' + CSS.escape(id) + '"]');
       if (!f) return;
       drafts[id].forEach(function (p) { if (p[0] && f.elements[p[0]]) f.elements[p[0]].value = p[1]; });
       f.dataset.dirty = "1";
     });
-    // Update sidebar badges
     var newBody = doc.querySelector("body");
     if (newBody) {
-      var bc = newBody.dataset.reviewCount;
-      var badge = document.querySelector('[data-view="reviews"] .badge');
-      if (badge && bc !== undefined) badge.textContent = bc;
-      var ac = newBody.dataset.alertCount;
-      badge = document.querySelector('[data-view="alerts"] .badge');
-      if (badge && ac !== undefined) badge.textContent = ac;
       var clk = newBody.dataset.demoClock;
-      var ce = field("sidebar-clock");
+      var ce = field("lp-clock-val");
       if (ce && clk) ce.textContent = clk;
     }
     document.title = doc.title;
     remember();
+    if (selectedId) selectCard(selectedId);
     var target = (after && field(after)) || (focus && field(focus));
     if (target) target.focus({preventScroll: true});
   }
 
-  // ---- View switching ----
-  var curView = store.get("jev-app-view") || "overview";
-  function switchView(name) {
-    document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
-    document.querySelectorAll(".sidebar-nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.view === name); });
-    document.querySelectorAll(".mobile-tabs button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === name); });
-    curView = name;
-    store.set("jev-app-view", name);
-    // Close detail panel when switching away from alerts
-    if (name !== "alerts") closeDetail();
-  }
-  // Init
-  switchView(curView);
-
-  document.addEventListener("click", function (e) {
-    var nav = e.target.closest("[data-view]");
-    if (nav && (nav.closest(".sidebar-nav") || nav.closest(".mobile-tabs"))) {
-      e.preventDefault();
-      switchView(nav.dataset.view);
-      return;
-    }
-  });
-
-  // ---- Detail panel ----
-  function openDetail(id) {
-    var panel = field("detail-panel"), body = field("detail-body");
-    var data = document.querySelector('#detail-data .detail-item[data-id="' + CSS.escape(id) + '"]');
-    if (!panel || !body || !data) return;
-    body.innerHTML = data.innerHTML;
-    panel.classList.add("open");
-    document.querySelectorAll(".tbl-row").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
+  // ---- Card selection → inspector ----
+  var selectedId = null;
+  function selectCard(id) {
+    selectedId = id;
+    document.querySelectorAll(".ev-card").forEach(function (c) { c.classList.toggle("selected", c.dataset.id === id); });
+    document.querySelectorAll(".dec-log tr[data-id]").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
+    var data = document.querySelector('#detail-data .insp-item[data-id="' + CSS.escape(id) + '"]');
+    var pane = field("insp-analysis");
+    if (pane && data) { pane.innerHTML = data.innerHTML; }
+    switchTab("analysis");
     remember();
   }
-  function closeDetail() {
-    var panel = field("detail-panel");
-    if (panel) panel.classList.remove("open");
-    document.querySelectorAll(".tbl-row.selected").forEach(function (r) { r.classList.remove("selected"); });
+  document.addEventListener("click", function (e) {
+    if (e.target.closest(".ack") || e.target.closest(".ev-ack-btn") ||
+        e.target.closest("button[data-demo]") || e.target.closest("#demo-reset")) return;
+    var card = e.target.closest(".ev-card");
+    if (card) { selectCard(card.dataset.id); return; }
+    var logRow = e.target.closest(".dec-log tr[data-id]");
+    if (logRow) { selectCard(logRow.dataset.id); return; }
+  });
+
+  // ---- Inspector tabs ----
+  function switchTab(name) {
+    document.querySelectorAll(".insp-tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === name); });
+    document.querySelectorAll(".insp-pane").forEach(function (p) { p.classList.toggle("active", p.id === "insp-" + name); });
   }
   document.addEventListener("click", function (e) {
-    if (e.target.closest("#detail-close") || e.target.id === "detail-close") { closeDetail(); return; }
-    var row = e.target.closest(".tbl-row");
-    if (row) { openDetail(row.dataset.id); return; }
-  });
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") closeDetail();
-  });
-
-  // ---- Table sorting ----
-  document.addEventListener("click", function (e) {
-    var th = e.target.closest(".alert-tbl th[data-sort]");
-    if (!th) return;
-    var key = th.dataset.sort, tbody = th.closest("table").querySelector("tbody");
-    if (!tbody) return;
-    var asc = th.classList.contains("sorted") && !th.classList.contains("desc");
-    th.closest("thead").querySelectorAll("th").forEach(function (h) { h.classList.remove("sorted", "desc"); });
-    th.classList.add("sorted");
-    if (asc) th.classList.add("desc");
-    var rows = [].slice.call(tbody.querySelectorAll("tr.tbl-row"));
-    rows.sort(function (a, b) {
-      var va, vb;
-      if (key === "pp") { va = parseFloat(a.dataset.pp); vb = parseFloat(b.dataset.pp); }
-      else if (key === "pa") { va = parseFloat(a.dataset.pa); vb = parseFloat(b.dataset.pa); }
-      else if (key === "title") { va = a.querySelector(".tbl-title").textContent; vb = b.querySelector(".tbl-title").textContent; }
-      else if (key === "decision") { va = a.querySelector(".tbl-tag").textContent; vb = b.querySelector(".tbl-tag").textContent; }
-      else if (key === "owner") { va = a.cells[3].textContent; vb = b.cells[3].textContent; }
-      else return 0;
-      if (typeof va === "number") { var r = va - vb; return asc ? -r : r; }
-      return asc ? vb.localeCompare(va) : va.localeCompare(vb);
-    });
-    rows.forEach(function (r) { tbody.appendChild(r); });
-  });
-
-  // ---- Filter pills ----
-  document.addEventListener("click", function (e) {
-    var pill = e.target.closest(".filter-pill");
-    if (!pill) return;
-    var filter = pill.dataset.filter;
-    pill.closest(".filter-bar").querySelectorAll(".filter-pill").forEach(function (p) {
-      p.classList.toggle("active", p === pill);
-    });
-    var tbody = document.querySelector(".alert-tbl tbody");
-    if (!tbody) return;
-    var count = 0;
-    tbody.querySelectorAll("tr.tbl-row").forEach(function (r) {
-      var show = filter === "all" || r.dataset.kind === filter;
-      r.style.display = show ? "" : "none";
-      if (show) count++;
-    });
-    var ce = document.querySelector(".filter-count");
-    if (ce) ce.textContent = count + " alert" + (count === 1 ? "" : "s");
+    var tab = e.target.closest(".insp-tab");
+    if (tab) switchTab(tab.dataset.tab);
   });
 
   // ---- Live server endpoints ----
@@ -2044,7 +2040,7 @@ APP_LIVE_JS = r"""
   }
   function demoStatus(text, good) { show(field("demo-status"), text, good); }
   function setBusy(busy) {
-    document.querySelectorAll(".live-btn, .sidebar-btn, .attn-btn, .label-form select").forEach(function (b) {
+    document.querySelectorAll(".live-btn, .lp-btn, .ev-ack-btn, .label-form select").forEach(function (b) {
       if (b.id === "demo-reset") return;
       if (busy) { b.dataset.wasDisabled = b.disabled ? "1" : ""; b.disabled = true; }
       else if (b.dataset.wasDisabled !== undefined) { b.disabled = b.dataset.wasDisabled === "1"; delete b.dataset.wasDisabled; }
@@ -2200,7 +2196,7 @@ APP_LIVE_JS = r"""
 
 def render_app(results, alerts, results_name="results.json", label=None, footer=None,
                refresh_s=None, live=None, demo=None, nav=None):
-    """App-shell layout: sidebar + multi-view layout for the demo page."""
+    """Three-column observability dashboard layout."""
     meta = results["meta"]
     policy = triage.Policy(**meta["policy"])
     records = {r["id"]: r for r in results["alerts"]}
@@ -2213,114 +2209,153 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
     errors = {i: r["error"] for i, r in records.items() if r.get("error")}
     alerts_by_id = {a["id"]: a for a in alerts}
 
-    # Sidebar nav items with badges
     pending_count = len((live or {}).get("pending") or [])
     alert_count = len(alerts)
+    s = results["summary"]
 
-    # Sidebar nav
-    nav_items = [
-        ("overview", "Overview", ""),
-        ("alerts", "Alerts", f'<span class="badge">{alert_count}</span>'),
-        ("reviews", "Reviews", f'<span class="badge">{pending_count}</span>' if pending_count else ""),
-        ("compare", "Compare", ""),
-        ("eval", "Evaluation", ""),
-    ]
-    nav_html_items = "".join(
-        f'<li><a href="#" data-view="{slug}" class="{"active" if slug == "overview" else ""}">'
-        f'<span class="nav-icon">{SIDEBAR_ICONS[slug]}</span>{esc(text)}{badge}</a></li>'
-        for slug, text, badge in nav_items)
+    # Count decisions by kind
+    counts = {}
+    for d in decisions.values():
+        counts[kind(d)] = counts.get(kind(d), 0) + 1
 
-    site_links = ""
-    if nav:
-        links = "".join(f'<a href="{esc(href)}">{esc(text)}</a>' for text, href in nav)
-        site_links = f'<nav class="site-nav" aria-label="jev-oncall site">{links}</nav>'
+    # ---- Ticker ----
+    ticker_items = []
+    for idx, a in enumerate(alerts):
+        d = decisions.get(a["id"])
+        if not d:
+            continue
+        k = kind(d)
+        color = KIND_COLORS.get(k, "var(--graphite)")
+        j = judgments.get(a["id"])
+        pp = f"p={j.p_page:.2f}" if j else ""
+        call = records.get(a["id"], {}).get("call")
+        ms = f"{call['ms']} ms" if call else ""
+        label_text = ACTION_LABEL.get(d.action, d.action).lower()
+        ticker_items.append(
+            f'<span class="ticker-item"><span class="ticker-dot" style="background:{color}"></span>'
+            f'jev #{idx + 1} {label_text}: {esc(display_title(a)[:40])} {esc(pp)} {esc(ms)}</span>')
+    ticker_html = "".join(ticker_items)
 
-    # Sidebar footer: demo clock + controls
-    sidebar_footer = ""
+    # ---- Left column ----
+    # Timing panel
+    total_ms = sum(r.get("call", {}).get("ms", 0) for r in records.values() if r.get("call"))
+    total_s = total_ms / 1000 if total_ms else 0
+    donut = donut_svg(counts, alert_count)
+    breakdown_items = "".join(
+        f'<div class="breakdown-item"><span class="breakdown-dot" style="background:{KIND_COLORS.get(k, "var(--graphite)")}"></span>'
+        f'<strong>{counts.get(k, 0)}</strong> {KIND_LABEL.get(k, k)}</div>'
+        for k in ["page", "review", "ticket", "quiet", "linked"] if counts.get(k, 0) > 0)
+
+    timing_panel = (
+        f'<div class="lp"><div class="lp-title">Triage timing</div>'
+        f'<div class="lp-row"><div><div class="lp-big">{total_s:.2f} s</div>'
+        f'<div class="lp-sub">{alert_count} decisions</div></div>'
+        f'<div class="donut-wrap">{donut}<div class="donut-center">'
+        f'<span class="donut-num">{alert_count}</span>'
+        f'<span class="donut-label">alerts</span></div></div></div>'
+        f'<div class="breakdown">{breakdown_items}</div></div>')
+
+    # Latency panel
+    latencies = sorted(r.get("call", {}).get("ms", 0) for r in records.values() if r.get("call"))
+    if latencies:
+        p50 = latencies[len(latencies) // 2]
+        p1 = latencies[0]
+        p95 = latencies[int(len(latencies) * 0.95)] if len(latencies) > 1 else latencies[0]
+        max_lat = max(latencies) or 1
+        lat_bars = "".join(
+            f'<div class="lat-row"><span class="lat-label">{lbl}</span>'
+            f'<span class="lat-bar"><span class="lat-fill" style="width:{val / max_lat * 100:.0f}%;background:var(--accent)"></span></span>'
+            f'<span class="lat-val">{val} ms</span></div>'
+            for lbl, val in [("p50", p50), ("p1", p1), ("p95", p95)])
+        latency_panel = f'<div class="lp"><div class="lp-title">Latency per decision</div>{lat_bars}</div>'
+    else:
+        latency_panel = ""
+
+    # Cost panel
+    cost_html = ""
+    if s.get("cost_usd"):
+        cost_html = (f'<div class="lp"><div class="lp-title">Total cost</div>'
+                     f'<div class="lp-big">${s["cost_usd"]:.4f}</div></div>')
+
+    # Demo clock + controls panel
+    demo_panel = ""
     if demo:
         minutes = demo.get("advance_min", 15)
         timeout_off = " disabled" if demo.get("timeout_used") else ""
-        sidebar_footer = f"""
-<div class="sidebar-footer">
-  <div class="sidebar-clock">
-    <span class="clock-label">Demo clock</span>
-    <span class="clock-time" id="sidebar-clock">{esc(clock(demo["clock"]))}</span>
-    <span class="clock-speed">15&times; speed</span>
-  </div>
-  <div class="sidebar-actions">
-    <button type="button" class="sidebar-btn" id="demo-advance" data-demo="advance">Advance {minutes} min</button>
-    <button type="button" class="sidebar-btn" id="demo-timeout" data-demo="timeout"{timeout_off}>Jev timeout</button>
-    <button type="button" class="sidebar-btn ghost danger" id="demo-reset">Start over</button>
-  </div>
-  <p class="live-status" id="demo-status" role="status" style="margin-top:8px;font-size:12px"></p>
-</div>"""
+        demo_panel = (
+            f'<div class="lp"><div class="lp-title">Demo clock</div>'
+            f'<div class="lp-clock" id="lp-clock-val">{esc(clock(demo["clock"]))}</div>'
+            f'<div class="lp-speed">15&times; speed</div>'
+            f'<div class="lp-actions" style="margin-top:8px">'
+            f'<button type="button" class="lp-btn" id="demo-advance" data-demo="advance">Advance {minutes} min</button>'
+            f'<button type="button" class="lp-btn" id="demo-timeout" data-demo="timeout"{timeout_off}>Jev timeout</button>'
+            f'<button type="button" class="lp-btn danger" id="demo-reset">Start over</button></div>'
+            f'<p class="live-status" id="demo-status" role="status" style="margin-top:6px;font-size:11px"></p></div>')
 
-    # ---- Overview view content ----
-    lead, follow = thesis(decisions, live)
-    follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
-    note_html = ""
+    # Demo banner
+    banner_html = ""
     if demo:
-        note_html = f'<div class="ov-banner">{demo_banner(demo)}</div>'
+        banner_html = f'<div class="lp" style="border-color:var(--review)">{demo_banner(demo)}</div>'
+
+    # Reviews panel in left column
+    pending_panel = ""
+    if live:
+        pending_panel = pending_section(live, alerts_by_id, demo)
+
+    left_col = (f'<div id="left-content">{banner_html}{timing_panel}{latency_panel}{cost_html}'
+                f'{demo_panel}{pending_panel}</div>')
+
+    # ---- Center column: event feed ----
+    lead, follow = thesis(decisions, live)
+    cards = []
+    for idx, a in enumerate(alerts):
+        d = decisions.get(a["id"])
+        if not d:
+            continue
+        j = judgments.get(a["id"])
+        record = records.get(a["id"], {})
+        cards.append(event_card(idx, a, d, j, record, live))
+
     notices_html = notices(results, decisions, errors, report)
-    compact_rev = app_compact_reviews(live, alerts_by_id, demo) if live else ""
-    overview = f"""<div class="view-inner" id="overview-content">
-  {note_html}
-  <section class="hero" aria-labelledby="thesis">
-    <h1 id="thesis">{esc(lead)}</h1>
-    {follow_html}
-  </section>
-  {app_stat_tiles(results, decisions)}
-  {notices_html}
-  <div class="ov-section"><h2>P(page) scale</h2>
-    {rail(alerts, decisions, judgments, errors, policy, scripted(results), live)}
-  </div>
-  {compact_rev}
-</div>"""
 
-    # ---- Alerts view content ----
-    filter_pills = (
-        '<div class="filter-bar">'
-        '<button class="filter-pill active" data-filter="all">All</button>'
-        '<button class="filter-pill" data-filter="page">Paged</button>'
-        '<button class="filter-pill" data-filter="review">Review</button>'
-        '<button class="filter-pill" data-filter="ticket">Ticketed</button>'
-        '<button class="filter-pill" data-filter="quiet">Quiet</button>'
-        '<button class="filter-pill" data-filter="linked">Linked</button>'
-        f'<span class="filter-count">{alert_count} alerts</span>'
-        '</div>')
-    alerts_html = f"""<div class="view-inner" id="alerts-content">
-  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Alerts</h2>
-  {filter_pills}
-  {flat_alert_table(alerts, decisions, judgments, records, report, live)}
-</div>"""
+    feed = (f'<div id="feed-content">'
+            f'{notices_html}'
+            f'{"".join(cards)}</div>')
 
-    # ---- Reviews view content ----
-    live_ctrl = live_controls(live) if live else ""
-    pending = pending_section(live, alerts_by_id, demo) if live else ""
-    demo_ctrl = demo_controls(demo) if demo else ""
-    reviews_html = f"""<div class="view-inner" id="reviews-content">
-  {live_ctrl}
-  {pending}
-  {demo_ctrl}
-</div>"""
+    # ---- Right column: inspector ----
+    # Decision log table
+    log_rows = []
+    for idx, a in enumerate(alerts):
+        d = decisions.get(a["id"])
+        if not d:
+            continue
+        j = judgments.get(a["id"])
+        k = kind(d)
+        color = KIND_COLORS.get(k, "var(--graphite)")
+        call = records.get(a["id"], {}).get("call")
+        ms = f"{call['ms']}" if call else "-"
+        pp = f"{j.p_page:.2f}" if j else "-"
+        label_text = ACTION_LABEL.get(d.action, d.action).lower()
+        log_rows.append(
+            f'<tr data-id="{esc(a["id"])}">'
+            f'<td>#{idx + 1}</td>'
+            f'<td><span class="log-dot" style="background:{color}"></span></td>'
+            f'<td>{esc(label_text)}</td>'
+            f'<td>{esc(pp)}</td>'
+            f'<td>{esc(ms)}</td></tr>')
 
-    # ---- Compare view content ----
-    shadow_html = shadow_section(live.get("shadow"), alerts_by_id) if live and live.get("shadow") is not None else ""
-    compare_html = f"""<div class="view-inner" id="compare-content">
-  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Compare with current routing</h2>
-  {shadow_html}
-</div>"""
+    log_html = (f'<table class="dec-log" id="log-content"><thead><tr>'
+                f'<th>#</th><th></th><th>Decision</th><th>P(page)</th><th>ms</th>'
+                f'</tr></thead><tbody>{"".join(log_rows)}</tbody></table>')
 
-    # ---- Evaluation view content ----
+    # Inspector hidden data
+    detail_data = inspector_data(alerts, decisions, judgments, records, report, live)
+
+    # Evaluation + facts + shadow for inspector tabs
     eval_section = evaluation(report, scripted(results))
     facts_section = run_facts(results)
-    eval_html = f"""<div class="view-inner" id="eval-content">
-  {eval_section}
-  {facts_section}
-</div>"""
-
-    # ---- Detail panel data (hidden) ----
-    detail_data = alert_detail_data(alerts, decisions, judgments, records, report, live)
+    shadow_html = shadow_section(live.get("shadow"), alerts_by_id) if live and live.get("shadow") is not None else ""
+    live_ctrl = live_controls(live) if live else ""
 
     # ---- Demo engine config ----
     demo_script = ""
@@ -2329,8 +2364,12 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
         demo_script = f"<script>window.JEV_DEMO = {{engine: {config}}};</script>"
 
     date = run_date(meta.get("generated_at"))
-
     demo_clock_val = esc(clock(demo["clock"])) if demo else ""
+
+    site_links = ""
+    if nav:
+        links = "".join(f'<a href="{esc(href)}">{esc(text)}</a>' for text, href in nav)
+        site_links = f'<nav class="site-nav" aria-label="jev-oncall site">{links}</nav>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -2343,35 +2382,43 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;display=swap">
 <style>{CSS}{LIVE_CSS}{APP_CSS}</style>
 </head>
-<body class="app" data-review-count="{pending_count}" data-alert-count="{alert_count}" data-demo-clock="{demo_clock_val}">
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <p class="mark">jev-oncall</p>
-    {site_links}
+<body class="app" data-demo-clock="{demo_clock_val}">
+<div class="ticker"><div class="ticker-inner" id="ticker-inner">{ticker_html}{ticker_html}</div></div>
+<header class="app-header">
+  <p class="mark">jev-oncall</p>
+  <span style="font-size:13px;color:var(--graphite)">{esc(date)}</span>
+  {site_links}
+</header>
+<div class="app-body">
+  <div class="col-left">{left_col}</div>
+  <div class="col-center">
+    <div class="feed-header">
+      <h1>{esc(lead)}</h1>
+      <div class="feed-sub">{esc(follow) if follow else ""}</div>
+    </div>
+    <div class="feed-scroll">{feed}</div>
   </div>
-  <ul class="sidebar-nav">{nav_html_items}</ul>
-  {sidebar_footer}
-</aside>
-<div class="app-main" id="app-main">
-  <nav class="mobile-tabs" id="mobile-tabs">
-    <button data-view="overview" class="active">Overview</button>
-    <button data-view="alerts">Alerts</button>
-    <button data-view="reviews">Reviews</button>
-    <button data-view="compare">Compare</button>
-    <button data-view="eval">Eval</button>
-  </nav>
-  <div class="view active" id="view-overview">{overview}</div>
-  <div class="view" id="view-alerts">{alerts_html}</div>
-  <div class="view" id="view-reviews">{reviews_html}</div>
-  <div class="view" id="view-compare">{compare_html}</div>
-  <div class="view" id="view-eval">{eval_html}</div>
-</div>
-<div class="detail-panel" id="detail-panel">
-  <div class="detail-top">
-    <div id="detail-top-info"></div>
-    <button class="detail-close" id="detail-close" aria-label="Close detail panel">&times;</button>
+  <div class="col-right" id="col-right">
+    <div class="insp-header">
+      <h2>Inspector</h2>
+      <div class="insp-sub">Click an alert to inspect</div>
+    </div>
+    <nav class="insp-tabs">
+      <button class="insp-tab active" data-tab="analysis">Analysis</button>
+      <button class="insp-tab" data-tab="eval">Evaluation</button>
+      <button class="insp-tab" data-tab="compare">Compare</button>
+      <button class="insp-tab" data-tab="log">Log</button>
+    </nav>
+    <div class="insp-body">
+      <div class="insp-pane active" id="insp-analysis">
+        <div style="color:var(--graphite);font-size:13px;padding:20px 0;text-align:center">
+          Select an alert from the feed to see its analysis.</div>
+      </div>
+      <div class="insp-pane" id="insp-eval">{eval_section}{facts_section}{live_ctrl}</div>
+      <div class="insp-pane" id="insp-compare">{shadow_html}</div>
+      <div class="insp-pane" id="insp-log">{log_html}</div>
+    </div>
   </div>
-  <div class="detail-body" id="detail-body"></div>
 </div>
 {detail_data}
 {demo_script}
