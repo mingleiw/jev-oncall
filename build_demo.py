@@ -130,7 +130,7 @@ def scripted_judge(batch, candidates, *args, **kwargs):
             duplicate_of=duplicate_of)
     calls = {aid: {"ms": ms, "usage": {}} for aid, ms in zip(
         ["orders-db", "search-mem", "checkout", "payment", "tls-cert", "report-job", "homepage", "gc-pause"],
-        [320, 280, 410, 350, 190, 260, 310, 150]) if aid in judgments}
+        [48, 35, 62, 54, 29, 41, 44, 22]) if aid in judgments}
     return judgments, {}, calls
 
 

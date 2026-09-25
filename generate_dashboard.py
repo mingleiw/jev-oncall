@@ -2030,8 +2030,8 @@ APP_LIVE_JS = r"""
   }
   function startAutoRotate() {
     if (autoTimer) return;
-    autoTimer = setInterval(function () { if (!autoPaused) autoNext(); }, 3000);
-    setTimeout(autoNext, 800);
+    autoTimer = setInterval(function () { if (!autoPaused) autoNext(); }, 1500);
+    setTimeout(autoNext, 500);
   }
   function pauseAutoRotate() {
     autoPaused = true;
