@@ -12,8 +12,11 @@ WORKDIR /app
 COPY triage.py server.py shadow.py evaluate.py generate_dashboard.py generate_alerts.py \
      topology.json jev-oncall.example.toml alerts.json ./
 
-RUN useradd --system --uid 10001 --no-create-home jev
+RUN useradd --system --uid 10001 --no-create-home jev \
+    && mkdir /data && chown jev /data
 USER jev
+# The review store lives here: mount a volume so reviews survive a new container.
+VOLUME /data
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8090

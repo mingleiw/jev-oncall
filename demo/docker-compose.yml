@@ -16,8 +16,11 @@ services:
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       JEV_WEBHOOK_SECRET: demo-secret   # Alertmanager sends it as a bearer token
       JEV_ONCALL_CONFIG: /demo/jev-oncall.toml
+    # Reviews survive a restart: `docker compose down -v` clears them.
+    command: ["--review-store", "/data/reviews.jsonl"]
     volumes:
       - ./jev-oncall.toml:/demo/jev-oncall.toml:ro
+      - reviews:/data
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
@@ -35,3 +38,6 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules.yml:/etc/prometheus/rules.yml:ro
     depends_on: [alertmanager]
+
+volumes:
+  reviews:

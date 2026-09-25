@@ -65,8 +65,9 @@ live dashboard.
    a minute. The last resolve follows within two minutes. The page refreshes itself
    every 15 seconds.
 
-5. **Stop it** with Ctrl+C, then `docker compose down`. Pending reviews live in memory,
-   so they're dropped when the stack stops.
+5. **Stop it** with Ctrl+C, then `docker compose down`. Pending reviews are kept in a
+   review store on a Docker volume, so a restart picks them up with their original
+   deadlines; `docker compose down -v` clears them.
 
 ### What happens
 
@@ -270,8 +271,10 @@ python3 evaluate.py replay.json --sweep
 
 - **Outcomes that matter on-call:** silent misses; missed, delayed, false, and
   duplicate pages; pages to the wrong team; wrong incident links; review and ticket
-  load. These appear side by side with the static baseline, meaning routing by
-  configured severity without Jev.
+  load. These appear side by side with **your current routing**: every alert routed by
+  its configured severity alone (critical pages, warning tickets, info logs, in every
+  environment). Shadow mode compares against the same baseline, so the page counts
+  agree. Outcome rows count labeled alerts; pages and reviews sent count every alert.
 - **Per-question agreement** with Wilson 95% intervals.
 - **Calibration:** Brier score, ECE, and a reliability table for P(page) and
   P(actionable).
@@ -360,6 +363,7 @@ python3 server.py --config jev-oncall.toml     # or: export JEV_ONCALL_CONFIG=je
 | `[topology]` | `service = ["upstream", ...]`, used to narrow dedup candidates |
 | `[shadow]` | `log = "shadow.jsonl"` turns on [shadow mode](#shadow-mode) |
 | `[server]` | `require_token = true` makes `/ack` and `/label` require the webhook secret as a bearer token ([details](#acting-from-the-dashboard)) |
+| `[reviews]` | `store = "reviews.jsonl"` keeps reviews on disk so they survive a restart ([the review clock](#the-review-clock)) |
 
 Every section is optional, and anything left out keeps its default. The file is
 checked strictly: an unknown key, a threshold outside 0 to 1, or a `no_page_bar`
@@ -417,27 +421,59 @@ runs as a non-root user and has a health check on `/health`.
 | POST | `/ack/<alert-id>` | Ack a REVIEW so it does not page. `X-Acked-By` names who took it |
 | GET | `/health` | `{"ok": true}` |
 | GET | `/recent` | Last 200 triage decisions (in-memory ring buffer) |
-| GET | `/pending` | REVIEWs still waiting on an ack, with seconds left |
-| GET | `/dashboard` | The last 500 alerts as the HTML dashboard, refreshing every 15 seconds. Each shows the decision it got on arrival |
+| GET | `/pending` | REVIEWs still waiting on an ack, with seconds left and deadline, plus recently closed ones and how they closed |
+| GET | `/dashboard` | The last 500 alerts as the HTML dashboard, refreshing every 15 seconds. Each shows the decision it got on arrival and, for a review, where it stands now |
 | POST | `/label/<alert-id>` | [Shadow mode](#shadow-mode): record what an alert really was. `X-Labeled-By` names who labeled it |
 | GET | `/shadow` | [Shadow mode](#shadow-mode): how decisions compare with routing by configured severity |
 
 ### The review clock
 
-![A REVIEW ends in one of three ways: an ack closes it, a resolved notification cancels it, and no ack within 15 minutes escalates it to a PAGE.](docs/review-clock.png)
+![A REVIEW ends in one of three ways: an ack means someone is on it, so it closes without a page; a resolved notification cancels it; and no ack within 15 minutes escalates it to a PAGE.](docs/review-clock.png)
 
 A REVIEW is only meaningful if something escalates it. The server holds every
-REVIEW for `Policy.review_ack_min` (15 minutes). Ack it and it closes; ignore it
-and a sweeper turns it into a PAGE, records it in `/recent` with the reason, and
-counts it under `escalated_reviews`.
+REVIEW for `Policy.review_ack_min` (15 minutes), and it ends one of three ways:
+
+- **Acked** (`POST /ack/<id>`): someone is on it. The review closes and won't
+  escalate. An ack doesn't resolve anything: the alert stays open until your
+  monitoring clears it.
+- **Cancelled**: the provider says the alert resolved before anyone acked, so no
+  page is needed.
+- **Escalated**: nobody acked in time. A sweeper turns it into a PAGE, records it in
+  `/recent` with the reason, and counts it under `escalated_reviews`.
 
 ```
 curl -X POST http://localhost:8090/ack/a07 -H 'X-Acked-By: alice'
 curl http://localhost:8090/pending
 ```
 
-The queue is in memory, so a restart drops pending reviews rather than paging
-them. `--sweep-interval` controls how often the deadline is checked.
+Acking a review that already closed returns 409 with how it closed. The same alert
+sent again keeps its first deadline, so resends can't push the page back, and a
+closed review stays closed: until the alert resolves, or for an hour, another REVIEW
+for it is a duplicate.
+
+"Pages" here are decisions jev-oncall records. Delivering them to PagerDuty, Slack
+or Jira isn't built yet; read them from `/recent`, `/pending` and the dashboard.
+
+**Surviving restarts.** Set a review store:
+
+```toml
+[reviews]
+store = "reviews.jsonl"      # or: python3 server.py --review-store reviews.jsonl
+```
+
+Every open, ack, cancellation and escalation is appended to that file and flushed to
+disk before it counts. On startup the server replays it: pending reviews come back
+with their original deadlines, any whose deadline passed while it was down page
+immediately, acked and cancelled reviews stay closed, and an escalation already
+recorded is never repeated. The file is compacted on startup to pending reviews plus
+the last week of closed ones. Without a store, reviews live in memory, a restart
+drops them, and the server warns at startup.
+
+Supported: one server process per store file, on local disk (in Docker, a volume).
+Not supported: several servers sharing a store, or a network filesystem. Decisions
+and labels in the dashboard's last 500 alerts are in memory too; the shadow log
+keeps them across restarts. `--sweep-interval` controls how often deadlines are
+checked (default 10 seconds).
 
 ### Shadow mode
 
@@ -493,23 +529,34 @@ is ignored. Like `/ack`, `/label` is open by default; see
 
 The live dashboard (`/dashboard`) is where people act, so nobody needs `curl`:
 
-- **Waiting for a decision** lists every REVIEW with its clock counting down and an
-  **Ack** button. An acked review won't page.
+- **Reviews waiting for an ack** lists every open REVIEW with its clock counting
+  down and an **Ack** button, then the reviews that closed and how: acked by whom,
+  cleared, or paged. Each alert keeps the decision it got on arrival (**Sent to
+  review**) and shows where its review stands now beneath it.
 - **Compared with your current routing** (shadow mode) shows the counts above, the
   pages each side would have sent, and the latest differences, drops first.
 - **What was this really?** (shadow mode) sits in each alert's **Why** panel: pick a
   severity, whether it needed a human, the owner, and the alert that caused it, if
-  any. Saved labels show on the alert and feed the page's **Against the labels**
-  scores.
+  any, from the alerts received. Saving again replaces the label. Saved labels show
+  on the alert and the page re-scores **Against the labels** right away.
+
+After an Ack or a label, and every 15 seconds, the page re-renders from the server in
+place, keeping your scroll position, open **Why** panels and focus. It skips a refresh
+while you're typing or have a label half filled in.
 
 To see it without running anything, open the
 [interactive demo](https://mingleiw.github.io/jev-oncall/demo/): the Docker demo's
-incident with scripted answers in place of Jev, where Ack and labels work in your
-browser. `python3 build_demo.py` rebuilds it into `docs/demo/`.
+incident with scripted answers in place of Jev. The first time you act, the page
+loads this repository's Python in your browser with [Pyodide](https://pyodide.org)
+and runs the real review queue, routing and evaluation on a demo clock. Besides Ack
+and labels, it can advance the clock 15 minutes (unacked reviews page), simulate a
+Jev timeout (a new alert falls back to its configured severity) and clear an alert
+before its deadline (its review is cancelled). Nothing leaves your browser; what you
+did is kept there until **Start over**. `python3 build_demo.py` rebuilds it into
+`docs/demo/`, and a test fails if the published copy is stale.
 
 Type your name once at the top; it's remembered in your browser and recorded on
-acks and labels. The page refreshes every 15 seconds, but not while a **Why** panel is
-open or a label is half filled in.
+acks and labels.
 
 `/ack` and `/label` are open by default. To require a token, set
 
@@ -574,7 +621,8 @@ Two Alertmanager behaviors need handling, and both are covered:
   page back indefinitely.
 - **Resolved notifications.** With `send_resolved: true`, a resolved alert is
   never triaged. If its REVIEW is still waiting on an ack, the review is cancelled
-  and reported under `reviews_cancelled`, acked by `resolved upstream`: an alert that
+  and reported under `reviews_cancelled`, with `cancelled_by: resolved upstream` (a
+  cancellation, not an ack): an alert that
   cleared on its own shouldn't page anyone. It stays a dedup candidate until it ages
   out, because things it caused can still arrive. Grafana resolved notifications get
   the same treatment.
@@ -648,8 +696,9 @@ are a good place to start.
 | [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
 | [shadow.py](shadow.py) | Shadow mode: the decision log, the comparison with configured-severity routing, and the input `evaluate.py --shadow` scores |
 | [test_shadow.py](test_shadow.py) | Shadow mode tests: comparisons, labels, the log, the endpoints |
-| [build_demo.py](build_demo.py) | Builds the interactive dashboard demo in `docs/demo/` from the Docker demo's incident, with scripted answers |
+| [build_demo.py](build_demo.py) | Builds the interactive dashboard demo in `docs/demo/` from the Docker demo's incident, with scripted answers, and copies the modules the browser runs to `docs/demo/engine/` |
 | [test_live.py](test_live.py) | Live dashboard tests: the review queue, the shadow comparison, label forms, the token option |
+| [test_reviews.py](test_reviews.py) | The review clock end to end: acks, cancellations, escalation, duplicate deliveries, restart recovery, labels, baselines, and the demo engine |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
 | [alerts.json](alerts.json) | 14 synthetic alerts with the author's labels |
 | [topology.json](topology.json) | Service → upstream dependencies, used when the config has no `[topology]` |

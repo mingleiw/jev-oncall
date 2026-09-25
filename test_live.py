@@ -64,7 +64,9 @@ class Serving(unittest.TestCase):
 
 class TokenOption(Serving):
     def test_ack_and_label_are_open_by_default(self):
-        runner = server.TriageRunner(secret="s3", config=triage.Config(shadow_log=self.shadow_log()))
+        runner = server.TriageRunner(api_key="k", secret="s3",
+                                     config=triage.Config(shadow_log=self.shadow_log()))
+        self.judged(runner, {"x": test_triage.judgment(sev=QUIET)})
         port = self.serve(runner)
         self.assertEqual(self.request(port, "POST", "/ack/nope")[0], 404)
         self.assertEqual(self.request(port, "POST", "/label/x", {"severity": "SEV1",
@@ -121,15 +123,17 @@ class Demo(unittest.TestCase):
         import build_demo
         html = build_demo.build()
         self.assertIn("Demo with sample data", html)
-        self.assertIn("answers are scripted", html)
-        self.assertIn("window.JEV_DEMO = true", html)
-        self.assertIn('id="demo-reset"', html)
+        self.assertIn("answers are scripted (no model is called)", html)
+        self.assertIn("window.JEV_DEMO = {engine:", html)
+        for control in ('id="demo-reset"', 'id="demo-advance"', 'id="demo-timeout"', 'class="live-btn ghost resolve"'):
+            self.assertIn(control, html)
         import html as htmllib
         for label in shadow.COMPARISON_LABELS.values():
             self.assertIn(htmllib.escape(label), html)  # agreement and every kind of difference
         self.assertEqual(html.count('class="live-btn ack"'), 2)  # an unsure and a cross-team review
         self.assertIn("root is owned by database, so compute gets a REVIEW", html)
         self.assertIn("Also notifies", html)
+        self.assertIn("isn&#x27;t built yet", html)  # decisions are recorded, not delivered
         self.assertNotIn("No alert in this run has an expected label", html)
         self.assertNotIn(build_demo.MODEL, html.split("<h1")[0])  # the banner, not a fake model name, explains
 
@@ -148,8 +152,8 @@ class LivePage(Serving):
         self.assertEqual(status, 200)
 
         # The review queue: r1 is unsure, so it waits with an Ack button and a clock.
-        self.assertIn("Waiting for a decision", html)
-        self.assertIn('class="live-btn ack" data-id="r1"', html)
+        self.assertIn("Reviews waiting for an ack", html)
+        self.assertRegex(html, r'class="live-btn ack" id="ack-r1" data-id="r1"')
         self.assertRegex(html, r'data-left="(8\d\d|900)"')
         # The shadow comparison: q1 is dropped where your routing paged, r1 goes to review.
         self.assertIn("Compared with your current routing", html)
@@ -168,7 +172,7 @@ class LivePage(Serving):
         self.judged(runner, {"r1": test_triage.judgment(sev=UNSURE)})
         port = self.serve(runner)
         _, html = self.request(port, "GET", "/dashboard")
-        self.assertIn("Waiting for a decision", html)
+        self.assertIn("Reviews waiting for an ack", html)
         self.assertNotIn("Compared with your current routing", html)
         self.assertNotIn('<form class="label-form"', html)
         self.assertNotIn('id="you-token"', html)

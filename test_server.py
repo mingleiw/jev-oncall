@@ -687,7 +687,7 @@ class AlertmanagerFlowTests(unittest.TestCase):
 
         _, cleared = self.send(am_payload("resolved"))
         self.assertEqual(cleared["resolved"], [aid])
-        self.assertEqual(cleared["reviews_cancelled"][0]["acked_by"], "resolved upstream")
+        self.assertEqual(cleared["reviews_cancelled"][0]["cancelled_by"], "resolved upstream")
         self.assertEqual(self.runner.reviews.pending(), [])
         self.assertEqual(self.judge_mock.call_count, 1)
 
@@ -727,7 +727,7 @@ class LiveDashboardTests(unittest.TestCase):
         # The live page refreshes itself from script, pausing while someone types.
         self.assertNotIn('http-equiv="refresh"', html)
         self.assertIn("location.reload()", html)
-        self.assertIn("Waiting for a decision", html)
+        self.assertIn("Reviews waiting for an ack", html)
         results, alerts = runner.results()
         self.assertEqual([a["id"] for a in alerts], ["d1"])  # a resend shows once
         self.assertEqual(results["summary"]["fallback"], 1)
