@@ -78,6 +78,7 @@ CSS = """
 :root {
   --ground: #F3F5F6; --face: #E7EBEE; --ink: #1C232B; --graphite: #5A6572; --rule: #CBD2D8;
   --accent: #C21F3A; --accent-mid: #D87F8F; --accent-wash: rgba(194, 31, 58, .10); --accent-ink: #FFFFFF;
+  --review: #9A5B00; --review-wash: rgba(232, 163, 61, .20);
   --radius: 4px; --dot: 14px; --hit: 44px; --step: 44px;
   --sans: "Archivo", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   color-scheme: light;
@@ -89,12 +90,14 @@ CSS = """
   :root:not([data-theme="light"]) {
     --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
     --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+    --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
   --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+  --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
   color-scheme: dark;
 }
 html { scroll-padding-top: env(safe-area-inset-top, 0px); -webkit-text-size-adjust: 100%; }
@@ -116,9 +119,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   font-stretch: 90%; font-variant-numeric: tabular-nums; }
 .note { margin: 16px 0 0; padding: 10px 14px; border-radius: var(--radius); background: var(--face);
   font-size: 14px; max-width: 80ch; }
-.tag { display: inline-block; margin: 16px 0 0; padding: 4px 11px; border-radius: 999px;
-  background: var(--face); border: 1px solid var(--rule); font-size: 13px; font-weight: 600;
-  font-stretch: 105%; letter-spacing: .02em; text-transform: uppercase; color: var(--graphite); }
+.badge { display: inline-block; margin: 16px 0 0; padding: 3px 10px; border-radius: var(--radius);
+  background: var(--face); font-size: 13px; font-weight: 600; color: var(--graphite); }
 .stats { margin: 20px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap;
   gap: 10px 28px; font-variant-numeric: tabular-nums; }
 .stats li { display: flex; flex-direction: column; gap: 2px; }
@@ -156,7 +158,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   font-size: 12px; line-height: var(--hit); color: var(--graphite); font-variant-numeric: tabular-nums; }
 .scale { position: relative; height: 36px; background: var(--face); border-radius: var(--radius); }
 .zone { position: absolute; top: 0; bottom: 0; }
-.zone-review { background: repeating-linear-gradient(135deg, var(--accent-wash) 0 6px, transparent 6px 12px); }
+.zone-review { background: repeating-linear-gradient(135deg, var(--review-wash) 0 6px, transparent 6px 12px); }
 .zone-page { background: var(--accent-wash); border-radius: 0 var(--radius) var(--radius) 0; }
 .ticks { position: absolute; left: 0; right: 0; top: 0; height: 7px;
   background: repeating-linear-gradient(to right, var(--graphite) 0 1px, transparent 1px 5%); opacity: .55; }
@@ -170,6 +172,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .zone-labels > span { position: absolute; top: 8px; text-align: center; font-size: 13px; line-height: 1.25;
   color: var(--graphite); }
 .zone-labels > .z-review, .zone-labels > .z-page { color: var(--accent); font-weight: 600; }
+.zone-labels > .z-review { color: var(--review); }
 .zone-labels .short { display: none; }
 .rail figcaption { margin-top: 18px; max-width: 72ch; font-size: 14px; color: var(--graphite); }
 .legend { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px;
@@ -177,12 +180,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .legend li { display: flex; align-items: center; gap: 8px; }
 .rail-empty { margin: 0; padding: 18px 0 20px; max-width: 64ch; }
 
-/* Decision states: fill carries the state, the one accent carries urgency */
+/* Decision states: fill carries the state. Red means paged, and only that;
+   amber means a human is asked to decide. */
 .m { display: inline-block; flex: none; border-radius: 50%; }
 .legend .m, .glyph { width: 12px; height: 12px; }
 .m-page { background: var(--accent); }
 .m-linked { background: var(--accent-mid); }
-.m-review { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+.m-review { background: transparent; box-shadow: inset 0 0 0 2px var(--review); }
 .m-ticket { background: var(--ink); }
 .m-quiet { background: transparent; box-shadow: inset 0 0 0 1.5px var(--graphite); }
 .m { transition: transform .15s ease; }
@@ -226,7 +230,7 @@ section > h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.25; font-weight
   line-height: 1.6; white-space: nowrap; }
 .tag-page { background: var(--accent); color: var(--accent-ink); }
 .tag-linked { background: var(--accent-wash); color: var(--ink); }
-.tag-review { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); }
+.tag-review { box-shadow: inset 0 0 0 1.5px var(--review); color: var(--review); }
 .tag-ticket { background: var(--ink); color: var(--ground); }
 .tag-quiet { box-shadow: inset 0 0 0 1px var(--rule); color: var(--graphite); }
 .sub { display: block; margin-top: 3px; font-size: 13px; color: var(--graphite); }
@@ -236,9 +240,9 @@ section > h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.25; font-weight
 .s4 { background: var(--rule); } .s3 { background: var(--graphite); }
 .s2 { background: var(--accent-mid); } .s1 { background: var(--accent); }
 .no-dist { align-self: center; font-size: 13px; color: var(--graphite); }
-.sub.override { color: var(--accent); font-weight: 600; }
+.sub.override { color: var(--ink); font-weight: 600; }
 .state { display: block; margin-top: 5px; font-size: 13px; font-weight: 600; line-height: 1.35; }
-.state-pending, .state-escalated { color: var(--accent); }
+.state-pending { color: var(--review); } .state-escalated { color: var(--accent); }
 .state-acked, .state-cancelled { color: var(--ink); }
 .state-acked::before, .state-cancelled::before { content: "✓ "; }
 .site-nav { display: flex; flex-wrap: wrap; gap: 0 4px; margin-right: auto; font-size: 14px; }
@@ -249,6 +253,7 @@ section > h2 { margin: 0 0 16px; font-size: 22px; line-height: 1.25; font-weight
 .num .k { display: none; }
 .why { grid-column: 2 / -1; margin-top: 6px; }
 .why summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--graphite); }
+.why summary:hover { color: var(--ink); }
 .why-body { margin-top: 8px; padding: 12px 14px; border-radius: var(--radius); background: var(--face); font-size: 14px; }
 .reasons { margin: 0 0 10px; padding-left: 18px; }
 .why-body dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 16px; margin: 0; }
@@ -952,7 +957,7 @@ def pending_section(live, alerts_by_id, demo=None):
             ticking = "" if demo else f' data-left="{int(it["seconds_left"])}"'
             rows.append(f"""
 <li class="pend">
-  <div class="pend-main"><a href="#alert-{esc(aid)}">{esc(title)}</a><span class="pend-meta">{esc(aid)} · {esc(it.get("team") or "no owner")} · pages at {esc(clock(it["deadline_at"]))} unless acked</span></div>
+  <div class="pend-main"><a href="#alert-{esc(aid)}">{esc(title)}</a><span class="pend-meta"><span>{esc(aid)}</span><span>{esc(it.get("team") or "no owner")}</span><span>pages at {esc(clock(it["deadline_at"]))} unless acked</span></span></div>
   <span class="pend-left"{ticking}>{_minutes(it["seconds_left"])} left</span>
   <div class="pend-btns"><button type="button" class="live-btn ack" id="{_dom_id("ack", aid)}" data-id="{esc(aid)}" aria-label="Ack the review for {esc(title)}">Ack</button>{resolve}</div>
   <span class="live-status" role="status"></span>
@@ -1064,18 +1069,19 @@ LIVE_CSS = """
 .live-you input, .label-form select, .label-form input {
   font: inherit; font-size: 15px; color: var(--ink); background: var(--ground); border: 1px solid var(--rule);
   border-radius: var(--radius); padding: 7px 9px; min-width: 0; min-height: 44px; }
-.live-box { margin-top: 40px; padding: 20px; background: var(--face); border: 1px solid var(--rule); border-radius: var(--radius); }
-.live-box h2 { margin: 0; font-size: 20px; }
+.live-box { margin-top: 56px; padding-top: 22px; border-top: 2px solid var(--ink); }
+.live-box h2 { margin: 0; font-size: 22px; font-weight: 680; font-stretch: 112%; letter-spacing: -.01em; }
 .live-box .count { font-weight: 500; color: var(--graphite); }
 .live-lede, .live-empty { margin: 8px 0 0; color: var(--graphite); font-size: 15px; max-width: 80ch; }
-.live-warn { margin: 14px 0 0; padding: 8px 12px; border-left: 3px solid var(--accent); font-size: 14px; }
+.live-warn { margin: 14px 0 0; padding: 8px 12px; border-left: 3px solid var(--review); font-size: 14px; }
 .pend-list, .cmp-list, .closed-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
-.pend { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 14px; align-items: center;
-  padding: 10px 12px; background: var(--ground); border: 1px solid var(--rule); border-radius: var(--radius); }
+.pend { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 18px; align-items: center;
+  padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.pend-list { gap: 0; border-top: 1px solid var(--rule); }
 .pend-main { display: grid; gap: 2px; min-width: 0; }
 .pend-main a, .diffs a, .closed a { color: var(--ink); font-weight: 600; }
-.pend-meta { display: block; font-size: 13px; color: var(--graphite); overflow-wrap: anywhere; }
-.pend-left { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; white-space: nowrap; }
+.pend-meta { display: flex; flex-wrap: wrap; gap: 0 12px; font-size: 13px; color: var(--graphite); overflow-wrap: anywhere; }
+.pend-left { font-variant-numeric: tabular-nums; color: var(--review); font-weight: 600; white-space: nowrap; }
 .pend-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .pend .live-status { grid-column: 1 / -1; }
 .pend .live-status:empty { display: none; }
@@ -1085,7 +1091,11 @@ LIVE_CSS = """
 .closed { padding: 8px 12px; border-left: 3px solid var(--rule); }
 .closed-escalated { border-left-color: var(--accent); }
 .live-btn { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--accent-ink);
-  background: var(--accent); border: 0; border-radius: var(--radius); padding: 8px 14px; min-height: 44px; min-width: 44px; }
+  background: var(--ink); border: 0; border-radius: var(--radius); padding: 8px 14px; min-height: 44px; min-width: 44px; }
+.live-btn { transition: filter .15s ease, background-color .15s ease, transform .1s ease; }
+.live-btn:hover:not(:disabled) { filter: brightness(1.25); }
+.live-btn:active:not(:disabled) { transform: translateY(1px); }
+.live-btn.ghost:hover:not(:disabled) { filter: none; background: var(--face); }
 .live-btn:disabled { opacity: .5; cursor: default; }
 .live-btn:focus-visible, .live-you input:focus-visible, .label-form select:focus-visible, .label-form input:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -1099,8 +1109,8 @@ LIVE_CSS = """
 .diffs th { font-size: 12px; color: var(--graphite); font-weight: 600; }
 .diffs td.act { white-space: nowrap; font-weight: 600; }
 .label-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
-.demo-banner { margin-top: 20px; padding: 14px 16px; display: grid; gap: 8px;
-  border: 1.5px solid var(--accent); border-radius: var(--radius); background: var(--accent-wash); }
+.demo-banner { margin-top: 20px; padding: 14px 18px; display: grid; gap: 8px;
+  border-left: 3px solid var(--ink); border-radius: 0 var(--radius) var(--radius) 0; background: var(--face); }
 .demo-banner p { margin: 0; max-width: 90ch; font-size: 15px; }
 .demo-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin-top: 14px; }
 .demo-btns > div { display: grid; gap: 6px; align-content: start; justify-items: start; }
@@ -1108,7 +1118,7 @@ LIVE_CSS = """
 p.hint { margin: 12px 0 0; }
 #demo-status { margin: 12px 0 0; font-size: 14px; }
 #demo-status:empty { display: none; }
-.live-btn.ghost { color: var(--accent); background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.live-btn.ghost { color: var(--ink); background: transparent; box-shadow: inset 0 0 0 1.5px var(--rule); }
 .lf-title { margin: 0 0 10px; font-weight: 600; }
 .lf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .lf-actions { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
@@ -1398,7 +1408,7 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
     date = run_date(meta.get("generated_at"))
     note = f'<p class="note">{esc(meta["note"])}</p>' if meta.get("note") else ""
     follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
-    tag = f'<p class="tag">{esc(label)}</p>' if label else ""
+    tag = f'<p class="badge">{esc(label)}</p>' if label else ""
     stats_html = headline_stats(results)
     refresh = f'<meta http-equiv="refresh" content="{int(refresh_s)}">' if refresh_s and not live else ""
     alerts_by_id = {a["id"]: a for a in alerts}

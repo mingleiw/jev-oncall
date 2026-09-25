@@ -241,7 +241,7 @@ class DemoSession:
         demo = {"clock": live["now"], "timeout_used": self.timeout_used, "advance_min": ADVANCE_MIN,
                 "engine": {"pyodide": PYODIDE, "base": "engine/", "files": ENGINE_FILES}}
         return generate_dashboard.render(
-            results, page_alerts, "build_demo.py", label="Demo", live=live, demo=demo, nav=NAV,
+            results, page_alerts, "build_demo.py", live=live, demo=demo, nav=NAV,
             footer="Built by build_demo.py from sample data. Run the real thing with the Docker demo: "
                    "cd demo && docker compose up.")
 

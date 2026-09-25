@@ -7,157 +7,165 @@
 <meta name="description" content="Open-source alert triage. Each production alert gets one Jev call with four typed questions, and plain, auditable code turns the probabilities into pages, reviews, tickets and linked incidents.">
 <meta property="og:title" content="jev-oncall: Jev judges. Code decides.">
 <meta property="og:description" content="Open-source alert triage for on-call teams, built on Jev.">
+<meta name="theme-color" content="#0F1317">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230F1317'/%3E%3Cpath d='M5 22h22' stroke='%23EEF1F3' stroke-width='2.5'/%3E%3Cpath d='M22 9v15' stroke='%23E8A33D' stroke-width='2.5'/%3E%3Ccircle cx='12' cy='17' r='3' fill='%23EEF1F3'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="site.css">
 <style>
-  .hero { padding-block: 84px 72px; text-align: center; }
-  .hero .container { display: grid; justify-items: center; gap: 26px; }
-  .hero h1 { font: 600 clamp(46px, 8.4vw, 92px)/1 var(--sans); letter-spacing: -.05em; }
-  .hero .sub { max-width: 640px; color: var(--muted); font-size: clamp(17px, 2.1vw, 20px); line-height: 1.55; }
-  .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
-  .sources { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; color: var(--dim); font-size: 14px; }
-  .sources span { color: var(--muted); }
-  .shot { margin-top: 30px; width: 100%; max-width: 1040px; }
-  .shot img { width: 100%; height: auto; background: #f3f4f6; }
-  .shot-note { margin-top: 16px; color: var(--dim); font-size: 14px; max-width: 760px; margin-inline: auto; }
-  .shot-note b { color: var(--muted); font-weight: 500; }
+  /* Hero: the headline, then the instrument, the one bold thing on the page */
+  .hero { padding-block: 80px 88px; }
+  .hero h1 { font: 800 clamp(48px, 8.6vw, 104px)/.95 var(--sans); font-stretch: 118%; letter-spacing: -.03em; }
+  .hero h1 span { display: block; }
+  .hero h1 span + span { color: var(--muted); }
+  .hero .sub { margin-top: 26px; max-width: 44ch; color: var(--text); font-size: clamp(18px, 2vw, 21px); line-height: 1.5; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 
-  /* Hero window tabs */
-  .tabs { display: flex; gap: 4px; margin-left: 10px; }
-  .tab-btn { font: 500 13px/1 var(--sans); color: var(--muted); background: none; border: 1px solid transparent; padding: 7px 11px; border-radius: 7px; cursor: pointer; }
-  .tab-btn:hover { color: var(--ink); background: var(--surface); }
-  .tab-btn[aria-selected="true"] { color: var(--ink); background: var(--surface-2); border-color: var(--border-2); }
-  .bench { text-align: left; padding: 30px; background: var(--surface); }
-  .bench-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 32px; }
-  @media (max-width: 860px) { .bench-grid { grid-template-columns: 1fr; } .bench { padding: 20px; } }
-  .bench-title { font: 600 24px/1.2 var(--sans); letter-spacing: -.03em; color: var(--ink); }
-  .bench-sub { margin-top: 8px; color: var(--muted); font-size: 15px; }
-  .facts { margin: 22px 0 0; display: grid; }
-  .facts div { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 12px 0; border-top: 1px solid var(--border); }
-  @media (max-width: 520px) { .facts div { grid-template-columns: 1fr; gap: 4px; } }
-  .facts dt { color: var(--dim); font-size: 14px; }
-  .facts dd { margin: 0; font: 500 14px/1.5 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
-  .bench-side { display: grid; gap: 16px; align-content: start; }
-  .takeaway { display: grid; grid-template-columns: 10px 1fr; gap: 12px; font-size: 14.5px; color: var(--muted); }
-  .takeaway .dot { margin-top: 7px; }
-  .takeaway b { color: var(--ink); font-weight: 600; }
-  pre.code.mini { font-size: 12.5px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-2); }
-  .more { justify-self: start; color: var(--ink); text-decoration: none; font-weight: 500; border-bottom: 1px solid var(--border-2); padding-bottom: 2px; }
-  .more:hover { border-color: var(--ink); }
-
-  /* P(page) scale */
-  .scale { display: grid; gap: 14px; }
-  .bands { display: grid; grid-template-columns: 20fr 60fr 20fr; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-  .band { padding: 22px 20px; display: grid; gap: 8px; align-content: start; min-height: 150px; }
-  .band + .band { border-left: 1px solid var(--border-2); }
-  .band h3 { font: 600 17px/1.2 var(--sans); letter-spacing: -.01em; display: flex; align-items: center; gap: 9px; }
-  .band p { font-size: 14.5px; color: var(--muted); }
-  .band.no { background: var(--surface); }
-  .band.review { background: repeating-linear-gradient(135deg, rgba(251,191,36,.07) 0 10px, transparent 10px 20px), var(--surface); }
-  .band.page { background: linear-gradient(0deg, rgba(248,113,113,.10), rgba(248,113,113,.10)), var(--surface); }
-  .ticks { position: relative; height: 16px; font: 500 13px/1 var(--mono); color: var(--muted); }
-  .ticks b { position: absolute; top: 0; font-weight: 500; transform: translateX(-50%); }
-  .ticks b:first-child { transform: none; }
-  .ticks b:last-child { transform: translateX(-100%); }
-  .rule-note { color: var(--muted); font-size: 15px; max-width: 760px; }
+  .instrument { margin-top: 72px; }
+  .plot { position: relative; height: 148px; margin: 0 22px; }
+  .alert { position: absolute; left: var(--x); bottom: calc(var(--k) * 44px); width: 44px; height: 44px;
+    transform: translateX(-50%); display: grid; place-items: center; border-radius: 50%; }
+  .alert > i { width: 14px; height: 14px; border-radius: 50%; transition: transform .15s ease; }
+  .alert:hover > i, .alert:focus-visible > i { transform: scale(1.3); }
+  .alert.page > i { background: var(--page); }
+  .alert.linked > i { background: #A8565A; }
+  .alert.review > i { box-shadow: inset 0 0 0 2.5px var(--signal); }
+  .alert.ticket > i { background: var(--text); }
+  .alert.quiet > i { box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .alert::after { content: attr(data-tip); position: absolute; bottom: calc(100% - 4px); left: 50%; transform: translateX(-50%);
+    width: max-content; max-width: 250px; padding: 7px 10px; border-radius: var(--r-sm); background: var(--ink); color: var(--bg);
+    font-size: 14px; line-height: 1.35; pointer-events: none; display: none; z-index: 2; }
+  .alert.at-start::after { left: 0; transform: none; }
+  .alert.at-end::after { left: auto; right: 0; transform: none; }
+  .alert:hover::after, .alert:focus-visible::after { display: block; }
+  .scale { position: relative; height: 12px; margin: 0 22px; border-radius: 3px; overflow: hidden;
+    background: linear-gradient(to right, var(--shelf-2) 0 20%, transparent 20% 80%, #3A2225 80%),
+                repeating-linear-gradient(135deg, rgba(232, 163, 61, .22) 0 5px, transparent 5px 10px), var(--shelf-2); }
+  .bars { position: relative; height: 0; margin: 0 22px; }
+  .bars b { position: absolute; top: -22px; width: 2px; height: 22px; background: var(--signal); transform: translateX(-1px); }
+  .readout { display: grid; grid-template-columns: 20fr 60fr 20fr; margin: 14px 22px 0; }
+  .zone { padding: 12px 18px 0 0; }
+  .zone + .zone { padding-left: 16px; border-left: 1px solid var(--rule); }
+  .zone h2 { font: 600 15px/1.3 var(--sans); color: var(--ink); }
+  .zone h2 small { display: block; font: 500 13.5px/1.4 var(--mono); color: var(--muted); margin-top: 2px; }
+  .zone p { margin-top: 8px; font-size: 15px; color: var(--muted); max-width: 42ch; }
+  .zone p b { color: var(--text); font-weight: 600; }
+  .instrument figcaption { margin: 28px 22px 0; font-size: 15px; color: var(--muted); max-width: 70ch; }
+  .instrument figcaption a { color: var(--ink); text-underline-offset: 3px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .alert { animation: land .6s cubic-bezier(.2, .9, .3, 1.15) backwards; animation-delay: calc(300ms + var(--i) * 70ms); }
+    @keyframes land { from { opacity: 0; transform: translate(-50%, -36px); } }
+  }
   @media (max-width: 760px) {
-    .bands { grid-template-columns: 1fr; }
-    .band + .band { border-left: 0; border-top: 1px solid var(--border-2); }
-    .band { min-height: 0; }
-    .ticks { display: none; }
-    .band h3::after { content: attr(data-range); margin-left: auto; font: 500 12.5px/1 var(--mono); color: var(--dim); }
+    .plot { height: 184px; }
+    .alert[style*="--xm"] { left: var(--xm); bottom: calc(var(--km) * 44px); }
+    .readout { grid-template-columns: 1fr; margin-top: 18px; }
+    .zone, .zone + .zone { padding: 14px 0; border-left: 0; border-top: 1px solid var(--rule); }
+    .zone p { max-width: none; }
   }
 
-  /* Integrations */
-  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
-  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-  .list li { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); font-size: 15px; color: var(--text); }
-  .list li:first-child { border-top: 0; }
-  .list li small { font: 500 12.5px/1.5 var(--mono); color: var(--dim); text-align: right; }
-  .card.planned { background: transparent; border-style: dashed; border-color: var(--border-2); }
+  /* Four questions: a spec list, not cards */
+  .spec { display: grid; border-top: 1px solid var(--rule); margin: 0; }
+  .spec > div { display: grid; grid-template-columns: 200px 220px minmax(0, 1fr); gap: 8px 32px; padding: 22px 0;
+    border-bottom: 1px solid var(--rule); align-items: baseline; }
+  .spec dt { font: 500 17px/1.3 var(--mono); color: var(--ink); }
+  .spec dd { margin: 0; max-width: 62ch; }
+  .spec .type { font-size: 15px; color: var(--muted); }
+  @media (max-width: 860px) { .spec > div { grid-template-columns: 1fr; } }
+  .aside { margin-top: 28px; color: var(--muted); max-width: 70ch; }
 
-  /* Demo */
-  .demo { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 20px; align-items: start; }
-  @media (max-width: 900px) { .demo { grid-template-columns: 1fr; } }
-  .window .copy-row { display: flex; justify-content: flex-end; padding: 0 14px 14px; background: var(--surface); }
-  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
-  .steps li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 12px; color: var(--muted); font-size: 15.5px; }
-  .steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-2); display: grid; place-items: center; font: 500 12.5px/1 var(--mono); color: var(--ink); }
-  .steps b { color: var(--ink); font-weight: 600; }
+  /* Safety: a heading that stays put beside the list it introduces */
+  .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: start; }
+  .split .section-head { position: sticky; top: 104px; margin-bottom: 0; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; gap: 8px; } .split .section-head { position: static; } }
+  .rules { list-style: none; margin: 0; padding: 0; }
+  .rules li { padding: 22px 0; border-top: 1px solid var(--rule); }
+  .rules li:first-child { border-top: 0; padding-top: 4px; }
+  .rules h3 { font: 650 19px/1.3 var(--sans); font-stretch: 106%; }
+  .rules p { margin-top: 6px; color: var(--text); max-width: 60ch; }
 
-  .cta-band { text-align: center; }
-  .cta-band .container { display: grid; justify-items: center; gap: 22px; }
-  .cta-band h2 { font: 600 clamp(32px, 5vw, 52px)/1.05 var(--sans); letter-spacing: -.04em; }
-  .cta-band p { color: var(--muted); max-width: 560px; }
+  /* Measured run: the screenshot and the numbers side by side */
+  .run { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 40px; align-items: start; }
+  @media (max-width: 960px) { .run { grid-template-columns: 1fr; } }
+  .run img { width: 100%; height: auto; border-radius: var(--r-lg); border: 1px solid var(--rule); background: #F3F5F6; }
+  .figures { margin: 0; display: grid; }
+  .figures div { padding: 14px 0; border-top: 1px solid var(--rule); display: grid; gap: 2px; }
+  .figures div:first-child { border-top: 0; padding-top: 0; }
+  .figures dt { color: var(--muted); font-size: 14.5px; }
+  .figures dd { margin: 0; color: var(--ink); font-size: 17px; font-variant-numeric: tabular-nums; }
+  .note { margin-top: 20px; color: var(--muted); font-size: 15px; }
+  .note b { color: var(--text); }
+  .note a { color: var(--ink); text-underline-offset: 3px; }
+
+  /* Integrations: three lists, ruled, no boxes */
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; gap: 32px; } }
+  .cols h3 { font: 650 17px/1.3 var(--sans); padding-bottom: 12px; border-bottom: 2px solid var(--ink); }
+  .cols .planned h3 { border-bottom-color: var(--rule-2); color: var(--muted); }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--rule); font-size: 16px; }
+  .list li small { font: 500 13px/1.6 var(--mono); color: var(--muted); text-align: right; }
+  .planned .list li { color: var(--muted); }
+
+  /* Run it locally, and configure: code beside prose */
+  .pair { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: start; }
+  .pair.flip { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  @media (max-width: 900px) { .pair, .pair.flip { grid-template-columns: 1fr; } }
+  .window-bar .copy { min-height: 34px; padding: 6px 10px; }
+  .beats { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+  .beats li { color: var(--text); }
+  .beats b { color: var(--ink); font-weight: 600; }
+
+  .closing h2 { font: 800 clamp(34px, 5.2vw, 60px)/1 var(--sans); font-stretch: 118%; letter-spacing: -.025em; max-width: 16ch; }
+  .closing p { margin-top: 18px; color: var(--muted); max-width: 52ch; }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <header class="nav">
   <div class="container">
-    <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
+    <a class="brand" href="./" aria-current="page"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
     <nav class="nav-links" aria-label="Main">
       <a href="#how">How it works</a>
       <a href="#safety">Safety</a>
-      <a href="#demo">Demo</a>
+      <a class="keep" href="demo/">Live demo</a>
       <a href="architecture.html">Architecture</a>
       <a class="gh" href="https://github.com/mingleiw/jev-oncall">GitHub</a>
     </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
   <div class="hero">
     <div class="container">
-      <span class="pill"><span class="dot" style="background: var(--green)"></span>Open source · MIT · built on Jev</span>
-      <h1>Jev judges.<br>Code decides.</h1>
-      <p class="sub">Alert triage for on-call teams. Every production alert gets one Jev call with four typed questions, and plain, auditable code turns the probabilities into pages, reviews, tickets and linked incidents.</p>
+      <h1><span>Jev judges.</span><span>Code decides.</span></h1>
+      <p class="sub">Open-source alert triage. Jev scores every alert, and plain, auditable code decides who gets paged.</p>
       <div class="ctas">
-        <a class="btn btn-primary" href="https://github.com/mingleiw/jev-oncall">View on GitHub</a>
-        <a class="btn btn-ghost" href="demo/">Try the dashboard</a>
-        <button class="btn btn-ghost copy" type="button" data-copy="docker compose up --build">docker compose up <span class="hint">Copy</span></button>
+        <a class="btn btn-primary" href="demo/">Try the live demo</a>
+        <a class="btn btn-quiet" href="https://github.com/mingleiw/jev-oncall">View on GitHub</a>
       </div>
-      <p class="sources">Takes webhooks from <span>Prometheus Alertmanager</span><span>Grafana</span><span>Datadog</span><span>PagerDuty</span><span>any JSON</span></p>
 
-      <figure class="shot" style="margin-inline: 0; margin-bottom: 0;">
-        <div class="window">
-          <div class="window-bar">
-            <i></i><i></i><i></i>
-            <div class="tabs" role="tablist" aria-label="Benchmark views">
-              <button class="tab-btn" type="button" role="tab" id="tab-dash" aria-controls="panel-dash" aria-selected="true">dashboard</button>
-              <button class="tab-btn" type="button" role="tab" id="tab-bench" aria-controls="panel-bench" aria-selected="false" tabindex="-1">synthetic benchmark</button>
-            </div>
-          </div>
-          <div class="panel" role="tabpanel" id="panel-dash" aria-labelledby="tab-dash">
-          <img src="benchmark.png" width="1100" height="748" alt="The jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 for review, 33 linked to an incident that already paged, and 118 ticketed, logged or dropped. Each alert is a dot on the P(page) scale against the 0.20 and 0.80 policy bars.">
-          </div>
-          <div class="panel bench" role="tabpanel" id="panel-bench" aria-labelledby="tab-bench" hidden>
-            <div class="bench-grid">
-              <div>
-                <p class="bench-title">One measured run</p>
-                <p class="bench-sub">300 synthetic alerts, 16 workers, default 2-second timeout. 233 reached Jev; the other 67 were non-prod and never called the model.</p>
-                <dl class="facts">
-                  <div><dt>Per-call latency</dt><dd>min 204 · p50 418 · p90 674 · p95 1,477 · p99 1,748 · max 1,849 ms</dd></div>
-                  <div><dt>Wall clock</dt><dd>7,642 ms for all 300</dd></div>
-                  <div><dt>Cost</dt><dd>$0.0128 total, about $0.04 per 1,000 alerts</dd></div>
-                  <div><dt>Payload</dt><dd>304,175 input tokens, about 1,305 per call</dd></div>
-                  <div><dt>Fallbacks</dt><dd>0</dd></div>
-                </dl>
-              </div>
-              <div class="bench-side">
-                <div class="takeaway"><span class="dot" style="background: var(--amber)"></span><p><b>The tail nearly reaches the timeout.</b> The slowest call took 1,849 ms against a 2,000 ms limit. A slower network path would push some alerts onto the fail-open path.</p></div>
-                <div class="takeaway"><span class="dot" style="background: var(--amber)"></span><p><b>37% of judged alerts landed in REVIEW.</b> That's the band working as designed, and a sign the default bars are wide for this alert mix. <code>evaluate.py --sweep</code> is for tuning them.</p></div>
-<pre class="code mini"><span class="c"># reproduce it</span>
-<span class="k">python3</span> generate_alerts.py --count 300 --out bench_alerts.json
-<span class="k">python3</span> triage.py --alerts bench_alerts.json --out bench_results.json</pre>
-                <a class="more" href="https://github.com/mingleiw/jev-oncall#one-measured-run">Full write-up on GitHub →</a>
-              </div>
-            </div>
-          </div>
+      <!-- The demo's staged incident, as build_demo.py triages it. test_reviews checks these against it. -->
+      <figure class="instrument" aria-labelledby="instrument-cap" style="margin-inline: 0; margin-bottom: 0;">
+        <div class="plot" role="group" aria-label="Eight production alerts on the P(page) scale">
+          <a class="alert quiet at-start" data-id="gc-pause" data-p="0.00" data-final="DROP" style="--x:0%;--k:0;--i:0" href="demo/#alert-gc-pause" data-tip="gc-pause, P(page) 0.00: dropped as noise" aria-label="gc-pause, P(page) 0.00: dropped as noise"><i></i></a>
+          <a class="alert ticket at-start" data-id="report-job" data-p="0.00" data-final="TICKET" style="--x:0%;--k:1;--i:1" href="demo/#alert-report-job" data-tip="report-job, P(page) 0.00: ticketed" aria-label="report-job, P(page) 0.00: ticketed"><i></i></a>
+          <a class="alert ticket at-start" data-id="tls-cert" data-p="0.00" data-final="TICKET" style="--x:0%;--k:2;--i:2" href="demo/#alert-tls-cert" data-tip="tls-cert, P(page) 0.00: ticketed" aria-label="tls-cert, P(page) 0.00: ticketed"><i></i></a>
+          <a class="alert review" data-id="search-mem" data-p="0.35" data-final="REVIEW" style="--x:35%;--k:0;--i:3" href="demo/#alert-search-mem" data-tip="search-mem, P(page) 0.35: sent to review" aria-label="search-mem, P(page) 0.35: sent to review"><i></i></a>
+          <a class="alert page" data-id="homepage" data-p="0.85" data-final="PAGE" style="--x:85%;--k:0;--xm:90%;--km:0;--i:4" href="demo/#alert-homepage" data-tip="homepage, P(page) 0.85: paged" aria-label="homepage, P(page) 0.85: paged"><i></i></a>
+          <a class="alert linked at-end" data-id="checkout" data-p="0.90" data-final="DEDUP" style="--x:90%;--k:0;--xm:90%;--km:1;--i:5" href="demo/#alert-checkout" data-tip="checkout, P(page) 0.90: linked to orders-db, which already pages" aria-label="checkout, P(page) 0.90: linked to orders-db, which already pages"><i></i></a>
+          <a class="alert review at-end" data-id="payment" data-p="0.90" data-final="REVIEW" style="--x:90%;--k:1;--xm:90%;--km:2;--i:6" href="demo/#alert-payment" data-tip="payment, P(page) 0.90: sent to review, another team owns its incident" aria-label="payment, P(page) 0.90: sent to review, because another team owns its incident"><i></i></a>
+          <a class="alert page at-end" data-id="orders-db" data-p="0.95" data-final="PAGE_NOW" style="--x:95%;--k:0;--xm:90%;--km:3;--i:7" href="demo/#alert-orders-db" data-tip="orders-db, P(page) 0.95: paged now" aria-label="orders-db, P(page) 0.95: paged now"><i></i></a>
         </div>
-        <figcaption class="shot-note"><b>One measured run:</b> 300 synthetic alerts, 233 Jev calls, p50 418 ms, p95 1,477 ms, $0.0128 in total. It measures speed on one network path, not whether the routing was correct. That takes replayed, labeled history.</figcaption>
+        <div class="scale" aria-hidden="true"></div>
+        <div class="bars" aria-hidden="true"><b style="left:20%"></b><b style="left:80%"></b></div>
+        <div class="readout">
+          <div class="zone"><h2>No page<small>0 to 0.20</small></h2><p><b>3 alerts.</b> Ticketed, or dropped when it's clearly noise.</p></div>
+          <div class="zone"><h2>Review<small>0.20 to 0.80</small></h2><p><b>search-mem.</b> Unsure costs a human's attention, never silence: if nobody acks it within 15 minutes, it pages.</p></div>
+          <div class="zone"><h2>Page<small>0.80 to 1</small></h2><p><b>orders-db pages.</b> Checkout links to it. Payment goes to review: another team owns that incident.</p></div>
+        </div>
+        <figcaption id="instrument-cap">Each dot is an alert from the demo's staged incident, placed at P(page), the probability Jev's answer gives SEV1 or SEV2 (scripted in the demo). The thresholds decide first; dedup and ownership rules can change the outcome after. <a href="demo/">Open the demo</a> to ack, label and fail them yourself.</figcaption>
       </figure>
     </div>
   </div>
@@ -165,76 +173,53 @@
   <section id="how">
     <div class="container">
       <div class="section-head">
-        <p class="eyebrow">01 · One call, four questions</p>
-        <h2>Jev answers with probabilities, not prose.</h2>
-        <p>Each question has a typed answer, so the code downstream can reason about how sure Jev is instead of parsing text.</p>
+        <h2>One call, four questions, answered with probabilities.</h2>
+        <p>Each question has a typed answer, so the code downstream can reason about how sure Jev is instead of parsing prose.</p>
       </div>
-      <div class="grid grid-4">
-        <div class="card">
-          <h3><span class="dot" style="background: var(--green)"></span>actionable</h3>
-          <p class="type">Noul · yes or no</p>
-          <p>Does a human need to intervene? It can drop an alert only when severity agrees it's noise.</p>
-        </div>
-        <div class="card">
-          <h3><span class="dot" style="background: var(--red)"></span>severity</h3>
-          <p class="type">Score · SEV4 &lt; SEV3 &lt; SEV2 &lt; SEV1</p>
-          <p>P(page) is P(SEV1) + P(SEV2). Routing uses the whole distribution, not just the top label.</p>
-        </div>
-        <div class="card">
-          <h3><span class="dot" style="background: var(--blue)"></span>team</h3>
-          <p class="type">Choice · your teams</p>
-          <p>Picks the owner from your team descriptions. Below 0.60, the runner-up team is notified too.</p>
-        </div>
-        <div class="card">
-          <h3><span class="dot" style="background: var(--violet)"></span>duplicate_of</h3>
-          <p class="type">Choice · candidate alerts + none</p>
-          <p>Which recent alert causes this one. Those answers become the edges of a dedup graph.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="policy">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">02 · Plain code decides</p>
-        <h2>Unsure costs a review, never silence.</h2>
-        <p>The policy is a few lines of code on P(page). The bars are asymmetric on purpose: dropping an alert takes the most certainty.</p>
-      </div>
-      <div class="scale">
-        <div class="bands">
-          <div class="band no">
-            <h3 data-range="0 to 0.20"><span class="dot" style="background: var(--dim)"></span>No page</h3>
-            <p>TICKET. DROP only if P(actionable) is 0.05 or less.</p>
-          </div>
-          <div class="band review">
-            <h3 data-range="0.20 to 0.80"><span class="dot" style="background: var(--amber)"></span>REVIEW</h3>
-            <p>Low urgency to the owning team. If nobody acks it within 15 minutes, it pages.</p>
-          </div>
-          <div class="band page">
-            <h3 data-range="0.80 to 1"><span class="dot" style="background: var(--red)"></span>PAGE</h3>
-            <p>PAGE_NOW when SEV1 is at least as likely as SEV2.</p>
-          </div>
-        </div>
-        <div class="ticks" aria-hidden="true"><b style="left: 0">0</b><b style="left: 20%">0.20</b><b style="left: 80%">0.80</b><b style="left: 100%">1</b></div>
-        <p class="rule-note">Non-production alerts are logged by a rule and never cost a model call. Every threshold lives in your config file, and <code>evaluate.py --sweep</code> replays stored answers under other thresholds so you can pick them from data.</p>
-      </div>
+      <dl class="spec">
+        <div><dt>actionable</dt><dd class="type">Yes or no</dd><dd>Does a human need to intervene? An alert is dropped only when this is near zero and severity agrees.</dd></div>
+        <div><dt>severity</dt><dd class="type">SEV4 to SEV1, a distribution</dd><dd>P(page) is P(SEV1) + P(SEV2). Routing uses the whole distribution, not only the top label.</dd></div>
+        <div><dt>team</dt><dd class="type">One of your teams</dd><dd>Picks the owner from your team descriptions. Below 0.60, the runner-up team is notified too.</dd></div>
+        <div><dt>duplicate_of</dt><dd class="type">A recent alert, or none</dd><dd>Which alert causes this one. The answers become the edges of a dedup graph, so one incident pages once.</dd></div>
+      </dl>
+      <p class="aside">Non-production alerts are logged by a rule and never cost a model call. Every threshold lives in your config file, and <code>evaluate.py --sweep</code> replays stored answers under other thresholds so you can choose them from data.</p>
     </div>
   </section>
 
   <section id="safety">
+    <div class="container split">
+      <div class="section-head">
+        <h2>A paging path that degrades to what you have today.</h2>
+        <p>Every rule here exists so that a wrong or missing answer costs noise, not a missed page.</p>
+      </div>
+      <ul class="rules">
+        <li><h3>Fails open</h3><p>If Jev errors, times out or returns a malformed answer, the alert is routed by its configured severity, exactly as it would be without jev-oncall.</p></li>
+        <li><h3>The review clock</h3><p>A review pages after 15 minutes unless someone acks it. An ack means someone is on it, not that it's resolved. Reviews are kept on disk, so a restart doesn't drop them.</p></li>
+        <li><h3>Dedup never silences</h3><p>A linked alert owned by another team gets a review. A page never folds into an earlier alert that got a weaker decision.</p></li>
+        <li><h3>Invariant checks</h3><p>Every run checks that no linked alert outranks its incident root, and that nothing was dropped without a model judgment.</p></li>
+        <li><h3>A pinned model</h3><p>Calls pin <code>jev-1.13.0</code>, not an alias, so a new release can't shift probabilities under your thresholds.</p></li>
+        <li><h3>One idempotency key per call</h3><p>A call and its retry share one key, so a client timeout never judges, or bills, the same alert twice.</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="benchmark">
     <div class="container">
       <div class="section-head">
-        <p class="eyebrow">03 · Built to fail safe</p>
-        <h2>A paging path that degrades to what you have today.</h2>
+        <h2>One measured run: 300 alerts in under 8 seconds.</h2>
+        <p>Synthetic alerts, 16 workers, the default 2-second timeout. It measures speed on one network path, not whether the routing was right. That takes replayed, labeled history.</p>
       </div>
-      <div class="grid grid-3">
-        <div class="card"><h3><span class="dot" style="background: var(--amber)"></span>Fails open</h3><p>If Jev errors, times out or returns a malformed answer, the alert is routed by its configured severity, exactly as it would be without jev-oncall.</p></div>
-        <div class="card"><h3><span class="dot" style="background: var(--amber)"></span>Review clock</h3><p>A REVIEW pages after 15 minutes unless someone acks it. A resolved alert cancels its review, and resends can't push the deadline back.</p></div>
-        <div class="card"><h3><span class="dot" style="background: var(--violet)"></span>Dedup never silences</h3><p>A linked alert owned by another team gets a REVIEW. A page never dedups onto an earlier alert that got a weaker decision.</p></div>
-        <div class="card"><h3><span class="dot" style="background: var(--green)"></span>Invariant checks</h3><p>Every run checks that no linked alert outranks its incident root, and that nothing was dropped without a model judgment.</p></div>
-        <div class="card"><h3><span class="dot" style="background: var(--blue)"></span>Pinned model</h3><p>Calls pin <code>jev-1.13.0</code>, not an alias, so a new release can't shift probabilities under your thresholds.</p></div>
-        <div class="card"><h3><span class="dot" style="background: var(--blue)"></span>One key per call</h3><p>A call and its retry share one Idempotency-Key, so a client timeout never judges, or bills, the same alert twice.</p></div>
+      <div class="run">
+        <img src="benchmark.png" width="1100" height="748" loading="lazy" alt="The jev-oncall dashboard for the 300-alert run: 63 flagged for paging, 86 for review, 33 linked to an incident that already paged, and 118 ticketed, logged or dropped, each a dot on the P(page) scale against the 0.20 and 0.80 policy bars.">
+        <div>
+          <dl class="figures">
+            <div><dt>Model calls</dt><dd>233; the other 67 alerts were non-production</dd></div>
+            <div><dt>Latency per call</dt><dd>418 ms median, 1,477 ms p95, 1,849 ms max</dd></div>
+            <div><dt>Cost</dt><dd>$0.0128 in total, about $0.04 per 1,000 alerts</dd></div>
+            <div><dt>Fallbacks</dt><dd>None</dd></div>
+          </dl>
+          <p class="note"><b>The tail nearly reaches the timeout</b>, and 37% of judged alerts landed in review: a sign the default bars are wide for this mix. <a href="https://github.com/mingleiw/jev-oncall#one-measured-run">Read the full write-up</a>.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -242,82 +227,76 @@
   <section id="integrations">
     <div class="container">
       <div class="section-head">
-        <p class="eyebrow">04 · Integrations</p>
         <h2>Plugs into the alerts you already have.</h2>
-        <p>jev-oncall judges and records decisions today. Sending them onward is next on the roadmap.</p>
+        <p>jev-oncall judges and records decisions today. Sending them onward is next.</p>
       </div>
       <div class="cols">
-        <div class="card">
-          <h3><span class="dot" style="background: var(--blue)"></span>Takes webhooks from</h3>
+        <div>
+          <h3>Takes webhooks from</h3>
           <ul class="list">
             <li>Prometheus Alertmanager <small>bearer token</small></li>
             <li>Grafana Alerting <small>HMAC</small></li>
             <li>Datadog <small>HMAC header</small></li>
-            <li>PagerDuty v2 / v3 <small>HMAC</small></li>
-            <li>Generic JSON <small>HMAC header</small></li>
+            <li>PagerDuty v2 and v3 <small>HMAC</small></li>
+            <li>Any JSON <small>HMAC header</small></li>
           </ul>
         </div>
-        <div class="card">
-          <h3><span class="dot" style="background: var(--green)"></span>Gives you today</h3>
+        <div>
+          <h3>Gives you today</h3>
           <ul class="list">
-            <li>Live dashboard <small>/dashboard</small></li>
+            <li>Live dashboard, with Ack <small>/dashboard</small></li>
             <li>Decisions as JSON <small>/recent</small></li>
-            <li>Reviews awaiting an ack <small>/pending</small></li>
-            <li>Ack a review <small>POST /ack/&lt;id&gt;</small></li>
+            <li>Reviews and their deadlines <small>/pending</small></li>
+            <li>Shadow mode beside your paging <small>/shadow</small></li>
             <li>Offline replay and sweep <small>evaluate.py</small></li>
           </ul>
         </div>
-        <div class="card planned">
-          <h3><span class="dot" style="background: var(--dim)"></span>Not built yet</h3>
+        <div class="planned">
+          <h3>Not built yet</h3>
           <ul class="list">
-            <li>Shadow mode <small>roadmap</small></li>
-            <li>Slack with an Ack button <small>roadmap</small></li>
-            <li>PagerDuty and Opsgenie paging <small>roadmap</small></li>
-            <li>Jira and Linear tickets <small>roadmap</small></li>
-            <li>Durable review queue <small>roadmap</small></li>
+            <li>Slack, with an Ack button</li>
+            <li>PagerDuty and Opsgenie paging</li>
+            <li>Jira and Linear tickets</li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="demo">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">05 · Try it</p>
-        <h2>A real incident, replayed in five minutes.</h2>
-        <p>The demo runs Prometheus, Alertmanager and jev-oncall with Docker Compose. Prometheus fires a staged incident and Alertmanager delivers it exactly as it would in production.</p>
-      </div>
-      <div class="demo">
-        <div class="window">
-          <div class="window-bar"><i></i><i></i><i></i><span class="tab">terminal</span></div>
+  <section id="run">
+    <div class="container pair">
+      <div class="window">
+        <div class="window-bar"><span class="tab">terminal</span><button class="btn btn-quiet copy" type="button" data-copy-from="demo-cmd"><span class="hint">Copy</span></button></div>
 <pre class="code" id="demo-cmd"><span class="k">git clone</span> https://github.com/mingleiw/jev-oncall
 <span class="k">cd</span> jev-oncall/demo
 <span class="k">echo</span> <span class="s">"TYPESAFE_API_KEY=&lt;your key&gt;"</span> &gt; .env   <span class="c"># optional</span>
 <span class="k">docker compose up</span> --build
 <span class="c"># then open http://localhost:8090/dashboard</span></pre>
-          <div class="copy-row"><button class="btn btn-ghost copy" type="button" data-copy-from="demo-cmd"><span class="hint">Copy commands</span></button></div>
+      </div>
+      <div>
+        <div class="section-head" style="margin-bottom: 28px;">
+          <h2>Run the incident on your machine.</h2>
+          <p>Prometheus fires a staged incident and Alertmanager delivers it to jev-oncall exactly as it would in production.</p>
         </div>
-        <ol class="steps">
-          <li><span><b>A database runs out of connections,</b> and checkout and payments fail because of it. Dedup can link them to that one root cause.</span></li>
-          <li><span><b>Noise arrives with it:</b> a staging disk alert, an expiring certificate, and an alert that clears on its own and sends its resolve.</span></li>
-          <li><span><b>Two severities are mislabeled:</b> a slow report job marked critical, and a homepage slowdown marked as a warning while conversion falls 22%.</span></li>
-          <li><span><b>Without a key</b> you see today's baseline, routed by configured severity. With one, compare what Jev changes.</span></li>
-        </ol>
+        <ul class="beats">
+          <li><b>A database runs out of connections</b>, and checkout and payments fail because of it.</li>
+          <li><b>Noise arrives with it:</b> a staging disk, an expiring certificate, and an alert that clears on its own.</li>
+          <li><b>Two severities are wrong:</b> a slow report marked critical, and a homepage slowdown marked as a warning while conversion falls 22%.</li>
+          <li><b>Without a key</b> you see today's routing by configured severity. With one, see what Jev changes.</li>
+        </ul>
       </div>
     </div>
   </section>
 
   <section id="configure">
-    <div class="container demo">
+    <div class="container pair flip">
       <div class="section-head" style="margin-bottom: 0;">
-        <p class="eyebrow">06 · Configure</p>
         <h2>Your teams, your thresholds, one file.</h2>
         <p>Every section is optional. Unknown keys and out-of-range thresholds stop the server before it triages anything, because a typo that silently kept a default would change who gets paged.</p>
-        <p><a class="btn btn-ghost" href="architecture.html" style="margin-top: 8px;">See the architecture</a></p>
+        <p><a class="btn btn-quiet" href="architecture.html">See the architecture</a></p>
       </div>
       <div class="window">
-        <div class="window-bar"><i></i><i></i><i></i><span class="tab">jev-oncall.toml</span></div>
+        <div class="window-bar"><span class="tab">jev-oncall.toml</span></div>
 <pre class="code"><span class="h">[teams]</span>
 <span class="k">database</span> = <span class="s">"databases, connection pools, caches"</span>
 <span class="k">network</span>  = <span class="s">"CDN, edge, DNS, TLS certificates"</span>
@@ -325,22 +304,20 @@
 <span class="h">[policy]</span>
 <span class="k">page_bar</span>       = <span class="n">0.80</span>
 <span class="k">no_page_bar</span>    = <span class="n">0.20</span>
-<span class="k">dedup_bar</span>      = <span class="n">0.70</span>
 <span class="k">review_ack_min</span> = <span class="n">15</span>
 
-<span class="h">[topology]</span>
-<span class="k">payment-service</span> = [<span class="s">"checkout-api"</span>]</pre>
+<span class="h">[reviews]</span>
+<span class="k">store</span> = <span class="s">"reviews.jsonl"</span></pre>
       </div>
     </div>
   </section>
 
-  <section class="cta-band">
+  <section class="closing">
     <div class="container">
-      <h2>Judge every alert.<br>Keep the page path safe.</h2>
-      <p>jev-oncall is open source under the MIT license. Read the code, run the demo, and tune the policy on your own history.</p>
+      <h2>Judge every alert. Keep the page path safe.</h2>
+      <p>MIT licensed. Read the code, run the demo, and tune the policy on your own history.</p>
       <div class="ctas">
         <a class="btn btn-primary" href="https://github.com/mingleiw/jev-oncall">View on GitHub</a>
-        <a class="btn btn-ghost" href="architecture.html">Architecture</a>
       </div>
     </div>
   </section>
@@ -350,51 +327,27 @@
   <div class="container">
     <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>jev-oncall</a>
     <nav aria-label="Footer">
-      <a href="https://github.com/mingleiw/jev-oncall">GitHub</a>
+      <a href="demo/">Live demo</a>
       <a href="architecture.html">Architecture</a>
-      <a href="https://github.com/mingleiw/jev-oncall/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/mingleiw/jev-oncall">GitHub</a>
+      <a href="https://github.com/mingleiw/jev-oncall/blob/main/LICENSE">MIT license</a>
       <a href="https://typesafe.ai">Jev by TypeSafe</a>
     </nav>
   </div>
 </footer>
 
 <script>
-  (function () {
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
-    var show = function (tab, focus) {
-      tabs.forEach(function (t) {
-        var on = t === tab;
-        t.setAttribute('aria-selected', on ? 'true' : 'false');
-        t.tabIndex = on ? 0 : -1;
-        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
-      });
-      if (focus) tab.focus();
-    };
-    tabs.forEach(function (t, i) {
-      t.addEventListener('click', function () { show(t); });
-      t.addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-          e.preventDefault();
-          show(tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length], true);
-        }
-      });
-    });
-    if (location.hash === '#benchmark') show(document.getElementById('tab-bench'));
-  })();
   document.querySelectorAll('button.copy').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var src = btn.dataset.copyFrom ? document.getElementById(btn.dataset.copyFrom) : null;
-      var text = src ? src.innerText : btn.dataset.copy;
+      var src = document.getElementById(btn.dataset.copyFrom);
       var hint = btn.querySelector('.hint');
-      var done = function (label) { if (hint) { var old = hint.dataset.label || hint.textContent; hint.dataset.label = old; hint.textContent = label; setTimeout(function () { hint.textContent = old; }, 1600); } };
+      var done = function (label) { hint.textContent = label; setTimeout(function () { hint.textContent = 'Copy'; }, 1600); };
       var select = function () {
-        if (!src) { done('Select to copy'); return; }
         var r = document.createRange(); r.selectNodeContents(src);
         var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done('Selected');
       };
-      try {
-        navigator.clipboard.writeText(text).then(function () { done('Copied'); }, select);
-      } catch (e) { select(); }
+      try { navigator.clipboard.writeText(src.innerText).then(function () { done('Copied'); }, select); }
+      catch (e) { select(); }
     });
   });
 </script>
