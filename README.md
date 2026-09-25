@@ -546,7 +546,7 @@ while you're typing or have a label half filled in.
 
 To see it without running anything, open the
 [interactive demo](https://mingleiw.github.io/jev-oncall/demo/): the Docker demo's
-incident with scripted answers in place of Jev. The first time you act, the page
+incident, with the judgments replayed from a real jev-1.13.0 run instead of calling Jev. The first time you act, the page
 loads this repository's Python in your browser with [Pyodide](https://pyodide.org)
 and runs the real review queue, routing and evaluation on a demo clock. Besides Ack
 and labels, it can advance the clock 15 minutes (unacked reviews page), simulate a
@@ -696,7 +696,7 @@ are a good place to start.
 | [test_config.py](test_config.py) | Config loading, validation, and precedence tests |
 | [shadow.py](shadow.py) | Shadow mode: the decision log, the comparison with configured-severity routing, and the input `evaluate.py --shadow` scores |
 | [test_shadow.py](test_shadow.py) | Shadow mode tests: comparisons, labels, the log, the endpoints |
-| [build_demo.py](build_demo.py) | Builds the interactive dashboard demo in `docs/demo/` from the Docker demo's incident, with scripted answers, and copies the modules the browser runs to `docs/demo/engine/` |
+| [build_demo.py](build_demo.py) | Builds the interactive dashboard demo in `docs/demo/` from the Docker demo's incident, with the judgments replayed from a real jev-1.13.0 run, and copies the modules the browser runs to `docs/demo/engine/` |
 | [test_live.py](test_live.py) | Live dashboard tests: the review queue, the shadow comparison, label forms, the token option |
 | [test_reviews.py](test_reviews.py) | The review clock end to end: acks, cancellations, escalation, duplicate deliveries, restart recovery, labels, baselines, and the demo engine |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default: teams, thresholds, topology, Jev call limits |
