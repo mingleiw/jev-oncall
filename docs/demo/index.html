@@ -412,6 +412,24 @@ body.app {
 .ev-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ev-card.auto-entering { animation: cardPulse .25s ease-out; }
 @keyframes cardPulse { 0% { box-shadow: 0 0 0 3px var(--accent-wash); } 100% { box-shadow: 0 0 0 1px var(--accent); } }
+.ev-card.triaging .ev-arrow,
+.ev-card.triaging .ev-decision,
+.ev-card.triaging .ev-latency,
+.ev-card.triaging .prob-bar,
+.ev-card.triaging .ev-bottom,
+.ev-card.triaging .ev-review-banner,
+.ev-card.triaging .ev-kind-badge { visibility: hidden; opacity: 0; }
+.ev-card.triaging::after { content: "Triaging…"; position: absolute; right: 14px; top: 11px;
+  font-size: 12px; color: var(--accent); font-weight: 600; animation: triageBlink .6s ease-in-out infinite alternate; }
+.ev-card { position: relative; }
+@keyframes triageBlink { from { opacity: .4; } to { opacity: 1; } }
+.ev-card .ev-arrow, .ev-card .ev-decision, .ev-card .ev-latency,
+.ev-card .prob-bar, .ev-card .ev-bottom, .ev-card .ev-review-banner,
+.ev-card .ev-kind-badge { transition: opacity .25s ease-out, visibility .25s; }
+.ev-card.triaged .ev-kind-badge { animation: revealPop .3s ease-out; }
+.ev-card.triaged .prob-bar { animation: revealSlide .4s ease-out; }
+@keyframes revealPop { from { opacity: 0; transform: scale(.8); } to { opacity: 1; transform: scale(1); } }
+@keyframes revealSlide { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .ev-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
 .ev-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .ev-kind-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius);
@@ -808,7 +826,7 @@ body.app .live-lede { font-size: 13px; }
 
   // ---- Auto-rotate cards to show triage speed ----
   var autoTimer = null, autoRunning = false, autoIdx = -1;
-  var SCALE = 8;
+  var SCALE = 3;
   function cardEls() { return [].slice.call(document.querySelectorAll(".ev-card[data-id]")); }
   function cardMs(card) { var m = card.querySelector(".ev-latency"); return m ? parseInt(m.textContent, 10) || 40 : 40; }
   function updatePlayBtn() {
@@ -817,19 +835,36 @@ body.app .live-lede { font-size: 13px; }
     var sub = document.querySelector(".insp-sub");
     if (sub) sub.textContent = autoRunning ? "Auto-cycling" : "Paused";
   }
+  var revealTimer = null;
+  function clearTriage() {
+    clearTimeout(revealTimer);
+    cardEls().forEach(function (c) { c.classList.remove("triaging", "triaged"); });
+  }
   function autoNext() {
     if (!autoRunning) return;
     var cards = cardEls();
     if (!cards.length) return;
+    clearTriage();
     autoIdx = (autoIdx + 1) % cards.length;
     var card = cards[autoIdx];
+    card.classList.add("triaging");
     selectCard(card.dataset.id, true);
     card.classList.remove("auto-entering");
     void card.offsetWidth;
     card.classList.add("auto-entering");
     card.scrollIntoView({behavior: "smooth", block: "nearest"});
+    var pane = field("insp-analysis");
+    if (pane) pane.style.opacity = "0";
     var delay = cardMs(card) * SCALE;
-    autoTimer = setTimeout(autoNext, delay);
+    revealTimer = setTimeout(function () {
+      card.classList.remove("triaging");
+      card.classList.add("triaged");
+      if (pane) { pane.style.transition = "opacity .25s"; pane.style.opacity = "1"; }
+      autoTimer = setTimeout(function () {
+        card.classList.remove("triaged");
+        autoNext();
+      }, Math.max(delay, 300));
+    }, delay);
   }
   function startAutoRotate() {
     if (autoRunning) return;
@@ -840,7 +875,11 @@ body.app .live-lede { font-size: 13px; }
   function stopAutoRotate() {
     autoRunning = false;
     clearTimeout(autoTimer);
+    clearTimeout(revealTimer);
     autoTimer = null;
+    clearTriage();
+    var pane = field("insp-analysis");
+    if (pane) { pane.style.transition = ""; pane.style.opacity = ""; }
     updatePlayBtn();
   }
   function toggleAutoRotate() { autoRunning ? stopAutoRotate() : startAutoRotate(); }
