@@ -1573,6 +1573,8 @@ body.app {
   cursor: pointer; transition: border-color .12s, box-shadow .12s; overflow: hidden; }
 .ev-card:hover { border-color: var(--accent-mid); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .ev-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ev-card.auto-entering { animation: cardPulse .5s ease-out; }
+@keyframes cardPulse { 0% { box-shadow: 0 0 0 3px var(--accent-wash); } 100% { box-shadow: 0 0 0 1px var(--accent); } }
 .ev-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
 .ev-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .ev-kind-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius);
@@ -2010,6 +2012,38 @@ APP_LIVE_JS = r"""
     if (tab) switchTab(tab.dataset.tab);
   });
 
+  // ---- Auto-rotate cards to show triage speed ----
+  var autoTimer = null, autoPaused = false, autoIdx = -1;
+  function cardIds() { return [].map.call(document.querySelectorAll(".ev-card[data-id]"), function (c) { return c.dataset.id; }); }
+  function autoNext() {
+    var ids = cardIds();
+    if (!ids.length) return;
+    autoIdx = (autoIdx + 1) % ids.length;
+    selectCard(ids[autoIdx]);
+    var card = document.querySelector('.ev-card[data-id="' + CSS.escape(ids[autoIdx]) + '"]');
+    if (card) {
+      card.classList.remove("auto-entering");
+      void card.offsetWidth;
+      card.classList.add("auto-entering");
+      card.scrollIntoView({behavior: "smooth", block: "nearest"});
+    }
+  }
+  function startAutoRotate() {
+    if (autoTimer) return;
+    autoTimer = setInterval(function () { if (!autoPaused) autoNext(); }, 3000);
+    setTimeout(autoNext, 800);
+  }
+  function pauseAutoRotate() {
+    autoPaused = true;
+    clearTimeout(autoResumeTimer);
+    autoResumeTimer = setTimeout(function () { autoPaused = false; }, 12000);
+  }
+  var autoResumeTimer = null;
+  document.addEventListener("click", function (e) {
+    if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]")) pauseAutoRotate();
+  });
+  startAutoRotate();
+
   // ---- Live server endpoints ----
   function headers(extra) {
     var h = {"Content-Type": "application/json"}, t = field("you-token");
@@ -2401,7 +2435,7 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
   <div class="col-right" id="col-right">
     <div class="insp-header">
       <h2>Inspector</h2>
-      <div class="insp-sub">Click an alert to inspect</div>
+      <div class="insp-sub">Auto-cycling &middot; click to pause</div>
     </div>
     <nav class="insp-tabs">
       <button class="insp-tab active" data-tab="analysis">Analysis</button>
