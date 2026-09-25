@@ -408,7 +408,7 @@ body.app {
   cursor: pointer; transition: border-color .12s, box-shadow .12s; overflow: hidden; }
 .ev-card:hover { border-color: var(--accent-mid); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .ev-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.ev-card.auto-entering { animation: cardPulse .5s ease-out; }
+.ev-card.auto-entering { animation: cardPulse .25s ease-out; }
 @keyframes cardPulse { 0% { box-shadow: 0 0 0 3px var(--accent-wash); } 100% { box-shadow: 0 0 0 1px var(--accent); } }
 .ev-top { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
 .ev-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -805,24 +805,26 @@ body.app .facts { margin-top: 0; }
 
   // ---- Auto-rotate cards to show triage speed ----
   var autoTimer = null, autoPaused = false, autoIdx = -1;
-  function cardIds() { return [].map.call(document.querySelectorAll(".ev-card[data-id]"), function (c) { return c.dataset.id; }); }
+  var SCALE = 8;
+  function cardEls() { return [].slice.call(document.querySelectorAll(".ev-card[data-id]")); }
+  function cardMs(card) { var m = card.querySelector(".ev-latency"); return m ? parseInt(m.textContent, 10) || 40 : 40; }
   function autoNext() {
-    var ids = cardIds();
-    if (!ids.length) return;
-    autoIdx = (autoIdx + 1) % ids.length;
-    selectCard(ids[autoIdx]);
-    var card = document.querySelector('.ev-card[data-id="' + CSS.escape(ids[autoIdx]) + '"]');
-    if (card) {
-      card.classList.remove("auto-entering");
-      void card.offsetWidth;
-      card.classList.add("auto-entering");
-      card.scrollIntoView({behavior: "smooth", block: "nearest"});
-    }
+    if (autoPaused) { autoTimer = setTimeout(autoNext, 200); return; }
+    var cards = cardEls();
+    if (!cards.length) return;
+    autoIdx = (autoIdx + 1) % cards.length;
+    var card = cards[autoIdx];
+    selectCard(card.dataset.id);
+    card.classList.remove("auto-entering");
+    void card.offsetWidth;
+    card.classList.add("auto-entering");
+    card.scrollIntoView({behavior: "smooth", block: "nearest"});
+    var delay = cardMs(card) * SCALE;
+    autoTimer = setTimeout(autoNext, delay);
   }
   function startAutoRotate() {
     if (autoTimer) return;
-    autoTimer = setInterval(function () { if (!autoPaused) autoNext(); }, 1500);
-    setTimeout(autoNext, 500);
+    autoTimer = setTimeout(autoNext, 300);
   }
   function pauseAutoRotate() {
     autoPaused = true;
