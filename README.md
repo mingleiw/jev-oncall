@@ -11,7 +11,7 @@ anyone. It only judges.
 [interactive dashboard demo](https://mingleiw.github.io/jev-oncall/demo/) and an
 [architecture page](https://mingleiw.github.io/jev-oncall/architecture.html).
 
-<video src="https://raw.githubusercontent.com/mingleiw/jev-oncall/main/docs/demo.mp4" width="100%" controls></video>
+[![jev-oncall demo video: the interactive demo replaying a real jev-1.13.0 run — alert #5 has P(page)=1.00 but is sent to human review](docs/demo-poster.png)](https://github.com/mingleiw/jev-oncall/blob/main/docs/demo.mp4)
 
 That video: the [interactive demo](https://mingleiw.github.io/jev-oncall/demo/) replaying a real jev-1.13.0 run over 8 staged alerts. The triage animation reveals each judgment at the run's real per-call latency; the #5 case is the interesting one — P(page)=1.00, but Jev matches it to the checkout incident at 0.87 and routes it to human review, because the service belongs to another team. Speed numbers from a larger run are in [one measured run](#one-measured-run).
 
