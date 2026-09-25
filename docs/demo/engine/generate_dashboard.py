@@ -1037,10 +1037,16 @@ COMPARISON_DROP = shadow.COMPARISON_LABELS["dropped"]
 
 
 def demo_banner(demo):
-    return f"""
+    return """
 <section class="demo-banner" aria-label="About this demo">
-  <p><b>Demo.</b> Scripted answers, real pipeline (routing, dedup, review queue, evaluation)
-    running in your browser. {esc(NOT_DELIVERED)}</p>
+  <p><b>Interactive demo</b> &middot; Sample alerts and scripted model answers.
+    Routing and review logic run in your browser. No notifications are sent.</p>
+  <details><summary>How this demo works</summary>
+  <p>The alerts are the Docker demo's staged incident. The model's answers are scripted
+    (no model is called), so this shows how jev-oncall routes and reviews, not how well
+    Jev judges. Everything else is the real pipeline: routing, the dedup graph,
+    the review clock, shadow mode and evaluation. Sending pages to PagerDuty,
+    Slack or Jira isn't built yet.</p></details>
 </section>"""
 
 
@@ -1113,6 +1119,8 @@ LIVE_CSS = """
 .demo-banner { margin-top: 20px; padding: 14px 18px; display: grid; gap: 8px;
   border-left: 3px solid var(--ink); border-radius: 0 var(--radius) var(--radius) 0; background: var(--face); }
 .demo-banner p { margin: 0; max-width: 90ch; font-size: 15px; }
+.demo-banner details { font-size: 13px; color: var(--graphite); }
+.demo-banner summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 .demo-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin-top: 14px; }
 .demo-btns > div { display: grid; gap: 6px; align-content: start; justify-items: start; }
 .hint { font-size: 13px; color: var(--graphite); }
