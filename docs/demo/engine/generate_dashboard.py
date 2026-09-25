@@ -1471,6 +1471,915 @@ def render(results, alerts, results_name="results.json", label=None, footer=None
 """
 
 
+# --------------------------------------------------------------------------
+# App shell: Datadog-style sidebar + multi-view layout for the demo page
+# --------------------------------------------------------------------------
+
+SIDEBAR_ICONS = {
+    "overview": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>',
+    "alerts": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1.5c-3 0-5.5 3-5.5 7h11c0-4-2.5-7-5.5-7z"/><path d="M4 11.5h8M6.5 13.5a1.5 1.5 0 003 0"/></svg>',
+    "reviews": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 4v4.5l3 1.5"/></svg>',
+    "compare": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M8 1v14M3 4h3M3 8h3M3 12h3M10 4h3M10 8h3M10 12h3"/></svg>',
+    "eval": '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 16 16"><path d="M2 14l3.5-5 3 3 5.5-8"/><path d="M10.5 4H14v3.5"/></svg>',
+}
+
+APP_CSS = """
+/* Dark by default; light only when OS prefers it */
+body.app {
+  --ground: #1B2129; --face: #232A33; --ink: #E5E9ED; --graphite: #9AA5B1; --rule: #37404B;
+  --accent: #FF5A72; --accent-mid: #984051; --accent-wash: rgba(255, 90, 114, .12); --accent-ink: #1B2129;
+  --review: #E8A33D; --review-wash: rgba(232, 163, 61, .16);
+  --sidebar-bg: #141920; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
+  color-scheme: dark;
+  display: flex; height: 100vh; overflow: hidden; margin: 0;
+}
+@media (prefers-color-scheme: light) {
+  body.app {
+    --ground: #F3F5F6; --face: #E7EBEE; --ink: #1C232B; --graphite: #5A6572; --rule: #CBD2D8;
+    --accent: #C21F3A; --accent-mid: #D87F8F; --accent-wash: rgba(194, 31, 58, .10); --accent-ink: #FFFFFF;
+    --review: #9A5B00; --review-wash: rgba(232, 163, 61, .20);
+    --sidebar-bg: #1C232B; --sidebar-text: #8994A1; --sidebar-active: #FFFFFF;
+    color-scheme: light;
+  }
+}
+
+/* Sidebar */
+.sidebar { width: 220px; flex-shrink: 0; background: var(--sidebar-bg);
+  display: flex; flex-direction: column; z-index: 10; overflow-y: auto; }
+.sidebar-header { padding: 18px 16px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.sidebar-header .mark { color: #E5E9ED; }
+.sidebar-header .site-nav { margin-top: 8px; }
+.sidebar-header .site-nav a { color: var(--sidebar-text); font-size: 13px; min-height: 32px; padding: 0 8px; }
+.sidebar-header .site-nav a:hover { color: #E5E9ED; background: rgba(255,255,255,.06); }
+.sidebar-nav { flex: 1; padding: 8px 0; list-style: none; margin: 0; }
+.sidebar-nav li { margin: 0; }
+.sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; margin: 1px 8px;
+  border-radius: var(--radius); color: var(--sidebar-text); text-decoration: none;
+  font-size: 14px; font-weight: 500; transition: background .12s, color .12s; min-height: 38px; }
+.sidebar-nav a:hover { background: rgba(255,255,255,.06); color: #E5E9ED; }
+.sidebar-nav a.active { background: rgba(255,255,255,.10); color: var(--sidebar-active); font-weight: 600; }
+.sidebar-nav .nav-icon { flex: none; width: 16px; height: 16px; opacity: .7; }
+.sidebar-nav a.active .nav-icon { opacity: 1; }
+.sidebar-nav .badge { margin-left: auto; background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.07); }
+.sidebar-clock { display: grid; gap: 2px; margin-bottom: 10px; }
+.sidebar-clock .clock-time { font-size: 20px; font-weight: 700; color: #E5E9ED;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.sidebar-clock .clock-label { font-size: 11px; color: var(--sidebar-text); text-transform: uppercase;
+  letter-spacing: .06em; font-weight: 600; }
+.sidebar-clock .clock-speed { font-size: 12px; color: var(--review); font-weight: 600; }
+.sidebar-actions { display: grid; gap: 4px; }
+.sidebar-btn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;
+  text-align: left; padding: 7px 10px; border: none; border-radius: var(--radius);
+  background: rgba(255,255,255,.07); color: var(--sidebar-text); min-height: 34px;
+  transition: background .12s, color .12s; }
+.sidebar-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); color: #E5E9ED; }
+.sidebar-btn:disabled { opacity: .4; cursor: default; }
+.sidebar-btn.ghost { background: transparent; }
+.sidebar-btn.ghost:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.sidebar-btn.danger { color: var(--accent); }
+.sidebar-btn.danger:hover:not(:disabled) { background: rgba(255,90,114,.12); }
+
+/* Main content area */
+.app-main { flex: 1; min-width: 0; overflow-y: auto; background: var(--ground); }
+.view { display: none; }
+.view.active { display: block; }
+.view-inner { max-width: 1100px; margin: 0 auto; padding: 24px 32px 56px; }
+
+/* Override .page styles inside app shell */
+body.app .page { max-width: none; margin: 0; padding: 0; }
+body.app .hero { padding-top: 0; }
+
+/* Mobile tab strip */
+.mobile-tabs { display: none; overflow-x: auto; white-space: nowrap; padding: 0 16px;
+  border-bottom: 1px solid var(--rule); background: var(--ground); position: sticky; top: 0; z-index: 5; }
+.mobile-tabs button { font: inherit; font-size: 13px; font-weight: 600; padding: 12px 14px;
+  border: none; border-bottom: 2px solid transparent; background: none; color: var(--graphite);
+  cursor: pointer; white-space: nowrap; }
+.mobile-tabs button.active { color: var(--ink); border-bottom-color: var(--ink); }
+
+/* Stat tiles */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 24px; }
+.stat-tile { padding: 16px; border-radius: 6px; background: var(--face); }
+.stat-tile .tile-val { font-size: 26px; font-weight: 700; font-stretch: 112%;
+  letter-spacing: -.02em; line-height: 1.1; }
+.stat-tile .tile-val.accent { color: var(--accent); }
+.stat-tile .tile-val.review-c { color: var(--review); }
+.stat-tile .tile-label { font-size: 13px; color: var(--graphite); margin-top: 4px; }
+
+/* Overview compact review list */
+.attn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.attn-item { display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--rule); font-size: 14px; }
+.attn-item:last-child { border-bottom: none; }
+.attn-title { flex: 1; min-width: 0; font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attn-time { color: var(--review); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+.attn-btn { font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: var(--radius); border: none; cursor: pointer;
+  background: var(--ink); color: var(--ground); min-height: 28px; }
+
+/* Filter pills */
+.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-pill { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 14px;
+  border-radius: 16px; border: 1px solid var(--rule); background: none; color: var(--graphite);
+  cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.filter-pill:hover { border-color: var(--ink); color: var(--ink); }
+.filter-pill.active { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+.filter-count { font-size: 13px; color: var(--graphite); margin-left: auto; }
+
+/* Flat alert table */
+.alert-tbl { width: 100%; border-collapse: collapse; }
+.alert-tbl th { padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--graphite);
+  border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap;
+  cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .04em; }
+.alert-tbl th:hover { color: var(--ink); }
+.alert-tbl th .sort-ind { font-size: 10px; margin-left: 3px; opacity: .5; }
+.alert-tbl th.sorted .sort-ind { opacity: 1; }
+.alert-tbl th.n { text-align: right; }
+.alert-tbl td { padding: 10px 10px; border-bottom: 1px solid var(--rule); font-size: 14px;
+  vertical-align: middle; }
+.alert-tbl tr.tbl-row { cursor: pointer; transition: background .1s; }
+.alert-tbl tr.tbl-row:hover { background: var(--face); }
+.alert-tbl tr.tbl-row.selected { background: var(--accent-wash); }
+.alert-tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.alert-tbl .tbl-title { font-weight: 560; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-tbl .tbl-meta { font-size: 12px; color: var(--graphite); margin-top: 1px; }
+.alert-tbl .tbl-tag { display: inline-block; padding: 1px 7px; border-radius: var(--radius);
+  font-size: 12px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+
+/* Detail panel */
+.detail-panel { width: 0; flex-shrink: 0; background: var(--ground); border-left: 1px solid var(--rule);
+  overflow-y: auto; overflow-x: hidden; transition: width .25s ease; position: relative; }
+.detail-panel.open { width: 480px; }
+.detail-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--rule); position: sticky; top: 0;
+  background: var(--ground); z-index: 1; }
+.detail-close { font: inherit; font-size: 20px; width: 32px; height: 32px; display: flex;
+  align-items: center; justify-content: center; border: none; background: var(--face);
+  color: var(--ink); border-radius: var(--radius); cursor: pointer; flex: none; }
+.detail-close:hover { background: var(--rule); }
+.detail-title-text { font-size: 16px; font-weight: 640; line-height: 1.3; overflow-wrap: anywhere; }
+.detail-meta { font-size: 13px; color: var(--graphite); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.detail-body { padding: 0 24px 32px; }
+.detail-section { padding: 16px 0; border-bottom: 1px solid var(--rule); }
+.detail-section:last-child { border-bottom: none; }
+.detail-section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--graphite);
+  text-transform: uppercase; letter-spacing: .04em; }
+.detail-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; }
+.detail-facts dt { font-size: 13px; color: var(--graphite); }
+.detail-facts dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.detail-review-banner { padding: 10px 14px; border-radius: var(--radius);
+  border-left: 3px solid var(--review); background: var(--review-wash); font-size: 14px; margin-bottom: 12px; }
+.detail-review-banner.escalated { border-left-color: var(--accent); background: var(--accent-wash); }
+
+/* Overview section styling */
+.ov-section { margin-bottom: 32px; }
+.ov-section h2 { margin: 0 0 12px; font-size: 16px; font-weight: 680; font-stretch: 112%;
+  letter-spacing: -.01em; color: var(--ink); }
+.ov-banner { margin-bottom: 20px; }
+
+/* Demo banner in overview */
+body.app .demo-banner { margin: 0; }
+
+/* Reviews view adjustments */
+body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
+body.app .live-box + .live-box { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--rule); }
+body.app .demo-controls { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); }
+body.app .live-you { margin-top: 0; margin-bottom: 16px; }
+
+/* Compare + Eval view adjustments */
+body.app .eval { margin-top: 0; }
+body.app .facts { margin-top: 32px; }
+body.app .alerts { margin-top: 0; }
+
+/* Hide elements not needed in app shell */
+body.app .foot { display: none; }
+
+@media (max-width: 900px) {
+  body.app { flex-direction: column; }
+  .sidebar { display: none; }
+  .mobile-tabs { display: flex; }
+  .view-inner { padding: 16px 16px 56px; }
+  .detail-panel { position: fixed; inset: 0; width: 100% !important; z-index: 100;
+    transform: translateX(100%); transition: transform .25s ease; }
+  .detail-panel.open { transform: none; width: 100% !important; }
+  .stat-tiles { grid-template-columns: repeat(2, 1fr); }
+  .alert-tbl .tbl-title { max-width: 200px; }
+}
+@media (max-width: 560px) {
+  .stat-tiles { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-tile { padding: 12px; }
+  .stat-tile .tile-val { font-size: 22px; }
+}
+"""
+
+THRESHOLD_SAYS = {"PAGE_NOW": "page now", "PAGE": "page", "REVIEW": "review",
+                  "TICKET": "ticket", "LOG": "log", "DROP": "drop"}
+
+
+def app_stat_tiles(results, decisions):
+    s = results["summary"]
+    counts = {}
+    for d in decisions.values():
+        counts[kind(d)] = counts.get(kind(d), 0) + 1
+    paged = counts.get("page", 0)
+    review_n = counts.get("review", 0)
+    tiles = [
+        (str(s["alerts"]), "Alerts", ""),
+        (str(paged), "Paged", "accent" if paged else ""),
+        (str(review_n), "In review", "review-c" if review_n else ""),
+        (str(counts.get("ticket", 0)), "Ticketed", ""),
+        (str(counts.get("quiet", 0) + counts.get("linked", 0)), "Quiet / linked", ""),
+    ]
+    if s.get("cost_usd"):
+        tiles.append((f"${s['cost_usd']:.4f}", "Total cost", ""))
+    items = "".join(f'<div class="stat-tile"><div class="tile-val {c}">{esc(v)}</div>'
+                    f'<div class="tile-label">{esc(k)}</div></div>' for v, k, c in tiles)
+    return f'<div class="stat-tiles">{items}</div>'
+
+
+def app_compact_reviews(live, alerts_by_id, demo=None):
+    items = (live or {}).get("pending") or []
+    if not items:
+        return ""
+    rows = []
+    for it in items:
+        title = display_title(alerts_by_id.get(it["id"], {"id": it["id"], "title": it.get("title") or it["id"]}))
+        rows.append(f'<li class="attn-item"><span class="m m-review" aria-hidden="true"></span>'
+                    f'<span class="attn-title">{esc(title)}</span>'
+                    f'<span class="attn-time">{_minutes(it["seconds_left"])}</span>'
+                    f'<button type="button" class="attn-btn ack" data-id="{esc(it["id"])}">Ack</button></li>')
+    return (f'<div class="ov-section"><h2>Needs attention</h2>'
+            f'<ul class="attn-list">{"".join(rows)}</ul></div>')
+
+
+def flat_alert_table(alerts, decisions, judgments, records, report, live=None):
+    known = [a["id"] for a in alerts]
+    rows = []
+    for a in alerts:
+        aid = a["id"]
+        d = decisions.get(aid)
+        if not d:
+            continue
+        j = judgments.get(aid)
+        lab = evaluate.labels(a)
+        k = kind(d)
+        p_page = f"{j.p_page:.2f}" if j else "-"
+        p_act = f"{j.p_actionable:.2f}" if j else "-"
+        p_page_n = f"{j.p_page:.4f}" if j else "0"
+        p_act_n = f"{j.p_actionable:.4f}" if j else "0"
+        label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
+        bits = [aid, a.get("service"), clock(a.get("started_at"))]
+        meta = " · ".join(esc(b) for b in bits if b)
+        st = review_state(aid, live) if d.action == "REVIEW" else None
+        state_html = ""
+        if st:
+            state_html = f' <span class="state state-{esc(st["state"])}">{esc(REVIEW_STATE[st["state"]])}</span>'
+        rows.append(
+            f'<tr class="tbl-row" data-id="{esc(aid)}" data-kind="{k}" '
+            f'data-pp="{p_page_n}" data-pa="{p_act_n}">'
+            f'<td><span class="m m-{k}" style="width:10px;height:10px"></span></td>'
+            f'<td><div class="tbl-title">{esc(display_title(a))}</div><div class="tbl-meta">{meta}</div></td>'
+            f'<td><span class="tbl-tag tag-{k}">{esc(label)}</span>{state_html}</td>'
+            f'<td>{esc(d.team)}</td>'
+            f'<td class="n">{p_page}</td>'
+            f'<td class="n">{p_act}</td></tr>')
+    return (f'<table class="alert-tbl"><thead><tr>'
+            f'<th style="width:30px"></th>'
+            f'<th data-sort="title">Alert <span class="sort-ind"></span></th>'
+            f'<th data-sort="decision">Decision <span class="sort-ind"></span></th>'
+            f'<th data-sort="owner">Owner <span class="sort-ind"></span></th>'
+            f'<th class="n" data-sort="pp">P(page) <span class="sort-ind"></span></th>'
+            f'<th class="n" data-sort="pa">Actionable <span class="sort-ind"></span></th>'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
+def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
+    known = [a["id"] for a in alerts]
+    details = []
+    for a in alerts:
+        aid = a["id"]
+        d = decisions.get(aid)
+        if not d:
+            continue
+        j = judgments.get(aid)
+        record = records.get(aid, {})
+        lab = evaluate.labels(a)
+        k = kind(d)
+        label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
+        bits = [aid, a.get("service"), clock(a.get("started_at"))]
+        if not triage.is_prod(a):
+            bits.append(a.get("env"))
+        meta_items = "".join(f"<span>{esc(b)}</span>" for b in bits if b)
+
+        st = review_state(aid, live) if d.action == "REVIEW" else None
+        banner = ""
+        if st:
+            story = review_story(st, live)
+            cls = " escalated" if st["state"] == "escalated" else ""
+            banner = f'<div class="detail-review-banner{cls}">{esc(story)}</div>'
+
+        facts = []
+        detail = override_detail(d, decisions)
+        if detail:
+            facts.append(("Policy override", detail))
+        if st:
+            facts.append(("Review", review_story(st, live)))
+        if j:
+            facts.append(("Severity", ", ".join(f"{lvl} {fmt(j.severity[lvl])}"
+                                                for lvl in reversed(triage.SEV_LEVELS))))
+            teams = sorted(j.team.items(), key=lambda kv: (-kv[1], kv[0]))[:2]
+            facts.append(("Owner", ", ".join(f"{t} {fmt(p)}" for t, p in teams if p > 0)))
+            if j.duplicate_of:
+                cause = triage.top(j.duplicate_of)
+                facts.append(("Cause", f"{cause} at {fmt(j.duplicate_of[cause])}"))
+                facts.append(("Candidates", ", ".join(record.get("candidates") or [])))
+        if record.get("error"):
+            facts.append(("Jev error", record["error"]))
+        call = record.get("call")
+        if call:
+            tokens = call.get("usage", {}).get("input_tokens")
+            facts.append(("Call", f"{tokens if tokens is not None else 'unknown'} input tokens, {call['ms']} ms"))
+        facts.append(("Configured", a.get("configured_severity") or "not set"))
+        if a.get("title") and display_title(a) != a["title"]:
+            facts.append(("Full title", a["title"]))
+        if lab:
+            labeled = [("actionable" if lab["actionable"] else "not actionable"), lab["severity"] or "no severity",
+                       lab["team"] or "no owner"]
+            if lab["duplicate_of"]:
+                labeled.append(f"caused by {lab['duplicate_of']}")
+            facts.append(("Labeled", ", ".join(labeled)))
+
+        reasons_html = ""
+        if d.reasons:
+            filtered = [r for r in d.reasons if not r.startswith("P(page)=")]
+            if filtered:
+                items = "".join(f"<li>{esc(r)}</li>" for r in filtered)
+                reasons_html = f'<div class="detail-section"><h4>Routing reasons</h4><ul class="reasons">{items}</ul></div>'
+
+        dl = "".join(f"<dt>{esc(k2)}</dt><dd>{esc(v)}</dd>" for k2, v in facts)
+        dist_html = ""
+        if j:
+            aria = ", ".join(f"{lvl} {fmt(j.severity[lvl])}" for lvl in reversed(triage.SEV_LEVELS))
+            segs = "".join(f'<span class="s{lvl[-1]}" style="flex-grow:{j.severity[lvl]:.4f}"></span>'
+                           for lvl in triage.SEV_LEVELS)
+            dist_html = (f'<div class="detail-section"><h4>Severity distribution</h4>'
+                         f'<div class="dist" style="height:12px;border-radius:4px" role="img" '
+                         f'aria-label="Severity: {esc(aria)}">{segs}</div></div>')
+
+        form = (label_form(aid, live["teams"], lab, known)
+                if live and live.get("shadow_on") else "")
+        form_html = f'<div class="detail-section">{form}</div>' if form else ""
+
+        details.append(
+            f'<div class="detail-item" id="ddata-{esc(re.sub(r"[^A-Za-z0-9_-]", "_", aid))}" '
+            f'data-id="{esc(aid)}">'
+            f'<div class="detail-top-content">'
+            f'<div><div class="detail-title-text">{esc(display_title(a))}</div>'
+            f'<div class="detail-meta">{meta_items}</div></div>'
+            f'<span class="tbl-tag tag-{k}">{esc(label)}</span></div>'
+            f'{banner}'
+            f'<div class="detail-section"><h4>Analysis</h4>'
+            f'<dl class="detail-facts">{dl}</dl></div>'
+            f'{dist_html}{reasons_html}{form_html}</div>')
+    return f'<div id="detail-data" style="display:none">{"".join(details)}</div>'
+
+
+REVIEW_STATE = {"pending": "waiting for an ack", "acked": "acked",
+                "cancelled": "alert cleared", "escalated": "paged, nobody acked"}
+
+
+APP_LIVE_JS = r"""
+(function () {
+  var DEMO = window.JEV_DEMO || null, KEY = "jev-oncall-demo-v2";
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+  store.del("jev-oncall-demo");
+  var announcer = document.getElementById("live-announce");
+  function field(id) { return document.getElementById(id); }
+  function who() { var n = field("you-name"); return (n && n.value.trim()) || ""; }
+  function remember() {
+    [["you-name", "jev-oncall-name"], ["you-token", "jev-oncall-token"]].forEach(function (p) {
+      var el = field(p[0]);
+      if (el && !el.value) el.value = store.get(p[1]);
+    });
+  }
+  document.addEventListener("change", function (e) {
+    if (e.target.id === "you-name") store.set("jev-oncall-name", e.target.value.trim());
+    if (e.target.id === "you-token") store.set("jev-oncall-token", e.target.value.trim());
+  });
+  function show(el, text, good) {
+    if (el) { el.textContent = text; el.className = el.className.replace(/ ?(ok|bad)\b/g, "") + (good ? " ok" : " bad"); }
+    if (announcer) { announcer.textContent = ""; announcer.textContent = text; }
+  }
+
+  // ---- Partial swap: replace view contents, keep shell ----
+  function swap(html, after) {
+    var doc = new DOMParser().parseFromString(html, "text/html");
+    var ids = ["overview-content", "alerts-content", "reviews-content", "compare-content", "eval-content", "detail-data"];
+    var drafts = {};
+    document.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
+      drafts[f.dataset.id] = [].map.call(f.elements, function (el) { return [el.name, el.value]; });
+    });
+    var focus = document.activeElement && document.activeElement.id;
+    ids.forEach(function (id) {
+      var fresh = doc.getElementById(id), cur = document.getElementById(id);
+      if (fresh && cur) {
+        var node = document.importNode(fresh, true);
+        cur.replaceWith(node);
+      }
+    });
+    // Restore form drafts
+    Object.keys(drafts).forEach(function (id) {
+      var f = document.querySelector('form.label-form[data-id="' + CSS.escape(id) + '"]');
+      if (!f) return;
+      drafts[id].forEach(function (p) { if (p[0] && f.elements[p[0]]) f.elements[p[0]].value = p[1]; });
+      f.dataset.dirty = "1";
+    });
+    // Update sidebar badges
+    var newBody = doc.querySelector("body");
+    if (newBody) {
+      var bc = newBody.dataset.reviewCount;
+      var badge = document.querySelector('[data-view="reviews"] .badge');
+      if (badge && bc !== undefined) badge.textContent = bc;
+      var ac = newBody.dataset.alertCount;
+      badge = document.querySelector('[data-view="alerts"] .badge');
+      if (badge && ac !== undefined) badge.textContent = ac;
+      var clk = newBody.dataset.demoClock;
+      var ce = field("sidebar-clock");
+      if (ce && clk) ce.textContent = clk;
+    }
+    document.title = doc.title;
+    remember();
+    var target = (after && field(after)) || (focus && field(focus));
+    if (target) target.focus({preventScroll: true});
+  }
+
+  // ---- View switching ----
+  var curView = store.get("jev-app-view") || "overview";
+  function switchView(name) {
+    document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("active", v.id === "view-" + name); });
+    document.querySelectorAll(".sidebar-nav a").forEach(function (a) { a.classList.toggle("active", a.dataset.view === name); });
+    document.querySelectorAll(".mobile-tabs button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === name); });
+    curView = name;
+    store.set("jev-app-view", name);
+    // Close detail panel when switching away from alerts
+    if (name !== "alerts") closeDetail();
+  }
+  // Init
+  switchView(curView);
+
+  document.addEventListener("click", function (e) {
+    var nav = e.target.closest("[data-view]");
+    if (nav && (nav.closest(".sidebar-nav") || nav.closest(".mobile-tabs"))) {
+      e.preventDefault();
+      switchView(nav.dataset.view);
+      return;
+    }
+  });
+
+  // ---- Detail panel ----
+  function openDetail(id) {
+    var panel = field("detail-panel"), body = field("detail-body");
+    var data = document.querySelector('#detail-data .detail-item[data-id="' + CSS.escape(id) + '"]');
+    if (!panel || !body || !data) return;
+    body.innerHTML = data.innerHTML;
+    panel.classList.add("open");
+    document.querySelectorAll(".tbl-row").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
+    remember();
+  }
+  function closeDetail() {
+    var panel = field("detail-panel");
+    if (panel) panel.classList.remove("open");
+    document.querySelectorAll(".tbl-row.selected").forEach(function (r) { r.classList.remove("selected"); });
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("#detail-close") || e.target.id === "detail-close") { closeDetail(); return; }
+    var row = e.target.closest(".tbl-row");
+    if (row) { openDetail(row.dataset.id); return; }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeDetail();
+  });
+
+  // ---- Table sorting ----
+  document.addEventListener("click", function (e) {
+    var th = e.target.closest(".alert-tbl th[data-sort]");
+    if (!th) return;
+    var key = th.dataset.sort, tbody = th.closest("table").querySelector("tbody");
+    if (!tbody) return;
+    var asc = th.classList.contains("sorted") && !th.classList.contains("desc");
+    th.closest("thead").querySelectorAll("th").forEach(function (h) { h.classList.remove("sorted", "desc"); });
+    th.classList.add("sorted");
+    if (asc) th.classList.add("desc");
+    var rows = [].slice.call(tbody.querySelectorAll("tr.tbl-row"));
+    rows.sort(function (a, b) {
+      var va, vb;
+      if (key === "pp") { va = parseFloat(a.dataset.pp); vb = parseFloat(b.dataset.pp); }
+      else if (key === "pa") { va = parseFloat(a.dataset.pa); vb = parseFloat(b.dataset.pa); }
+      else if (key === "title") { va = a.querySelector(".tbl-title").textContent; vb = b.querySelector(".tbl-title").textContent; }
+      else if (key === "decision") { va = a.querySelector(".tbl-tag").textContent; vb = b.querySelector(".tbl-tag").textContent; }
+      else if (key === "owner") { va = a.cells[3].textContent; vb = b.cells[3].textContent; }
+      else return 0;
+      if (typeof va === "number") { var r = va - vb; return asc ? -r : r; }
+      return asc ? vb.localeCompare(va) : va.localeCompare(vb);
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+  });
+
+  // ---- Filter pills ----
+  document.addEventListener("click", function (e) {
+    var pill = e.target.closest(".filter-pill");
+    if (!pill) return;
+    var filter = pill.dataset.filter;
+    pill.closest(".filter-bar").querySelectorAll(".filter-pill").forEach(function (p) {
+      p.classList.toggle("active", p === pill);
+    });
+    var tbody = document.querySelector(".alert-tbl tbody");
+    if (!tbody) return;
+    var count = 0;
+    tbody.querySelectorAll("tr.tbl-row").forEach(function (r) {
+      var show = filter === "all" || r.dataset.kind === filter;
+      r.style.display = show ? "" : "none";
+      if (show) count++;
+    });
+    var ce = document.querySelector(".filter-count");
+    if (ce) ce.textContent = count + " alert" + (count === 1 ? "" : "s");
+  });
+
+  // ---- Live server endpoints ----
+  function headers(extra) {
+    var h = {"Content-Type": "application/json"}, t = field("you-token");
+    if (t && t.value.trim()) h["Authorization"] = "Bearer " + t.value.trim();
+    Object.keys(extra || {}).forEach(function (k) { if (extra[k]) h[k] = extra[k]; });
+    return h;
+  }
+  function post(url, payload, extra) {
+    return fetch(url, {method: "POST", headers: headers(extra), body: JSON.stringify(payload)})
+      .then(function (r) { return r.json().catch(function () { return {}; })
+        .then(function (b) { return {status: r.status, body: b}; }); });
+  }
+  function refresh(after) {
+    return fetch(location.pathname, {cache: "no-store"}).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.text();
+    }).then(function (html) { swap(html, after); });
+  }
+  function explain(status, body) {
+    if (status === 401) return "This server needs the token. Enter it above.";
+    return (body && body.error) || ("Failed (" + status + ")");
+  }
+
+  // ---- Demo engine ----
+  var engine = null, session = null;
+  function actions() {
+    try { return JSON.parse(store.get(KEY) || "[]"); } catch (e) { return []; }
+  }
+  function demoStatus(text, good) { show(field("demo-status"), text, good); }
+  function setBusy(busy) {
+    document.querySelectorAll(".live-btn, .sidebar-btn, .attn-btn, .label-form select").forEach(function (b) {
+      if (b.id === "demo-reset") return;
+      if (busy) { b.dataset.wasDisabled = b.disabled ? "1" : ""; b.disabled = true; }
+      else if (b.dataset.wasDisabled !== undefined) { b.disabled = b.dataset.wasDisabled === "1"; delete b.dataset.wasDisabled; }
+    });
+  }
+  function loadEngine() {
+    if (engine) return engine;
+    var e = DEMO.engine;
+    engine = new Promise(function (ok, fail) {
+      if (window.loadPyodide) return ok();
+      var s = document.createElement("script");
+      s.src = e.pyodide + "pyodide.js";
+      s.onload = ok;
+      s.onerror = function () { fail(new Error("couldn't download Pyodide from " + e.pyodide)); };
+      document.head.appendChild(s);
+    }).then(function () { return window.loadPyodide({indexURL: e.pyodide}); })
+      .then(function (py) {
+        py.FS.mkdirTree("/demo/demo");
+        return Promise.all(e.files.map(function (f) {
+          return fetch(e.base + f).then(function (r) {
+            if (!r.ok) throw new Error("couldn't load " + f);
+            return r.text();
+          }).then(function (text) { py.FS.writeFile("/demo/" + f, text); });
+        })).then(function () {
+          py.runPython("import sys, types\n" +
+            "sys.modules.setdefault('ssl', types.ModuleType('ssl'))  # only real Jev calls need it\n" +
+            "sys.path.insert(0, '/demo')\nimport json, build_demo");
+          return py;
+        });
+      });
+    engine.catch(function () { engine = null; });
+    return engine;
+  }
+  function startSession(py, list) {
+    py.globals.set("replay_json", JSON.stringify(list));
+    py.runPython("session = build_demo.DemoSession(json.loads(replay_json))");
+    var kept = JSON.parse(py.runPython("json.dumps(session.actions)"));
+    store.set(KEY, JSON.stringify(kept));
+    return py;
+  }
+  function run(action, statusSel, after) {
+    setBusy(true);
+    if (!session) demoStatus("Starting the demo engine. The first action downloads about 12 MB, once.", true);
+    return loadEngine().then(function (py) {
+      if (!session) session = startSession(py, actions());
+      py.globals.set("action_json", JSON.stringify(action));
+      var result = JSON.parse(py.runPython("json.dumps(session.apply(json.loads(action_json)))"));
+      if (result.ok) {
+        store.set(KEY, py.runPython("json.dumps(session.actions)"));
+        swap(py.runPython("session.render()"), after);
+      }
+      setBusy(false);
+      var el = statusSel && document.querySelector(statusSel);
+      if (el) show(el, result.message, result.ok);
+      show(field("demo-status"), result.message, result.ok);
+    }).catch(function (err) {
+      setBusy(false);
+      demoStatus("The demo engine couldn't start (" + err.message + "). The page still shows the " +
+                 "starting state; reload to try again.", false);
+    });
+  }
+
+  // ---- Buttons and forms ----
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("button");
+    if (!btn || btn.disabled) return;
+    var status = btn.closest(".pend") && btn.closest(".pend").querySelector(".live-status");
+    if (btn.classList.contains("ack")) {
+      var id = btn.dataset.id;
+      if (DEMO) return run({type: "ack", id: id, by: who()}, null, "pending-h");
+      btn.disabled = true;
+      post("/ack/" + encodeURIComponent(id), {}, {"X-Acked-By": who()}).then(function (r) {
+        if (r.status === 200) {
+          show(status, "Acked by " + r.body.acked_by + ".", true);
+          return refresh("pending-h");
+        }
+        show(status, r.status === 409 || r.status === 404 ? explain(r.status, r.body) + ". Refreshing."
+                                                           : explain(r.status, r.body), false);
+        btn.disabled = false;
+        if (r.status === 409 || r.status === 404) return refresh();
+      }).catch(function () { show(status, "Couldn't reach the server.", false); btn.disabled = false; });
+    } else if (btn.classList.contains("resolve") && DEMO) {
+      run({type: "resolve", id: btn.dataset.id}, null, "pending-h");
+    } else if (btn.dataset.demo && DEMO) {
+      run({type: btn.dataset.demo}, null, btn.id);
+    } else if (btn.id === "demo-reset" && DEMO) {
+      store.del(KEY);
+      location.reload();
+    }
+  });
+  document.addEventListener("input", function (e) {
+    var form = e.target.closest && e.target.closest("form.label-form");
+    if (form) form.dataset.dirty = "1";
+  });
+  document.addEventListener("submit", function (e) {
+    var form = e.target.closest("form.label-form");
+    if (!form) return;
+    e.preventDefault();
+    var status = form.querySelector(".live-status"), f = form.elements;
+    if (!f.severity.value || !f.actionable.value) {
+      show(status, "Choose a severity and whether it needed a human.", false);
+      (f.severity.value ? f.actionable : f.severity).focus();
+      return;
+    }
+    var label = {severity: f.severity.value, actionable: f.actionable.value === "true",
+                 team: f.team.value || null, duplicate_of: f.duplicate_of.value || null};
+    var id = form.dataset.id, save = form.querySelector("button");
+    delete form.dataset.dirty;
+    if (DEMO) return run({type: "label", id: id, label: label, by: who()},
+                         'form.label-form[data-id="' + CSS.escape(id) + '"] .live-status', save && save.id);
+    save.disabled = true;
+    post("/label/" + encodeURIComponent(id), label, {"X-Labeled-By": who()}).then(function (r) {
+      save.disabled = false;
+      if (r.status === 201) { show(status, "Saved. Updating the evaluation.", true); return refresh(save.id); }
+      form.dataset.dirty = "1";
+      show(status, explain(r.status, r.body), false);
+    }).catch(function () { save.disabled = false; form.dataset.dirty = "1"; show(status, "Couldn't reach the server.", false); });
+  });
+
+  remember();
+  if (DEMO) {
+    if (actions().length) {
+      setBusy(true);
+      demoStatus("Restoring your demo: replaying what you did on the demo engine.", true);
+      loadEngine().then(function (py) {
+        session = startSession(py, actions());
+        swap(py.runPython("session.render()"));
+        setBusy(false);
+        demoStatus("Restored " + actions().length + " earlier action(s). Start over to reset.", true);
+      }).catch(function (err) {
+        setBusy(false);
+        demoStatus("Couldn't restore your demo (" + err.message + "). Showing the starting state.", false);
+      });
+    }
+    return;
+  }
+  setInterval(function () {
+    document.querySelectorAll("[data-left]").forEach(function (el) {
+      var left = Math.max(0, parseInt(el.dataset.left, 10) - 1);
+      el.dataset.left = left;
+      el.textContent = left ? Math.floor(left / 60) + "m " + ("0" + left % 60).slice(-2) + "s left" : "deadline passed";
+    });
+  }, 1000);
+  setInterval(function () {
+    var a = document.activeElement;
+    var busy = document.querySelector("form.label-form[data-dirty]") ||
+      (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
+    if (!busy) refresh().catch(function () {});
+  }, 15000);
+})();
+"""
+
+
+def render_app(results, alerts, results_name="results.json", label=None, footer=None,
+               refresh_s=None, live=None, demo=None, nav=None):
+    """App-shell layout: sidebar + multi-view layout for the demo page."""
+    meta = results["meta"]
+    policy = triage.Policy(**meta["policy"])
+    records = {r["id"]: r for r in results["alerts"]}
+    known = {a["id"] for a in alerts}
+    alerts = list(alerts) + [{"id": i, "env": "prod"} for i in records if i not in known]
+    alerts = [a for a in alerts if a["id"] in records]
+    report = evaluate.compute_report(results, alerts)
+    decisions = report["decisions"]
+    judgments = {i: triage.Judgment(**r["judgment"]) for i, r in records.items() if r.get("judgment")}
+    errors = {i: r["error"] for i, r in records.items() if r.get("error")}
+    alerts_by_id = {a["id"]: a for a in alerts}
+
+    # Sidebar nav items with badges
+    pending_count = len((live or {}).get("pending") or [])
+    alert_count = len(alerts)
+
+    # Sidebar nav
+    nav_items = [
+        ("overview", "Overview", ""),
+        ("alerts", "Alerts", f'<span class="badge">{alert_count}</span>'),
+        ("reviews", "Reviews", f'<span class="badge">{pending_count}</span>' if pending_count else ""),
+        ("compare", "Compare", ""),
+        ("eval", "Evaluation", ""),
+    ]
+    nav_html_items = "".join(
+        f'<li><a href="#" data-view="{slug}" class="{"active" if slug == "overview" else ""}">'
+        f'<span class="nav-icon">{SIDEBAR_ICONS[slug]}</span>{esc(text)}{badge}</a></li>'
+        for slug, text, badge in nav_items)
+
+    site_links = ""
+    if nav:
+        links = "".join(f'<a href="{esc(href)}">{esc(text)}</a>' for text, href in nav)
+        site_links = f'<nav class="site-nav" aria-label="jev-oncall site">{links}</nav>'
+
+    # Sidebar footer: demo clock + controls
+    sidebar_footer = ""
+    if demo:
+        minutes = demo.get("advance_min", 15)
+        timeout_off = " disabled" if demo.get("timeout_used") else ""
+        sidebar_footer = f"""
+<div class="sidebar-footer">
+  <div class="sidebar-clock">
+    <span class="clock-label">Demo clock</span>
+    <span class="clock-time" id="sidebar-clock">{esc(clock(demo["clock"]))}</span>
+    <span class="clock-speed">15&times; speed</span>
+  </div>
+  <div class="sidebar-actions">
+    <button type="button" class="sidebar-btn" id="demo-advance" data-demo="advance">Advance {minutes} min</button>
+    <button type="button" class="sidebar-btn" id="demo-timeout" data-demo="timeout"{timeout_off}>Jev timeout</button>
+    <button type="button" class="sidebar-btn ghost danger" id="demo-reset">Start over</button>
+  </div>
+  <p class="live-status" id="demo-status" role="status" style="margin-top:8px;font-size:12px"></p>
+</div>"""
+
+    # ---- Overview view content ----
+    lead, follow = thesis(decisions, live)
+    follow_html = f'<p class="follow">{esc(follow)}</p>' if follow else ""
+    note_html = ""
+    if demo:
+        note_html = f'<div class="ov-banner">{demo_banner(demo)}</div>'
+    notices_html = notices(results, decisions, errors, report)
+    compact_rev = app_compact_reviews(live, alerts_by_id, demo) if live else ""
+    overview = f"""<div class="view-inner" id="overview-content">
+  {note_html}
+  <section class="hero" aria-labelledby="thesis">
+    <h1 id="thesis">{esc(lead)}</h1>
+    {follow_html}
+  </section>
+  {app_stat_tiles(results, decisions)}
+  {notices_html}
+  <div class="ov-section"><h2>P(page) scale</h2>
+    {rail(alerts, decisions, judgments, errors, policy, scripted(results), live)}
+  </div>
+  {compact_rev}
+</div>"""
+
+    # ---- Alerts view content ----
+    filter_pills = (
+        '<div class="filter-bar">'
+        '<button class="filter-pill active" data-filter="all">All</button>'
+        '<button class="filter-pill" data-filter="page">Paged</button>'
+        '<button class="filter-pill" data-filter="review">Review</button>'
+        '<button class="filter-pill" data-filter="ticket">Ticketed</button>'
+        '<button class="filter-pill" data-filter="quiet">Quiet</button>'
+        '<button class="filter-pill" data-filter="linked">Linked</button>'
+        f'<span class="filter-count">{alert_count} alerts</span>'
+        '</div>')
+    alerts_html = f"""<div class="view-inner" id="alerts-content">
+  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Alerts</h2>
+  {filter_pills}
+  {flat_alert_table(alerts, decisions, judgments, records, report, live)}
+</div>"""
+
+    # ---- Reviews view content ----
+    live_ctrl = live_controls(live) if live else ""
+    pending = pending_section(live, alerts_by_id, demo) if live else ""
+    demo_ctrl = demo_controls(demo) if demo else ""
+    reviews_html = f"""<div class="view-inner" id="reviews-content">
+  {live_ctrl}
+  {pending}
+  {demo_ctrl}
+</div>"""
+
+    # ---- Compare view content ----
+    shadow_html = shadow_section(live.get("shadow"), alerts_by_id) if live and live.get("shadow") is not None else ""
+    compare_html = f"""<div class="view-inner" id="compare-content">
+  <h2 style="margin:0 0 16px;font-size:20px;font-weight:680;font-stretch:112%">Compare with current routing</h2>
+  {shadow_html}
+</div>"""
+
+    # ---- Evaluation view content ----
+    eval_section = evaluation(report, scripted(results))
+    facts_section = run_facts(results)
+    eval_html = f"""<div class="view-inner" id="eval-content">
+  {eval_section}
+  {facts_section}
+</div>"""
+
+    # ---- Detail panel data (hidden) ----
+    detail_data = alert_detail_data(alerts, decisions, judgments, records, report, live)
+
+    # ---- Demo engine config ----
+    demo_script = ""
+    if demo:
+        config = json.dumps(demo["engine"]).replace("</", "<\\/")
+        demo_script = f"<script>window.JEV_DEMO = {{engine: {config}}};</script>"
+
+    date = run_date(meta.get("generated_at"))
+
+    demo_clock_val = esc(clock(demo["clock"])) if demo else ""
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jev-oncall &mdash; {esc(date)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;display=swap">
+<style>{CSS}{LIVE_CSS}{APP_CSS}</style>
+</head>
+<body class="app" data-review-count="{pending_count}" data-alert-count="{alert_count}" data-demo-clock="{demo_clock_val}">
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <p class="mark">jev-oncall</p>
+    {site_links}
+  </div>
+  <ul class="sidebar-nav">{nav_html_items}</ul>
+  {sidebar_footer}
+</aside>
+<div class="app-main" id="app-main">
+  <nav class="mobile-tabs" id="mobile-tabs">
+    <button data-view="overview" class="active">Overview</button>
+    <button data-view="alerts">Alerts</button>
+    <button data-view="reviews">Reviews</button>
+    <button data-view="compare">Compare</button>
+    <button data-view="eval">Eval</button>
+  </nav>
+  <div class="view active" id="view-overview">{overview}</div>
+  <div class="view" id="view-alerts">{alerts_html}</div>
+  <div class="view" id="view-reviews">{reviews_html}</div>
+  <div class="view" id="view-compare">{compare_html}</div>
+  <div class="view" id="view-eval">{eval_html}</div>
+</div>
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-top">
+    <div id="detail-top-info"></div>
+    <button class="detail-close" id="detail-close" aria-label="Close detail panel">&times;</button>
+  </div>
+  <div class="detail-body" id="detail-body"></div>
+</div>
+{detail_data}
+{demo_script}
+<div id="live-announce" class="sr-only" role="status" aria-live="polite"></div>
+<script>{APP_LIVE_JS}</script>
+</body>
+</html>
+"""
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Render a triage run as one HTML page.")
     ap.add_argument("results", nargs="?", default=os.path.join(triage.BASE, "results.json"))
