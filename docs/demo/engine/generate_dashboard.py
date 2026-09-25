@@ -1782,6 +1782,8 @@ def alert_detail_data(alerts, decisions, judgments, records, report, live=None):
             banner = f'<div class="detail-review-banner{cls}">{esc(story)}</div>'
 
         facts = []
+        if d.notify:
+            facts.append(("Also notifies", ", ".join(d.notify)))
         detail = override_detail(d, decisions)
         if detail:
             facts.append(("Policy override", detail))
