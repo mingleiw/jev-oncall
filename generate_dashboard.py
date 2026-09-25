@@ -342,10 +342,14 @@ def run_date(value):
     return f"{t:%b} {t.day}, {t:%Y}, {t:%H:%M} UTC"
 
 
-def kind(decision):
+def kind(decision, live=None):
     """The visual state of a decision: fill carries state, the accent carries urgency."""
     if decision.action in triage.PAGING:
         return "page"
+    if decision.action == "REVIEW" and live:
+        st = review_state(decision.id, live)
+        if st and st["state"] == "escalated":
+            return "page"
     return {"DEDUP": "linked", "REVIEW": "review", "TICKET": "ticket"}.get(decision.action, "quiet")
 
 
@@ -363,35 +367,36 @@ def thesis(decisions, live=None):
     paged, review = counts.get("page", 0), counts.get("review", 0)
     linked, quiet = counts.get("linked", 0), counts.get("ticket", 0) + counts.get("quiet", 0)
 
-    def waiting(n):
-        return f"{n} {'is' if n == 1 else 'are'} waiting for a human"
-
-    if paged and review:
-        lead = f"{paged} flagged for paging; {review} flagged for review."
-    elif paged:
-        lead = f"{paged} flagged for paging. Nothing was flagged for review."
-    elif review:
-        lead = f"Nothing was flagged for paging, but {count_word(review, 'alert')} went to review."
-    else:
-        lead = "Nothing was flagged for paging, and nothing went to review."
-    rest = []
-    if linked:
-        rest.append(f"{linked} more {'was' if linked == 1 else 'were'} linked to an incident that already paged")
-    if quiet:
-        rest.append(f"{quiet} {'was' if quiet == 1 else 'were'} ticketed, logged or dropped")
-    follow = ", and ".join(rest) + "." if rest else ""
-    follow = follow[:1].upper() + follow[1:]
     states = {}
     for d in decisions.values():
         st = review_state(d.id, live) if d.action == "REVIEW" else None
         if st:
             states[st["state"]] = states.get(st["state"], 0) + 1
+    escalated = states.get("escalated", 0)
+    current_paged = paged + escalated
+    current_review = review - escalated
+
+    if current_paged and current_review > 0:
+        lead = f"{current_paged} paged; {current_review} in review."
+    elif current_paged:
+        lead = f"{current_paged} paged."
+    elif current_review > 0:
+        lead = f"Nothing paged, but {count_word(current_review, 'alert')} in review."
+    else:
+        lead = "Nothing paged, and nothing in review."
+    rest = []
+    if linked:
+        rest.append(f"{linked} linked to an incident")
+    if quiet:
+        rest.append(f"{quiet} ticketed, logged or dropped")
+    follow = ", and ".join(rest) + "." if rest else ""
+    follow = follow[:1].upper() + follow[1:]
     if states:
         parts = [f"{states[s]} {words}" for s, words in (
             ("pending", "still waiting"), ("acked", "acked"),
-            ("cancelled", "cleared before an ack"), ("escalated", "paged after nobody acked"))
+            ("cancelled", "cleared before ack"), ("escalated", "escalated to page"))
             if states.get(s)]
-        follow += (" " if follow else "") + f"Of the reviews, {', '.join(parts)}."
+        follow += (" " if follow else "") + f"Of {review} sent to review, {', '.join(parts)}."
     return lead, follow
 
 
@@ -1610,8 +1615,12 @@ body.app {
 /* Right column: inspector panel */
 .insp-header { padding: 14px 16px; border-bottom: 1px solid var(--rule); position: sticky;
   top: 0; background: var(--panel-bg); z-index: 2; }
-.insp-header h2 { margin: 0; font-size: 14px; font-weight: 680; }
+.insp-header h2 { margin: 0; font-size: 14px; font-weight: 680; display: flex; align-items: center; gap: 8px; }
 .insp-header .insp-sub { font-size: 12px; color: var(--graphite); margin-top: 2px; }
+.auto-play-btn { background: none; border: 1px solid var(--rule); border-radius: 50%; width: 24px; height: 24px;
+  font-size: 11px; cursor: pointer; color: var(--graphite); display: flex; align-items: center; justify-content: center;
+  padding: 0; line-height: 1; }
+.auto-play-btn:hover { background: var(--accent-wash); color: var(--accent); border-color: var(--accent); }
 .insp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--rule); position: sticky;
   top: 50px; background: var(--panel-bg); z-index: 2; }
 .insp-tab { font: inherit; font-size: 12px; font-weight: 600; padding: 8px 14px; border: none;
@@ -1689,6 +1698,11 @@ body.app .live-box { margin-top: 0; padding-top: 0; border-top: none; }
 body.app .eval { margin-top: 0; }
 body.app .facts { margin-top: 0; }
 
+body.app .pend { grid-template-columns: 1fr; gap: 6px; }
+body.app .pend-left { order: -1; }
+body.app .pend-btns { margin-top: 4px; }
+body.app .live-box h2 { font-size: 15px; }
+body.app .live-lede { font-size: 13px; }
 @media (max-width: 1100px) {
   .col-right { width: 300px; }
   .col-left { width: 240px; }
@@ -1732,9 +1746,15 @@ def donut_svg(counts, total):
 
 def event_card(idx, a, d, j, record, live=None):
     aid = a["id"]
-    k = kind(d)
+    k = kind(d, live)
     color = KIND_COLORS.get(k, "var(--graphite)")
-    label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
+    st = review_state(aid, live) if d.action == "REVIEW" else None
+    if st and st["state"] == "escalated":
+        label = "Paged (escalated)"
+    elif d.action == "DEDUP":
+        label = f"Linked to {d.linked_to}"
+    else:
+        label = ACTION_LABEL[d.action]
     call = record.get("call")
     latency = f"{call['ms']} ms" if call else ""
 
@@ -1801,9 +1821,15 @@ def inspector_data(alerts, decisions, judgments, records, report, live=None):
         j = judgments.get(aid)
         record = records.get(aid, {})
         lab = evaluate.labels(a)
-        k = kind(d)
+        k = kind(d, live)
         color = KIND_COLORS.get(k, "var(--graphite)")
-        label = f"Linked to {d.linked_to}" if d.action == "DEDUP" else ACTION_LABEL[d.action]
+        ist = review_state(aid, live) if d.action == "REVIEW" else None
+        if ist and ist["state"] == "escalated":
+            label = "Paged (escalated)"
+        elif d.action == "DEDUP":
+            label = f"Linked to {d.linked_to}"
+        else:
+            label = ACTION_LABEL[d.action]
         bits = [aid, a.get("service"), clock(a.get("started_at"))]
         if not triage.is_prod(a):
             bits.append(a.get("env"))
@@ -1983,14 +2009,14 @@ APP_LIVE_JS = r"""
 
   // ---- Card selection → inspector ----
   var selectedId = null;
-  function selectCard(id) {
+  function selectCard(id, autoRotating) {
     selectedId = id;
     document.querySelectorAll(".ev-card").forEach(function (c) { c.classList.toggle("selected", c.dataset.id === id); });
     document.querySelectorAll(".dec-log tr[data-id]").forEach(function (r) { r.classList.toggle("selected", r.dataset.id === id); });
     var data = document.querySelector('#detail-data .insp-item[data-id="' + CSS.escape(id) + '"]');
     var pane = field("insp-analysis");
     if (pane && data) { pane.innerHTML = data.innerHTML; }
-    switchTab("analysis");
+    if (!autoRotating) switchTab("analysis");
     remember();
   }
   document.addEventListener("click", function (e) {
@@ -2013,17 +2039,23 @@ APP_LIVE_JS = r"""
   });
 
   // ---- Auto-rotate cards to show triage speed ----
-  var autoTimer = null, autoPaused = false, autoIdx = -1;
+  var autoTimer = null, autoRunning = false, autoIdx = -1;
   var SCALE = 8;
   function cardEls() { return [].slice.call(document.querySelectorAll(".ev-card[data-id]")); }
   function cardMs(card) { var m = card.querySelector(".ev-latency"); return m ? parseInt(m.textContent, 10) || 40 : 40; }
+  function updatePlayBtn() {
+    var btn = field("auto-play");
+    if (btn) { btn.textContent = autoRunning ? "⏸" : "▶"; btn.title = autoRunning ? "Pause" : "Play"; }
+    var sub = document.querySelector(".insp-sub");
+    if (sub) sub.textContent = autoRunning ? "Auto-cycling" : "Paused";
+  }
   function autoNext() {
-    if (autoPaused) { autoTimer = setTimeout(autoNext, 200); return; }
+    if (!autoRunning) return;
     var cards = cardEls();
     if (!cards.length) return;
     autoIdx = (autoIdx + 1) % cards.length;
     var card = cards[autoIdx];
-    selectCard(card.dataset.id);
+    selectCard(card.dataset.id, true);
     card.classList.remove("auto-entering");
     void card.offsetWidth;
     card.classList.add("auto-entering");
@@ -2032,17 +2064,22 @@ APP_LIVE_JS = r"""
     autoTimer = setTimeout(autoNext, delay);
   }
   function startAutoRotate() {
-    if (autoTimer) return;
+    if (autoRunning) return;
+    autoRunning = true;
+    updatePlayBtn();
     autoTimer = setTimeout(autoNext, 300);
   }
-  function pauseAutoRotate() {
-    autoPaused = true;
-    clearTimeout(autoResumeTimer);
-    autoResumeTimer = setTimeout(function () { autoPaused = false; }, 12000);
+  function stopAutoRotate() {
+    autoRunning = false;
+    clearTimeout(autoTimer);
+    autoTimer = null;
+    updatePlayBtn();
   }
-  var autoResumeTimer = null;
+  function toggleAutoRotate() { autoRunning ? stopAutoRotate() : startAutoRotate(); }
   document.addEventListener("click", function (e) {
-    if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]")) pauseAutoRotate();
+    if (e.target.closest("#auto-play")) { toggleAutoRotate(); return; }
+    if (e.target.closest(".ev-card") || e.target.closest(".dec-log tr[data-id]") ||
+        e.target.closest(".insp-tab") || e.target.closest(".label-form")) stopAutoRotate();
   });
   startAutoRotate();
 
@@ -2252,7 +2289,7 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
     # Count decisions by kind
     counts = {}
     for d in decisions.values():
-        counts[kind(d)] = counts.get(kind(d), 0) + 1
+        counts[kind(d, live)] = counts.get(kind(d, live), 0) + 1
 
     # ---- Ticker ----
     ticker_items = []
@@ -2260,13 +2297,13 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
         d = decisions.get(a["id"])
         if not d:
             continue
-        k = kind(d)
+        k = kind(d, live)
         color = KIND_COLORS.get(k, "var(--graphite)")
         j = judgments.get(a["id"])
         pp = f"p={j.p_page:.2f}" if j else ""
         call = records.get(a["id"], {}).get("call")
         ms = f"{call['ms']} ms" if call else ""
-        label_text = ACTION_LABEL.get(d.action, d.action).lower()
+        label_text = KIND_LABEL.get(k, k).lower()
         ticker_items.append(
             f'<span class="ticker-item"><span class="ticker-dot" style="background:{color}"></span>'
             f'jev #{idx + 1} {label_text}: {esc(display_title(a)[:40])} {esc(pp)} {esc(ms)}</span>')
@@ -2366,12 +2403,12 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
         if not d:
             continue
         j = judgments.get(a["id"])
-        k = kind(d)
+        k = kind(d, live)
         color = KIND_COLORS.get(k, "var(--graphite)")
         call = records.get(a["id"], {}).get("call")
         ms = f"{call['ms']}" if call else "-"
         pp = f"{j.p_page:.2f}" if j else "-"
-        label_text = ACTION_LABEL.get(d.action, d.action).lower()
+        label_text = KIND_LABEL.get(k, k).lower()
         log_rows.append(
             f'<tr data-id="{esc(a["id"])}">'
             f'<td>#{idx + 1}</td>'
@@ -2436,8 +2473,8 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
   </div>
   <div class="col-right" id="col-right">
     <div class="insp-header">
-      <h2>Inspector</h2>
-      <div class="insp-sub">Auto-cycling &middot; click to pause</div>
+      <h2>Inspector <button type="button" id="auto-play" class="auto-play-btn" title="Pause">&#9208;</button></h2>
+      <div class="insp-sub">Auto-cycling</div>
     </div>
     <nav class="insp-tabs">
       <button class="insp-tab active" data-tab="analysis">Analysis</button>
