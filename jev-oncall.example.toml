@@ -49,7 +49,7 @@ homepage = ["edge"]
 
 # [shadow]
 # Uncomment to run next to your existing paging and record what jev-oncall
-# would have done (see "Shadow mode" in the README). Overridden by --shadow-log.
+# would have done (see "Shadow mode" in guide/server.md). Overridden by --shadow-log.
 # log = "shadow.jsonl"
 
 # [server]

@@ -30,7 +30,8 @@ python3 -m unittest test_triage test_server test_dashboard test_config test_shad
 To see your change working end to end, run the Docker demo
 (`cd demo && docker compose up --build`) and open <http://localhost:8090/dashboard>,
 or run `python3 server.py` and post alerts to it with `curl`. The
-[README](README.md#try-it-in-five-minutes) has both.
+[README](README.md#try-it-in-five-minutes) and
+[guide/demo.md](guide/demo.md#without-docker) cover both.
 
 ## Where things live
 
@@ -76,14 +77,15 @@ Most integrations are a new webhook source. Follow the existing ones in
    `verify_signature()`.
 3. Add tests in `test_server.py`: a firing payload, a resolved one, and a bad
    signature.
-4. Add a row to the README's provider and signing tables.
+4. Document it under Providers and Signing webhooks in [guide/server.md](guide/server.md).
 
 ## Pull requests
 
 - Keep each PR to one change, and say in the description how you tested it.
 - Run the full test suite before pushing. CI runs it on Python 3.11 to 3.13 and
   builds the Docker image.
-- Update the README when behavior or configuration changes.
+- Update the README or the matching page in [guide/](guide) when behavior or
+  configuration changes.
 - Sign off your commits with `git commit -s`. The DCO check asks for a
   `Signed-off-by:` line, which certifies you wrote the change or have the right
   to submit it under the project's MIT license
