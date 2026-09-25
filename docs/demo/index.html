@@ -293,6 +293,8 @@ tr.total td { border-top: 1px solid var(--rule); }
 .demo-banner { margin-top: 20px; padding: 14px 18px; display: grid; gap: 8px;
   border-left: 3px solid var(--ink); border-radius: 0 var(--radius) var(--radius) 0; background: var(--face); }
 .demo-banner p { margin: 0; max-width: 90ch; font-size: 15px; }
+.demo-banner details { font-size: 13px; color: var(--graphite); }
+.demo-banner summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 .demo-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin-top: 14px; }
 .demo-btns > div { display: grid; gap: 6px; align-content: start; justify-items: start; }
 .hint { font-size: 13px; color: var(--graphite); }
@@ -558,12 +560,14 @@ body.app .live-lede { font-size: 13px; }
 <div class="app-body">
   <div class="col-left"><div id="left-content"><div class="lp" style="border-color:var(--review)">
 <section class="demo-banner" aria-label="About this demo">
-  <p><b>Demo with sample data.</b> The alerts are the Docker demo's staged incident, and the model's
-    answers are scripted (no model is called), so this shows how jev-oncall works, not how well Jev
-    judges. Everything else is the real pipeline, running in your browser: routing, the dedup graph,
-    the review clock, shadow mode and the evaluation. jev-oncall records each decision, including a page. Sending pages to PagerDuty, Slack or Jira isn&#x27;t built yet.</p>
-  <p>What you do here is kept in this browser only, until you press <b>Start over</b>. Nothing is
-    sent anywhere and nobody is notified.</p>
+  <p><b>Interactive demo</b> &middot; Sample alerts and scripted model answers.
+    Routing and review logic run in your browser. No notifications are sent.</p>
+  <details><summary>How this demo works</summary>
+  <p>The alerts are the Docker demo's staged incident. The model's answers are scripted
+    (no model is called), so this shows how jev-oncall routes and reviews, not how well
+    Jev judges. Everything else is the real pipeline: routing, the dedup graph,
+    the review clock, shadow mode and evaluation. Sending pages to PagerDuty,
+    Slack or Jira isn't built yet.</p></details>
 </section></div><div class="lp"><div class="lp-title">Triage timing</div><div class="lp-row"><div><div class="lp-big">0.34 s</div><div class="lp-sub">9 decisions</div></div><div class="donut-wrap"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="var(--c-page)" stroke-width="4" stroke-dasharray="22.2 77.8" stroke-dashoffset="25.0"/><circle cx="18" cy="18" r="14" fill="none" stroke="var(--c-review)" stroke-width="4" stroke-dasharray="22.2 77.8" stroke-dashoffset="2.8"/><circle cx="18" cy="18" r="14" fill="none" stroke="var(--c-ticket)" stroke-width="4" stroke-dasharray="22.2 77.8" stroke-dashoffset="-19.4"/><circle cx="18" cy="18" r="14" fill="none" stroke="var(--c-quiet)" stroke-width="4" stroke-dasharray="22.2 77.8" stroke-dashoffset="-41.7"/><circle cx="18" cy="18" r="14" fill="none" stroke="var(--c-linked)" stroke-width="4" stroke-dasharray="11.1 88.9" stroke-dashoffset="-63.9"/></svg><div class="donut-center"><span class="donut-num">9</span><span class="donut-label">alerts</span></div></div></div><div class="breakdown"><div class="breakdown-item"><span class="breakdown-dot" style="background:var(--c-page)"></span><strong>2</strong> Page</div><div class="breakdown-item"><span class="breakdown-dot" style="background:var(--c-review)"></span><strong>2</strong> Review</div><div class="breakdown-item"><span class="breakdown-dot" style="background:var(--c-ticket)"></span><strong>2</strong> Ticket</div><div class="breakdown-item"><span class="breakdown-dot" style="background:var(--c-quiet)"></span><strong>2</strong> Quiet</div><div class="breakdown-item"><span class="breakdown-dot" style="background:var(--c-linked)"></span><strong>1</strong> Linked</div></div></div><div class="lp"><div class="lp-title">Latency per decision</div><div class="lat-row"><span class="lat-label">p50</span><span class="lat-bar"><span class="lat-fill" style="width:71%;background:var(--accent)"></span></span><span class="lat-val">44 ms</span></div><div class="lat-row"><span class="lat-label">p1</span><span class="lat-bar"><span class="lat-fill" style="width:35%;background:var(--accent)"></span></span><span class="lat-val">22 ms</span></div><div class="lat-row"><span class="lat-label">p95</span><span class="lat-bar"><span class="lat-fill" style="width:100%;background:var(--accent)"></span></span><span class="lat-val">62 ms</span></div></div><div class="lp"><div class="lp-title">Demo clock</div><div class="lp-clock" id="lp-clock-val">14:04 UTC</div><div class="lp-speed">15&times; speed</div><div class="lp-actions" style="margin-top:8px"><button type="button" class="lp-btn" id="demo-advance" data-demo="advance">Advance 15 min</button><button type="button" class="lp-btn" id="demo-timeout" data-demo="timeout">Jev timeout</button><button type="button" class="lp-btn danger" id="demo-reset">Start over</button></div><p class="live-status" id="demo-status" role="status" style="margin-top:6px;font-size:11px"></p></div>
 <section class="live-box" id="reviews" aria-labelledby="pending-h">
   <h2 id="pending-h" tabindex="-1">Reviews waiting for an ack <span class="count">2</span></h2>
