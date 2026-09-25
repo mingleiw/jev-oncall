@@ -1039,12 +1039,8 @@ COMPARISON_DROP = shadow.COMPARISON_LABELS["dropped"]
 def demo_banner(demo):
     return f"""
 <section class="demo-banner" aria-label="About this demo">
-  <p><b>Demo with sample data.</b> The alerts are the Docker demo's staged incident, and the model's
-    answers are scripted (no model is called), so this shows how jev-oncall works, not how well Jev
-    judges. Everything else is the real pipeline, running in your browser: routing, the dedup graph,
-    the review clock, shadow mode and the evaluation. {esc(NOT_DELIVERED)}</p>
-  <p>What you do here is kept in this browser only, until you press <b>Start over</b>. Nothing is
-    sent anywhere and nobody is notified.</p>
+  <p><b>Demo.</b> Scripted answers, real pipeline (routing, dedup, review queue, evaluation)
+    running in your browser. {esc(NOT_DELIVERED)}</p>
 </section>"""
 
 
@@ -1975,7 +1971,7 @@ APP_LIVE_JS = r"""
   // ---- Partial swap: replace columns, keep shell ----
   function swap(html, after) {
     var doc = new DOMParser().parseFromString(html, "text/html");
-    var ids = ["left-content", "feed-content", "detail-data", "log-content", "ticker-inner"];
+    var ids = ["feed-header", "left-content", "feed-content", "detail-data", "log-content", "ticker-inner"];
     var drafts = {};
     document.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
       drafts[f.dataset.id] = [].map.call(f.elements, function (el) { return [el.name, el.value]; });
@@ -2340,7 +2336,8 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
             f'<span class="lat-bar"><span class="lat-fill" style="width:{val / max_lat * 100:.0f}%;background:var(--accent)"></span></span>'
             f'<span class="lat-val">{val} ms</span></div>'
             for lbl, val in [("p50", p50), ("p1", p1), ("p95", p95)])
-        latency_panel = f'<div class="lp"><div class="lp-title">Latency per decision</div>{lat_bars}</div>'
+        lat_note = ' <span style="font-weight:400;color:var(--graphite)">(scripted)</span>' if scripted(results) else ''
+        latency_panel = f'<div class="lp"><div class="lp-title">Latency per decision{lat_note}</div>{lat_bars}</div>'
     else:
         latency_panel = ""
 
@@ -2465,7 +2462,7 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
 <div class="app-body">
   <div class="col-left">{left_col}</div>
   <div class="col-center">
-    <div class="feed-header">
+    <div class="feed-header" id="feed-header">
       <h1>{esc(lead)}</h1>
       <div class="feed-sub">{esc(follow) if follow else ""}</div>
     </div>
