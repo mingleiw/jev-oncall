@@ -2069,7 +2069,7 @@ APP_LIVE_JS = r"""
 
   // ---- Auto-rotate cards to show triage speed ----
   var autoTimer = null, autoRunning = false, autoIdx = -1;
-  var SCALE = 1;
+  var SCALE = 0.5;
   function cardEls() { return [].slice.call(document.querySelectorAll(".ev-card[data-id]")); }
   function cardMs(card) { var m = card.querySelector(".ev-latency"); return m ? parseInt(m.textContent, 10) || 40 : 40; }
   function updatePlayBtn() {
@@ -2111,14 +2111,14 @@ APP_LIVE_JS = r"""
       autoTimer = setTimeout(function () {
         card.classList.remove("triaged");
         autoNext();
-      }, 600);
+      }, 350);
     }, delay);
   }
   function startAutoRotate() {
     if (autoRunning) return;
     autoRunning = true;
     updatePlayBtn();
-    autoTimer = setTimeout(autoNext, 300);
+    autoTimer = setTimeout(autoNext, 150);
   }
   function stopAutoRotate() {
     autoRunning = false;
