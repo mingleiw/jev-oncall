@@ -11,13 +11,9 @@ anyone. It only judges.
 [interactive dashboard demo](https://mingleiw.github.io/jev-oncall/demo/) and an
 [architecture page](https://mingleiw.github.io/jev-oncall/architecture.html).
 
-![jev-oncall dashboard for a 300-alert synthetic benchmark: 63 flagged for paging, 86 flagged for review, each alert a dot on the P(page) scale against the 0.20 and 0.80 policy bars](dashboard.png)
+<video src="docs/demo.mp4" width="100%" controls></video>
 
-That run: 300 synthetic alerts at **p50 418ms, p95 1477ms, $0.0128 total.** The
-slowest call landed 151ms short of the 2-second timeout, and 37% of judged alerts
-fell in the review band. Both numbers, and why the tail matters more than the
-median, are in [one measured run](#one-measured-run). They measure speed on one
-network path, not whether the routing was correct.
+That video: the [interactive demo](https://mingleiw.github.io/jev-oncall/demo/) replaying a real jev-1.13.0 run over 8 staged alerts. The triage animation reveals each judgment at the run's real per-call latency; the #5 case is the interesting one — P(page)=1.00, but Jev matches it to the checkout incident at 0.87 and routes it to human review, because the service belongs to another team. Speed numbers from a larger run are in [one measured run](#one-measured-run).
 
 ## Try it in five minutes
 
