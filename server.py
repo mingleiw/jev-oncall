@@ -914,10 +914,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.rstrip("/") == "/dashboard":
             import generate_dashboard  # local import: only this endpoint needs it
             results, alerts = self.runner.results()
-            page = generate_dashboard.render(
-                results, alerts, "server.py", label="Live", live=self.runner.live_view(),
-                footer="Rendered live by server.py from the alerts it has received. It refreshes "
-                       "every 15 seconds, except while you're reading a Why panel or labeling.")
+            page = generate_dashboard.render_app(results, alerts, "server.py", live=self.runner.live_view())
             body = page.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

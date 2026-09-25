@@ -139,6 +139,25 @@ class Demo(unittest.TestCase):
         self.assertNotIn("No alert in this run has an expected label", html)
 
 
+class LiveApp(Serving):
+    def test_dashboard_uses_the_demo_layout_without_the_demo_parts(self):
+        port = self.serve(server.TriageRunner(api_key="k"))
+        _, html = self.request(port, "GET", "/dashboard")
+        self.assertIn('<body class="app"', html)
+        self.assertIn("No alerts yet.", html)
+
+        runner = server.TriageRunner(api_key="k")
+        self.judged(runner, {"r1": test_triage.judgment(sev=UNSURE)})
+        _, html = self.request(self.serve(runner), "GET", "/dashboard")
+        left = html.split('<div id="left-content">', 1)[1].split('<div class="col-center">', 1)[0]
+        self.assertIn('id="you-name"', left)  # next to the Ack buttons, not in a hidden tab
+        self.assertIn('class="live-btn ack" id="ack-r1" data-id="r1"', left)
+        self.assertIn('class="ev-card" data-id="r1"', html)
+        self.assertIn("Shadow mode is off", html)
+        for demo_only in ("window.JEV_DEMO = {engine:", "Interactive demo", 'id="demo-advance"', "Demo clock"):
+            self.assertNotIn(demo_only, html)
+
+
 class LivePage(Serving):
     def test_review_queue_shadow_comparison_and_labels(self):
         path = self.shadow_log()

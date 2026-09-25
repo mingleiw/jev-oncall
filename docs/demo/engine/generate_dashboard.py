@@ -1026,7 +1026,7 @@ def shadow_section(summary, alerts_by_id):
   <h2 id="shadow-h">Compared with your current routing</h2>
   <p class="live-lede">Since {esc(since)}: {summary["alerts"]} alerts. Your current routing paged {pages["your_routing"]};
     jev-oncall paged {pages["jev_oncall"]} on arrival{esc(escalated)}. {count_word(labeled, "alert")} labeled so far.
-    Open <b>Why</b> on any alert to label it.</p>
+    Select any alert to label it in the inspector.</p>
   <p class="live-lede">{esc(BASELINE_NOTE)} The evaluation below compares the same two.</p>
   <ul class="cmp-list">{counts}</ul>
   {table}
@@ -2004,7 +2004,8 @@ APP_LIVE_JS = r"""
   // ---- Partial swap: replace columns, keep shell ----
   function swap(html, after) {
     var doc = new DOMParser().parseFromString(html, "text/html");
-    var ids = ["feed-header", "left-content", "feed-content", "detail-data", "log-content", "ticker-inner"];
+    var ids = ["feed-header", "left-content", "feed-content", "detail-data", "log-content", "ticker-inner",
+               "insp-eval", "insp-compare"];
     var drafts = {};
     document.querySelectorAll("form.label-form[data-dirty]").forEach(function (f) {
       drafts[f.dataset.id] = [].map.call(f.elements, function (el) { return [el.name, el.value]; });
@@ -2014,6 +2015,7 @@ APP_LIVE_JS = r"""
       var fresh = doc.getElementById(id), cur = document.getElementById(id);
       if (fresh && cur) {
         var node = document.importNode(fresh, true);
+        node.classList.toggle("active", cur.classList.contains("active"));
         cur.replaceWith(node);
       }
     });
@@ -2031,7 +2033,7 @@ APP_LIVE_JS = r"""
     }
     document.title = doc.title;
     remember();
-    if (selectedId) selectCard(selectedId);
+    if (selectedId) selectCard(selectedId, true);  // keep whichever tab is open
     var target = (after && field(after)) || (focus && field(focus));
     if (target) target.focus({preventScroll: true});
   }
@@ -2083,8 +2085,8 @@ APP_LIVE_JS = r"""
     clearTimeout(revealTimer);
     cardEls().forEach(function (c) { c.classList.remove("triaging", "triaged", "untriaged"); });
   }
-  // On load, hide all card judgments until rotation reaches them
-  cardEls().forEach(function (c) { c.classList.add("untriaged"); });
+  // The demo reveals each judgment as the rotation reaches it; a live server shows them all.
+  if (DEMO) cardEls().forEach(function (c) { c.classList.add("untriaged"); });
   function autoNext() {
     if (!autoRunning) return;
     var cards = cardEls();
@@ -2149,7 +2151,15 @@ APP_LIVE_JS = r"""
     if (a && openAlert(decodeURIComponent(a.getAttribute("href").slice(7)))) e.preventDefault();
   });
   var hashId = location.hash.indexOf("#alert-") === 0 ? decodeURIComponent(location.hash.slice(7)) : "";
-  if (!(hashId && openAlert(hashId))) startAutoRotate();
+  if (hashId && openAlert(hashId)) {
+    // opened on one alert
+  } else if (DEMO) {
+    startAutoRotate();
+  } else {
+    updatePlayBtn();
+    var first = cardEls()[0];
+    if (first) selectCard(first.dataset.id, true);
+  }
 
   // ---- Live server endpoints ----
   function headers(extra) {
@@ -2444,8 +2454,9 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
     if live:
         pending_panel = pending_section(live, alerts_by_id, demo)
 
+    live_ctrl = f'<div class="lp">{live_controls(live)}</div>' if live else ""
     left_col = (f'<div id="left-content">{banner_html}{timing_panel}{latency_panel}{cost_html}'
-                f'{demo_panel}{pending_panel}</div>')
+                f'{demo_panel}{live_ctrl}{pending_panel}</div>')
 
     # ---- Center column: event feed ----
     lead, follow = thesis(decisions, live)
@@ -2459,6 +2470,9 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
         cards.append(event_card(idx, a, d, j, record, live))
 
     notices_html = notices(results, decisions, errors, report)
+    if not cards:
+        cards.append('<p class="live-empty" style="padding:24px 0">No alerts yet. Point your monitoring at '
+                     '<code>/ingest/&lt;provider&gt;</code>; each alert shows up here as it is triaged.</p>')
 
     feed = (f'<div id="feed-content">'
             f'{notices_html}'
@@ -2497,7 +2511,10 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
     eval_section = evaluation(report, scripted(results))
     facts_section = run_facts(results)
     shadow_html = shadow_section(live.get("shadow"), alerts_by_id) if live and live.get("shadow") is not None else ""
-    live_ctrl = live_controls(live) if live else ""
+    if live and not shadow_html:
+        shadow_html = ('<p class="live-empty">Shadow mode is off. Start the server with '
+                       '<code>--shadow-log shadow.jsonl</code> (or set <code>[shadow] log</code>) to compare '
+                       'each decision with routing by configured severity.</p>')
 
     # ---- Demo engine config ----
     demo_script = ""
@@ -2556,7 +2573,7 @@ def render_app(results, alerts, results_name="results.json", label=None, footer=
         <div style="color:var(--graphite);font-size:13px;padding:20px 0;text-align:center">
           Select an alert from the feed to see its analysis.</div>
       </div>
-      <div class="insp-pane" id="insp-eval">{eval_section}{facts_section}{live_ctrl}</div>
+      <div class="insp-pane" id="insp-eval">{eval_section}{facts_section}</div>
       <div class="insp-pane" id="insp-compare">{shadow_html}</div>
       <div class="insp-pane" id="insp-log">{log_html}</div>
     </div>
