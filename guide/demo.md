@@ -42,8 +42,8 @@ only gets a ticket.
 - Are `CheckoutApiErrorRate` and `PaymentServiceErrors` linked under
   `OrdersDbPoolExhausted`, so the incident pages once?
 - Is `ReportJobSlow` held back from paging, and `HomepageLatencyHigh` raised?
-- Which alerts land in REVIEW? Open **Why** on any alert for its probabilities and the
-  reasons behind the decision.
+- Which alerts land in REVIEW? Select any alert to see its probabilities and the
+  reasons behind the decision in the inspector.
 
 To replay the incident, for example after adding a key, restart the stack:
 

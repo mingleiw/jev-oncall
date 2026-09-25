@@ -188,20 +188,20 @@ is ignored. Like `/ack`, `/label` is open by default; see
 
 The live dashboard (`/dashboard`) is where people act, so nobody needs `curl`:
 
-- **Reviews waiting for an ack** lists every open REVIEW with its clock counting
-  down and an **Ack** button, then the reviews that closed and how: acked by whom,
-  cleared, or paged. Each alert keeps the decision it got on arrival (**Sent to
-  review**) and shows where its review stands now beneath it.
-- **Compared with your current routing** (shadow mode) shows the counts above, the
-  pages each side would have sent, and the latest differences, drops first.
-- **What was this really?** (shadow mode) sits in each alert's **Why** panel: pick a
-  severity, whether it needed a human, the owner, and the alert that caused it, if
-  any, from the alerts received. Saving again replaces the label. Saved labels show
-  on the alert and the page re-scores **Against the labels** right away.
+- **Reviews waiting for an ack** (left column) lists every open REVIEW with its clock
+  counting down and an **Ack** button, then the reviews that closed and how: acked by
+  whom, cleared, or paged. Each alert's card keeps the decision it got on arrival
+  (**Sent to review**) and shows where its review stands now.
+- **Compare** (inspector tab, shadow mode) shows the counts above, the pages each side
+  would have sent, and the latest differences, drops first.
+- **What was this really?** (shadow mode) sits under the selected alert in the
+  inspector: pick a severity, whether it needed a human, the owner, and the alert
+  that caused it, if any, from the alerts received. Saving again replaces the label.
+  Saved labels show on the alert and the **Evaluation** tab re-scores right away.
 
 After an Ack or a label, and every 15 seconds, the page re-renders from the server in
-place, keeping your scroll position, open **Why** panels and focus. It skips a refresh
-while you're typing or have a label half filled in.
+place, keeping the selected alert, the open tab and focus. It skips a refresh while
+you're typing or have a label half filled in.
 
 To see it without running anything, open the
 [interactive demo](https://mingleiw.github.io/jev-oncall/demo/): the Docker demo's
@@ -313,13 +313,18 @@ curl -X POST http://localhost:8090/ingest/datadog \
 
 ## What the dashboard shows
 
-The dashboard is one self-contained HTML file. It opens with a sentence saying what
-paged someone and what is waiting for a human. Below that, every judged alert sits as
-a dot on a P(page) scale, drawn against the policy's 0.20 and 0.80 bars. Alerts are
-then grouped by outcome, with linked alerts nested under the incident they joined and
-a "Why" panel holding each decision's reasons and raw probabilities. It ends with run
-facts and, when alerts are labeled, the same outcomes, agreement, and calibration
-numbers `evaluate.py` prints. It follows the system's light or dark setting.
+`/dashboard` uses the same layout as the [interactive demo](https://mingleiw.github.io/jev-oncall/demo/),
+without the demo's clock and banner. A ticker runs across the top. The left column
+holds triage timing, latency per decision, your name (and token, if required) and the
+reviews waiting for an ack. The center is the feed: a headline saying what paged and
+what is waiting for a human, then one card per alert with its decision, probability
+bar and reasons. The right column is the inspector: select a card for its analysis
+and label form, or open **Evaluation** (the outcomes, agreement and calibration
+numbers `evaluate.py` prints), **Compare** (shadow mode) or **Log**.
+
+`python3 generate_dashboard.py` still writes the single-page report of a batch run to
+`dashboard.html`: a P(page) scale with each judged alert as a dot, then alerts grouped
+by outcome, each with a **Why** panel. Both follow the system's light or dark setting.
 
 Without a key, every alert takes the fail-open path, which shows the static baseline.
 Standard library only.

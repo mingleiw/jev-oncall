@@ -230,7 +230,8 @@ class AckOverHTTP(test_live.Serving):
         self.assertEqual((status, body["state"], body["by"]), (409, "acked", "alice"))
         _, html = self.request(port, "GET", "/dashboard")
         self.assertIn("Reviews waiting for an ack <span class=\"count\">0</span>", html)
-        self.assertIn("Now: acked by alice, won&#x27;t page", html)
+        self.assertRegex(html, r"Acked by alice at \d\d:\d\d UTC: someone is on it, so it won&#x27;t escalate")
+        self.assertNotIn("Waiting for an ack since", html)  # the alert's card moved on too
         self.assertIn("Reviews are held in memory on this server", html)  # no store configured
         _, pending = self.request(port, "GET", "/pending")
         self.assertEqual((pending["count"], pending["closed"][0]["state"]), (0, "acked"))
