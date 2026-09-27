@@ -109,7 +109,7 @@ thresholds, and a measured latency run.
 ## Development
 
 ```
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca
 ```
 
 Tests use a fake Jev with canned probabilities: no API key, no network.
@@ -127,5 +127,6 @@ are a good place to start.
 | [generate_dashboard.py](generate_dashboard.py) | Renders decisions as the HTML dashboard |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default |
 | [build_demo.py](build_demo.py) | Builds the interactive demo in `docs/demo/` |
+| [rca_experiment.py](rca_experiment.py) | RCA experiment: does Jev help an agent change direction? |
 | [demo/](demo) | The Docker Compose demo |
 | [docs/](docs) | The website, served by GitHub Pages |

@@ -1,0 +1,14 @@
+{
+  "hypothesis": "etl-cron",
+  "component": "analytics-etl",
+  "mechanism": "The analytics-etl cron job was rescheduled from 03:00 UTC (off-peak) to 14:00 UTC (peak hours). It runs long analytical queries against the primary database, each holding a connection for minutes. At peak traffic, these 73 long-held connections plus normal application traffic exceeded the 200-connection limit, exhausting the pool.",
+  "evidence_needed": [
+    "pool-metrics",
+    "active-queries",
+    "cron-history"
+  ],
+  "decoy_id": "deploy",
+  "version_check": "error-by-version",
+  "traps": ["slow-query-log", "dependency-map"],
+  "noise": ["cdn-cache", "canary-memory", "cert-expiry"]
+}
