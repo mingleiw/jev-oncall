@@ -1,0 +1,85 @@
+{
+  "id": "pool_exhaustion_v1",
+  "frozen_at": "2026-09-20T14:10:00Z",
+  "summary": "Checkout errors from database connection pool exhaustion, with a fresh deploy that looks guilty.",
+  "alert": {
+    "title": "CheckoutApiDbPoolExhausted",
+    "service": "checkout-api",
+    "started_at": "2026-09-20T14:07:00Z",
+    "description": "checkout-api: HikariCP pool 'orders-db' at 50/50 active connections on all instances; checkout 5xx rate 18% (threshold 2%)."
+  },
+  "initial_checks": ["deploys"],
+  "hypotheses": {
+    "deploy": "The checkout-api v2.14.0 deploy introduced a regression that exhausts the pool.",
+    "slow_queries": "Queries to orders-db became slow, so connections are held longer and the pool fills up.",
+    "leak": "Connections are leaked: checked out and never returned to the pool.",
+    "traffic": "A traffic increase exceeds what the pool can serve.",
+    "config": "A configuration change lowered the pool's capacity."
+  },
+  "checks": {
+    "deploys": {
+      "describe": "Recent deploys across services, with change summaries.",
+      "result": "14:02 UTC checkout-api v2.14.0 rolled to 6 of 12 instances (canary; the other 6 still run v2.13.4). Change summary: 'Add loyalty-points lookup to checkout; adds one SELECT against orders-db per checkout.' Also: search-api config change at 13:30, internal-admin deploy at 11:00."
+    },
+    "errors_by_version": {
+      "describe": "checkout-api 5xx rate split by application version.",
+      "result": "14:00-14:10 UTC. v2.13.4 (6 instances): 5xx 17.8%, first errors 14:06. v2.14.0 (6 instances): 5xx 18.3%, first errors 14:06. Before 14:05 both versions were under 0.3%."
+    },
+    "pool_usage": {
+      "describe": "Per-instance connection pool usage for the orders-db pool.",
+      "result": "All 12 checkout-api instances (both versions) at 50/50 active connections since 14:06 UTC. Threads waiting for a connection: 0 before 14:05, 180-240 per instance after 14:06."
+    },
+    "pool_config": {
+      "describe": "Effective connection pool settings per version and when they last changed.",
+      "result": "maximumPoolSize=50, connectionTimeout=3000ms on both v2.13.4 and v2.14.0. Last change: 2026-08-02."
+    },
+    "request_rate": {
+      "describe": "checkout-api request rate over the last hour.",
+      "result": "Requests per second: 13:50 1,180; 14:00 1,195; 14:05 1,210; 14:10 1,190. Same-hour average over the last 4 weeks: 1,240."
+    },
+    "connection_lifecycle": {
+      "describe": "Connection checkout vs return counts and hold times for the orders-db pool.",
+      "result": "Connections returned per second track connections checked out per second throughout (ratio 0.99-1.00). Median connection hold time rose from 45ms (14:00) to 2.3s (14:08). No connection held longer than 30s. Leak detection (threshold 60s) fired 0 times."
+    },
+    "query_latency": {
+      "describe": "orders-db query latency seen by checkout-api, with the slowest statements.",
+      "result": "p50/p99: 14:00 8ms/40ms; 14:03 120ms/650ms; 14:04 900ms/2.1s; 14:08 1.4s/3.0s. Slowest statements: 'UPDATE orders SET status = ... WHERE id = ...' and 'SELECT ... FROM orders WHERE id = ... FOR UPDATE'. The new loyalty-points SELECT (v2.14.0 only): p99 12ms."
+    },
+    "db_lock_waits": {
+      "describe": "orders-db lock wait time and the sessions holding blocking locks.",
+      "result": "Average lock wait: under 5ms until 14:02 UTC, 1.8s by 14:05. Top blocking session: pid 48213, user batch_svc, running since 14:01: 'UPDATE orders SET archived = true WHERE created_at < now() - interval ''2 years'''. It holds row locks on the orders table."
+    },
+    "batch_jobs": {
+      "describe": "Scheduled and manually triggered jobs that touch orders-db.",
+      "result": "orders-archive: started 14:01 UTC, still running. Normally scheduled at 02:00 UTC; manually triggered today by the data-platform team. No other jobs on orders-db in the last 24h."
+    },
+    "db_resources": {
+      "describe": "orders-db CPU, memory and disk I/O.",
+      "result": "CPU 35% (14:00) to 38% (14:08). Memory and disk I/O within normal range. Replication lag under 1s."
+    },
+    "checkout_logs": {
+      "describe": "checkout-api application logs, 14:00-14:10 UTC.",
+      "result": "4,812 lines matching 'Connection is not available, request timed out after 3000ms' from both v2.13.4 and v2.14.0 instances, first at 14:06:04. No new exception types in v2.14.0."
+    },
+    "orders_service_logs": {
+      "describe": "Logs for service 'orders-service', 14:00-14:10 UTC.",
+      "result": "0 matching log lines."
+    },
+    "orders_db_logs": {
+      "describe": "orders-db server logs, 14:00-14:10 UTC.",
+      "result": "QUERY FAILED: log search timed out after 30s. 0 lines returned. This is a failed query, not an empty result."
+    },
+    "payment_latency": {
+      "describe": "payment-service latency and errors.",
+      "result": "payment-service p99 latency rose from 210ms to 3.4s at 14:07 UTC. payment-service calls checkout-api for order status. No payment-service deploys this week."
+    },
+    "search_cache": {
+      "describe": "search-api cache hit ratio.",
+      "result": "Cache hit ratio dropped from 94% to 61% at 14:00 UTC after the scheduled hourly cache flush and recovered to 93% by 14:06."
+    },
+    "cert_warnings": {
+      "describe": "Open certificate and security warnings.",
+      "result": "TLS certificate for internal-admin.corp expires in 12 days. No other warnings."
+    }
+  }
+}

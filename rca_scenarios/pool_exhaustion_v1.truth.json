@@ -1,0 +1,22 @@
+{
+  "_note": "Scoring only. Never put this file in the agent's input.",
+  "scenario": "pool_exhaustion_v1",
+  "hypothesis": "slow_queries",
+  "component": "orders-db",
+  "mechanism": "The orders-archive batch job, manually triggered at 14:01, holds row locks on the orders table. Checkout queries wait on those locks, connections are held about 50x longer, and the pool fills on every instance regardless of version.",
+  "mechanism_checks": ["db_lock_waits", "batch_jobs"],
+  "mechanism_keywords": ["lock", "archive", "batch"],
+  "contradicts": {
+    "deploy": ["errors_by_version", "query_latency", "checkout_logs"],
+    "leak": ["connection_lifecycle"],
+    "traffic": ["request_rate"],
+    "config": ["pool_config"]
+  },
+  "version_check": "errors_by_version",
+  "decoy": "deploy",
+  "traps": {
+    "orders_service_logs": "Empty because the service name is wrong, not because nothing happened.",
+    "orders_db_logs": "A failed query, not evidence of absence."
+  },
+  "noise": ["payment_latency", "search_cache", "cert_warnings"]
+}

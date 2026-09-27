@@ -105,11 +105,13 @@ read from `/recent`, `/pending` and the dashboard.
 clock, shadow mode, webhook signing and each provider's mapping.
 [guide/evaluation.md](guide/evaluation.md) covers replaying labeled history, choosing
 thresholds, and a measured latency run.
+[guide/rca-experiment.md](guide/rca-experiment.md) is an experiment beyond triage: can
+Jev help an agent change its mind during root cause analysis?
 
 ## Development
 
 ```
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca
 ```
 
 Tests use a fake Jev with canned probabilities: no API key, no network.
