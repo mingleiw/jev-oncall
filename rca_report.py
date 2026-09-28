@@ -112,9 +112,18 @@ def split_model(spec):
     return (ORGS.get(provider, provider or "?"), name or spec)
 
 
+SETUP_TAGS = {"jev": "+ Jev", "jev-contra": "+ Jev contradictions"}
+SETUP_LABELS = {"alone": "alone", "jev": "+ Jev (ranking)", "jev-contra": "+ Jev (contradictions only)"}
+
+
+def setup_tag(setup):
+    label = SETUP_TAGS.get(setup)
+    return f'<span class="tag {_e(setup)}">{_e(label)}</span>' if label else ""
+
+
 def system_name(model, setup):
     org, name = split_model(model)
-    tag = '<span class="tag">+ Jev</span>' if setup == "jev" else ""
+    tag = setup_tag(setup)
     return (f'<span class="sys"><span class="name">{_e(name)}</span>{tag}</span>'
             f'<span class="org">{_e(org)}</span>')
 
@@ -159,7 +168,7 @@ def table(rows, label):
         prev = key
         cells = "".join(_rate_cell(scores, k, b, headline=(k == "resolved")) for k, _, b, _, _ in RATES)
         cells += "".join(_mean_cell(scores, k) for k, _, _ in MEANS)
-        body.append(f'<tr class="{"jev" if setup == "jev" else ""}"><td class="rank" data-v="{i}">{rank}</td>'
+        body.append(f'<tr class="{_e(setup)}"><td class="rank" data-v="{i}">{rank}</td>'
                     f'<th scope="row">{system_name(model, setup)}</th>'
                     f'<td class="num" data-v="{len(scores)}">{len(scores)}</td>{cells}</tr>')
     return (f'<div class="scroll"><table class="board" aria-label="{_e(label)}"><thead><tr>'
@@ -170,14 +179,16 @@ def table(rows, label):
 
 
 def lift_chart(rows):
-    """Paired bars per model: % Resolved alone vs with Jev, drawn to one scale."""
+    """Bars per model, one per setup it ran: % Resolved alone and with Jev, drawn to one scale."""
     by = {}
     for t, s, _ in rows:
         by.setdefault(t.get("model", "?"), {}).setdefault(t["setup"], []).append(s)
-    models = [m for m in sorted(by) if by[m].get("alone") and by[m].get("jev")]
+    models = [m for m in sorted(by) if by[m].get("alone") and set(by[m]) & set(rca.JEV_SETUPS)]
     if not models:
-        return '<p class="muted">Run both setups on a model to compare them.</p>'
-    group, bar, gap, left, top, plot_h = 132, 44, 10, 44, 18, 180
+        return '<p class="muted">Run a model alone and with Jev to compare them.</p>'
+    shown = [s for s in rca.SETUPS if any(by[m].get(s) for m in models)]
+    bar, gap, left, top, plot_h = 40, 8, 44, 18, 180
+    group = len(shown) * (bar + gap) + 44
     width = left + group * len(models) + 12
     height = top + plot_h + 52
     y = lambda p: top + plot_h * (1 - p)
@@ -187,8 +198,10 @@ def lift_chart(rows):
         parts.append(f'<line class="grid" x1="{left}" x2="{width - 8}" y1="{y(tick):.1f}" y2="{y(tick):.1f}"/>'
                      f'<text class="axis" x="{left - 8}" y="{y(tick) + 4:.1f}" text-anchor="end">{tick * 100:.0f}%</text>')
     for i, m in enumerate(models):
-        x0 = left + i * group + (group - 2 * bar - gap) / 2
-        for j, setup in enumerate(("alone", "jev")):
+        x0 = left + i * group + (group - len(shown) * bar - (len(shown) - 1) * gap) / 2
+        for j, setup in enumerate(shown):
+            if not by[m].get(setup):
+                continue
             k, n = rate(by[m][setup], "resolved")
             p = k / n if n else 0
             x = x0 + j * (bar + gap)
@@ -201,8 +214,8 @@ def lift_chart(rows):
         parts.append(f'<text class="label" x="{left + i * group + group / 2:.1f}" y="{top + plot_h + 20}" '
                      f'text-anchor="middle">{_e(name)}</text>')
     parts.append("</svg>")
-    legend = ('<div class="legend"><span><i class="sw b-alone"></i>alone</span>'
-              '<span><i class="sw b-jev"></i>+ Jev</span></div>')
+    legend = '<div class="legend">' + "".join(
+        f'<span><i class="sw b-{s}"></i>{_e(SETUP_LABELS[s])}</span>' for s in shown) + "</div>"
     return f'<div class="chart-wrap">{"".join(parts)}</div>{legend}'
 
 
@@ -220,14 +233,14 @@ def belief_table(rows):
     body = []
     for model in sorted(by):
         _, name = split_model(model)
-        lines = [("alone", "model", "", by[model].get("alone", [])),
-                 ("jev", "model", "", by[model].get("jev", [])),
-                 ("jev", "Jev's scores", "jev_", by[model].get("jev", []))]
+        lines = [("alone", "model", "", by[model].get("alone", []))]
+        for s in rca.JEV_SETUPS:
+            lines += [(s, "model", "", by[model].get(s, [])), (s, "Jev's scores", "jev_", by[model].get(s, []))]
         for setup, who, pre, scores in lines:
             if not scores:
                 continue
             k, n = rate(scores, pre + "changed_direction")
-            tag = '<span class="tag">+ Jev</span>' if setup == "jev" else ""
+            tag = setup_tag(setup)
             label = f'<span class="sys"><span class="name">{_e(name)}</span>{tag}</span>'
             body.append(f'<tr class="{"jevrow" if pre else ""}"><th scope="row">{label}</th>'
                         f'<td>{_e(who)}</td>'
@@ -250,7 +263,7 @@ def sparkline(trace, truth):
     decoy = truth["decoy"]
     model = [(i, b[decoy]) for i, b in enumerate(rca.measured_beliefs(trace)) if b]
     jev = ([(i, b[decoy]) for i, b in enumerate(rca.jev_beliefs(trace)) if b]
-           if trace["setup"] == "jev" else [])
+           if trace["setup"] in rca.JEV_SETUPS else [])
     if len(model) < 2 and len(jev) < 2:
         return '<span class="muted">–</span>'
     w, h, pad = 120, 32, 4
@@ -362,6 +375,9 @@ td.good .pct{color:var(--good)}td.bad .pct{color:var(--bad)}
 .chart .label{fill:var(--ink)}
 .chart .val{fill:var(--ink);font:500 12px "IBM Plex Mono",ui-monospace,monospace}
 .b-alone{fill:var(--base);background:var(--base)}.b-jev{fill:var(--accent);background:var(--accent)}
+.b-jev-contra{fill:var(--vc);background:var(--vc)}
+.tag.jev-contra{color:var(--vc);background:var(--soft)}
+tr.jev-contra .bar span{background:var(--vc)}
 .legend{display:flex;gap:18px;font-size:13px;color:var(--muted)}
 .legend span{display:inline-flex;gap:6px;align-items:center}
 .sw{display:inline-block;width:12px;height:12px;border-radius:2px}

@@ -19,7 +19,7 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
   or Jev is sent must change, bump `HARNESS_VERSION` in `rca_experiment.py` and rerun
   everything: results from different versions are not comparable. A scoring-only change
   needs no rerun: `--report` re-scores saved traces.
-- **Belief metrics are the model's own stated belief in both setups.** Jev's scores are
+- **Belief metrics are the model's own stated belief in every setup.** Jev's scores are
   reported on separate lines. Never compare the model's belief in one setup with Jev's
   in the other.
 - **Report every trial.** Invalid replies, unfinished runs and errors count. Never drop
@@ -37,7 +37,9 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
 2. Pick the models with the user. A model is `provider:model`: `anthropic:<id>`, or
    `openai:<id>` for OpenAI or any OpenAI-compatible server (`OPENAI_BASE_URL`; see
    the guide's "Run it without paid keys" table). Without `TYPESAFE_API_KEY`, add
-   `--setup alone` and say the "+ Jev" rows are missing.
+   `--setup alone` and say the Jev rows are missing. By default every run covers all
+   three setups: `alone`, `jev` (the model sees Jev's ranking and contradiction scores)
+   and `jev-contra` (the model sees only what Jev judges contradicted).
 3. Make a results folder: `R=rca_results/$(date +%F)-<short label>` and `mkdir -p $R`.
 4. `python3 rca_experiment.py --dry-run --models <models> --trials 5 --forced` and
    check the plan's trial count with the user if it's large.
@@ -51,5 +53,5 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
    If it stops (a rate limit, a network error), rerun the same command with `--resume`.
 8. Then free mode, the same way, with `--out $R/free.jsonl --html $R/free.html`.
 9. Commit `$R` on a new branch (`rca-results/<date>-<label>`), open a PR, and report
-   to the user: per model, % Resolved alone vs + Jev with counts and intervals, changed
+   to the user: per model, % Resolved for each setup with counts and intervals, changed
    course, blamed deploy, and anything odd you saw in the traces. Offer the HTML page.
