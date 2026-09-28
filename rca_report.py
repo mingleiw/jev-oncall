@@ -3,43 +3,59 @@
 
     python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
 
-Every model and setup is ranked, overall and per scenario, on the same
-scores the text report prints (counts, not percentages), with cost and time
-per trial, a side-by-side of each model alone vs with Jev, and every trial's
-path: the checks it ran and how the measured P(deploy) moved.
+Laid out like an open model benchmark: one headline score per system
+(% Resolved, with a 95% Wilson interval and the raw count), systems ranked in
+a sortable table, a tab per scenario, a chart of each model alone vs with
+Jev, cost and time per trial, the trial-level evidence behind every number,
+and the commands to run it on another model.
 
 Standard library only; every string from a trace is escaped.
 """
 from __future__ import annotations
 
 import html
+import math
 from datetime import datetime, timezone
 
 import rca_experiment as rca
 
-COLUMNS = [
-    # key, kind, header, better ("high" / "low" / None), help
-    ("correct_hypothesis", "count", "Right cause", "high", "Final hypothesis is the true one"),
-    ("found_mechanism", "count", "Mechanism", "high", "Explained how it failed, from a check that shows it"),
-    ("changed_direction", "count", "Changed course", "high",
-     "Deploy led before the version check and not after (trials where it led)"),
-    ("p_decoy_drop", "mean", "P(deploy) drop", "high", "Mean fall in P(deploy) across the version check"),
-    ("blamed_decoy", "count", "Blamed deploy", "low", "Final answer blamed the deploy"),
-    ("cited_trap", "count", "Cited a trap", "low", "Cited a failed or empty query as evidence"),
-    ("checks_used", "mean", "Checks", "low", "Mean checks run per trial"),
-    ("tokens", "mean", "Tokens", "low", "Mean model tokens per trial, input plus output"),
-    ("seconds", "mean", "Seconds", "low", "Mean wall time per trial"),
+ORGS = {"anthropic": "Anthropic", "openai": "OpenAI", "test": "Test stand-in"}
+
+# key, header, better ("high" / "low"), definition, denominator ("all" trials or "applicable")
+RATES = [
+    ("resolved", "% Resolved", "high",
+     "Named the right cause and explained its mechanism from a check that shows it. "
+     "Unfinished trials count as not resolved.", "all"),
+    ("correct_hypothesis", "Right cause", "high", "Final hypothesis is the true one.", "all"),
+    ("changed_direction", "Changed course", "high",
+     "Of trials where the deploy led right before the version check, the share where it no "
+     "longer led right after.", "applicable"),
+    ("blamed_decoy", "Blamed deploy", "low", "Final answer blamed the deploy.", "all"),
+    ("cited_trap", "Cited a trap", "low", "Cited a failed or empty query as evidence.", "applicable"),
+]
+MEANS = [
+    ("checks_used", "Checks", "Mean checks run per trial."),
+    ("tokens", "Tokens", "Mean reasoning-model tokens per trial, input plus output. Jev's are not included."),
+    ("seconds", "Time", "Mean wall time per trial."),
 ]
 
 
-def _frac(scores, key):
-    vals = [s[key] for s in scores if s.get(key) is not None]
-    return (sum(bool(v) for v in vals) / len(vals)) if vals else 0.0
+def _e(text):
+    return html.escape(str(text), quote=True)
 
 
-def _mean(scores, key):
-    vals = [s[key] for s in scores if s.get(key) is not None]
-    return sum(vals) / len(vals) if vals else None
+def _n(count, word):
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def wilson(k, n, z=1.96):
+    """95% Wilson score interval for k successes in n trials."""
+    if n == 0:
+        return 0.0, 0.0
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return max(0.0, centre - half), min(1.0, centre + half)
 
 
 def scored(traces):
@@ -50,6 +66,9 @@ def scored(traces):
         if name not in truths:
             truths[name] = rca.load_ground_truth(name)
         s = rca.score_trial(t, truths[name])
+        s["resolved"] = bool(s["correct_hypothesis"] and s["found_mechanism"])
+        for key in ("correct_hypothesis", "blamed_decoy"):
+            s[key] = bool(s[key])  # an unfinished trial got neither right
         usage = t.get("usage") or {}
         s["tokens"] = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
         s["seconds"] = t.get("seconds")
@@ -57,12 +76,26 @@ def scored(traces):
     return out
 
 
+def rate(scores, key):
+    """(k, n): trials that met the test, of trials where it applies."""
+    vals = [s[key] for s in scores if s.get(key) is not None]
+    return sum(bool(v) for v in vals), len(vals)
+
+
+def _frac(scores, key):
+    k, n = rate(scores, key)
+    return k / n if n else 0.0
+
+
+def _mean(scores, key):
+    vals = [s[key] for s in scores if s.get(key) is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
 def rank_key(scores):
-    """Right cause first, then mechanism, then changing course; fewer deploy
-    blames, then fewer checks, break ties."""
-    return (-_frac(scores, "correct_hypothesis"), -_frac(scores, "found_mechanism"),
-            -_frac(scores, "changed_direction"), _frac(scores, "blamed_decoy"),
-            _mean(scores, "checks_used") or 0)
+    """% Resolved first; then changing course, fewer deploy blames, fewer checks."""
+    return (-_frac(scores, "resolved"), -_frac(scores, "changed_direction"),
+            _frac(scores, "blamed_decoy"), _mean(scores, "checks_used") or 0)
 
 
 def leaderboard(rows):
@@ -74,94 +107,103 @@ def leaderboard(rows):
                   key=lambda r: (rank_key(r[2]), r[0], r[1]))
 
 
-def _cell(scores, key, kind):
-    if key in ("tokens", "seconds"):
-        v = _mean(scores, key)
-        if v is None:
-            return "–"
-        return f"{v / 1000:.1f}k" if key == "tokens" and v >= 1000 else (
-            f"{v:.0f}" if key == "tokens" else f"{v:.0f}s")
-    if kind == "count":
-        vals = [s[key] for s in scores if s.get(key) is not None]
-        return f"{sum(bool(v) for v in vals)}/{len(vals)}" if vals else "–"
+def split_model(spec):
+    provider, _, name = spec.partition(":")
+    return (ORGS.get(provider, provider or "?"), name or spec)
+
+
+def system_name(model, setup):
+    org, name = split_model(model)
+    tag = '<span class="tag">+ Jev</span>' if setup == "jev" else ""
+    return (f'<span class="sys"><span class="name">{_e(name)}</span>{tag}</span>'
+            f'<span class="org">{_e(org)}</span>')
+
+
+def _rate_cell(scores, key, better, headline=False):
+    k, n = rate(scores, key)
+    if not n:
+        return '<td class="num" data-v="-1">–</td>'
+    p = k / n
+    lo, hi = wilson(k, n)
+    tone = ("good" if (p >= 0.8 if better == "high" else p == 0) else
+            "bad" if (p <= 0.2 if better == "high" else p >= 0.5) else "")
+    if headline:
+        return (f'<td class="num headline" data-v="{p:.4f}"><div class="score">'
+                f'<span class="bar" aria-hidden="true"><span style="width:{p * 100:.1f}%"></span></span>'
+                f'<span class="pct">{p * 100:.1f}</span></div>'
+                f'<span class="sub">{k}/{n} · CI {lo * 100:.0f}–{hi * 100:.0f}</span></td>')
+    return (f'<td class="num {tone}" data-v="{p:.4f}"><span class="pct">{p * 100:.0f}%</span>'
+            f'<span class="sub">{k}/{n}</span></td>')
+
+
+def _mean_cell(scores, key):
     v = _mean(scores, key)
     if v is None:
-        return "–"
-    return f"{v:+.2f}" if key == "p_decoy_drop" else f"{v:.1f}"
+        return '<td class="num" data-v="-1">–</td>'
+    text = (f"{v / 1000:.1f}k" if key == "tokens" and v >= 1000 else f"{v:.0f}" if key == "tokens"
+            else f"{v:.0f}s" if key == "seconds" else f"{v:.1f}")
+    return f'<td class="num" data-v="{v:.4f}">{text}</td>'
 
 
-def _tone(scores, key, better):
-    """good / bad / "" for a count cell, so the table reads at a glance."""
-    if better is None or key in ("tokens", "seconds", "checks_used", "p_decoy_drop"):
-        return ""
-    vals = [s[key] for s in scores if s.get(key) is not None]
-    if not vals:
-        return ""
-    f = sum(bool(v) for v in vals) / len(vals)
-    good = f >= 0.8 if better == "high" else f == 0
-    bad = f <= 0.2 if better == "high" else f >= 0.5
-    return "good" if good else "bad" if bad else ""
-
-
-def _n(count, word):
-    return f"{count} {word}" + ("" if count == 1 else "s")
-
-
-def _b(count, word):
-    return f"<b>{count}</b> {word}" + ("" if count == 1 else "s")
-
-
-def _e(text):
-    return html.escape(str(text), quote=True)
-
-
-def _setup_chip(setup):
-    return (f'<span class="chip jev">with Jev</span>' if setup == "jev"
-            else '<span class="chip alone">alone</span>')
-
-
-def table(rows, caption):
+def table(rows, label):
     board = leaderboard(rows)
-    head = "".join(f'<th scope="col" title="{_e(h)}">{_e(label)}</th>'
-                   for _, _, label, _, h in COLUMNS)
+    heads = [f'<th scope="col" class="num"><button type="button" data-col="{i + 3}" title="{_e(d)}">'
+             f'{_e(h)}</button></th>' for i, (_, h, _, d, _) in enumerate(RATES)]
+    heads += [f'<th scope="col" class="num"><button type="button" data-col="{i + 3 + len(RATES)}" '
+              f'title="{_e(d)}">{_e(h)}</button></th>' for i, (_, h, d) in enumerate(MEANS)]
     body = []
+    prev, rank = None, 0
     for i, (model, setup, scores) in enumerate(board, 1):
-        cells = "".join(f'<td class="num {_tone(scores, k, b)}">{_e(_cell(scores, k, kind))}</td>'
-                        for k, kind, _, b, _ in COLUMNS)
-        body.append(f'<tr class="{"row-jev" if setup == "jev" else ""}"><td class="rank">{i}</td>'
-                    f'<th scope="row"><span class="model">{_e(model)}</span> {_setup_chip(setup)}'
-                    f'<span class="n">{_n(len(scores), "trial")}</span></th>{cells}</tr>')
-    return (f'<div class="scroll"><table><caption>{_e(caption)}</caption>'
-            f'<thead><tr><th scope="col" class="rank">#</th><th scope="col">Model</th>{head}</tr></thead>'
-            f'<tbody>{"".join(body)}</tbody></table></div>')
+        key = rank_key(scores)
+        rank = rank if key == prev else i  # ties share a rank
+        prev = key
+        cells = "".join(_rate_cell(scores, k, b, headline=(k == "resolved")) for k, _, b, _, _ in RATES)
+        cells += "".join(_mean_cell(scores, k) for k, _, _ in MEANS)
+        body.append(f'<tr class="{"jev" if setup == "jev" else ""}"><td class="rank" data-v="{i}">{rank}</td>'
+                    f'<th scope="row">{system_name(model, setup)}</th>'
+                    f'<td class="num" data-v="{len(scores)}">{len(scores)}</td>{cells}</tr>')
+    return (f'<div class="scroll"><table class="board" aria-label="{_e(label)}"><thead><tr>'
+            f'<th scope="col" class="rank"><button type="button" data-col="0">Rank</button></th>'
+            f'<th scope="col">System</th>'
+            f'<th scope="col" class="num"><button type="button" data-col="2" title="Trials run">Trials</button></th>'
+            f'{"".join(heads)}</tr></thead><tbody>{"".join(body)}</tbody></table></div>')
 
 
-def lift(rows):
-    """Per model: alone vs with Jev on the scores that matter most."""
+def lift_chart(rows):
+    """Paired bars per model: % Resolved alone vs with Jev, drawn to one scale."""
     by = {}
     for t, s, _ in rows:
         by.setdefault(t.get("model", "?"), {}).setdefault(t["setup"], []).append(s)
-    cards = []
-    for model in sorted(by):
-        alone, jev = by[model].get("alone", []), by[model].get("jev", [])
-        if not alone or not jev:
-            continue
-        lines = []
-        for key, label, better in (("correct_hypothesis", "Right cause", "high"),
-                                   ("changed_direction", "Changed course", "high"),
-                                   ("blamed_decoy", "Blamed deploy", "low")):
-            a, j = _frac(alone, key), _frac(jev, key)
-            delta = (j - a) if better == "high" else (a - j)
-            mark = "up" if delta > 0.001 else "down" if delta < -0.001 else "flat"
-            word = {"up": "better with Jev", "down": "worse with Jev", "flat": "no change"}[mark]
-            lines.append(f'<li><span class="lab">{label}</span>'
-                         f'<span class="val">{_e(_cell(alone, key, "count"))}</span>'
-                         f'<span class="arrow" aria-hidden="true">→</span>'
-                         f'<span class="val">{_e(_cell(jev, key, "count"))}</span>'
-                         f'<span class="delta {mark}">{word}</span></li>')
-        cards.append(f'<article class="lift"><h3>{_e(model)}</h3>'
-                     f'<p class="sub">alone → with Jev</p><ul>{"".join(lines)}</ul></article>')
-    return "".join(cards) or '<p class="empty">Needs both setups for a model.</p>'
+    models = [m for m in sorted(by) if by[m].get("alone") and by[m].get("jev")]
+    if not models:
+        return '<p class="muted">Run both setups on a model to compare them.</p>'
+    group, bar, gap, left, top, plot_h = 132, 44, 10, 44, 18, 180
+    width = left + group * len(models) + 12
+    height = top + plot_h + 52
+    y = lambda p: top + plot_h * (1 - p)
+    parts = [f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" '
+             f'aria-label="% Resolved per model, alone and with Jev">']
+    for tick in (0, 0.25, 0.5, 0.75, 1.0):
+        parts.append(f'<line class="grid" x1="{left}" x2="{width - 8}" y1="{y(tick):.1f}" y2="{y(tick):.1f}"/>'
+                     f'<text class="axis" x="{left - 8}" y="{y(tick) + 4:.1f}" text-anchor="end">{tick * 100:.0f}%</text>')
+    for i, m in enumerate(models):
+        x0 = left + i * group + (group - 2 * bar - gap) / 2
+        for j, setup in enumerate(("alone", "jev")):
+            k, n = rate(by[m][setup], "resolved")
+            p = k / n if n else 0
+            x = x0 + j * (bar + gap)
+            h = max(plot_h * p, 1.5)
+            parts.append(f'<rect class="b-{setup}" x="{x:.1f}" y="{y(p) if p else top + plot_h - 1.5:.1f}" '
+                         f'width="{bar}" height="{h:.1f}" rx="2"><title>{_e(m)} {setup}: {k}/{n}</title></rect>'
+                         f'<text class="val" x="{x + bar / 2:.1f}" y="{(y(p) if p else top + plot_h) - 6:.1f}" '
+                         f'text-anchor="middle">{p * 100:.0f}%</text>')
+        _, name = split_model(m)
+        parts.append(f'<text class="label" x="{left + i * group + group / 2:.1f}" y="{top + plot_h + 20}" '
+                     f'text-anchor="middle">{_e(name)}</text>')
+    parts.append("</svg>")
+    legend = ('<div class="legend"><span><i class="sw b-alone"></i>alone</span>'
+              '<span><i class="sw b-jev"></i>+ Jev</span></div>')
+    return f'<div class="chart-wrap">{"".join(parts)}</div>{legend}'
 
 
 def sparkline(trace, truth):
@@ -170,8 +212,8 @@ def sparkline(trace, truth):
     decoy = truth["decoy"]
     pts = [(i, b[decoy]) for i, b in enumerate(beliefs) if b]
     if len(pts) < 2:
-        return '<span class="spark-empty">not enough beliefs</span>'
-    w, h, pad = 150, 40, 4
+        return '<span class="muted">–</span>'
+    w, h, pad = 120, 32, 4
     n = max(len(beliefs) - 1, 1)
     x = lambda i: pad + (w - 2 * pad) * i / n
     y = lambda p: pad + (h - 2 * pad) * (1 - p)
@@ -179,22 +221,19 @@ def sparkline(trace, truth):
     marker = ""
     if truth["version_check"] in trace["observed"]:
         k = trace["observed"].index(truth["version_check"]) + 1
-        marker = (f'<line class="vc" x1="{x(k):.1f}" x2="{x(k):.1f}" y1="{pad}" y2="{h - pad}"/>')
-    dots = "".join(f'<circle cx="{x(i):.1f}" cy="{y(p):.1f}" r="2"/>' for i, p in pts)
+        marker = f'<line class="vc" x1="{x(k):.1f}" x2="{x(k):.1f}" y1="{pad}" y2="{h - pad}"/>'
     return (f'<svg class="spark" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" '
-            f'aria-label="P(deploy) from {pts[0][1]:.2f} to {pts[-1][1]:.2f}">'
-            f'<line class="base" x1="{pad}" x2="{w - pad}" y1="{y(0.5):.1f}" y2="{y(0.5):.1f}"/>'
-            f'{marker}<path d="{path}"/>{dots}</svg>')
+            f'aria-label="P(deploy) from {pts[0][1]:.2f} to {pts[-1][1]:.2f}">{marker}<path d="{path}"/></svg>')
 
 
-def trials(rows):
+def trials_table(rows):
     items = []
     for t, s, truth in sorted(rows, key=lambda r: (r[0].get("scenario", ""), r[0].get("model", ""),
                                                    r[0]["setup"], r[0].get("trial", 0))):
         final = t.get("final")
         if final:
-            verdict = ("right" if s["correct_hypothesis"] else "wrong")
-            answer = f'<span class="ans {verdict}">{_e(final["hypothesis"])}</span>'
+            cls = "right" if s["resolved"] else "part" if s["correct_hypothesis"] else "wrong"
+            answer = f'<span class="ans {cls}">{_e(final["hypothesis"])}</span>'
         else:
             answer = f'<span class="ans none">{_e(t.get("status", "no answer"))}</span>'
         chips = []
@@ -202,103 +241,141 @@ def trials(rows):
             cls = ("vc" if c == truth["version_check"] else "trap" if c in truth["traps"]
                    else "noise" if c in truth["noise"] else "")
             chips.append(f'<code class="{cls}">{_e(c)}</code>')
-        items.append(
-            f'<tr><td>{_e(t.get("scenario", ""))}</td><td>{_e(t.get("model", ""))} {_setup_chip(t["setup"])}</td>'
-            f'<td class="num">{_e(t.get("trial", ""))}</td><td>{sparkline(t, truth)}</td>'
-            f'<td class="path">{"".join(chips) or "–"}</td><td>{answer}</td></tr>')
+        items.append(f'<tr><td>{_e(t.get("scenario", ""))}</td><td>{system_name(t.get("model", "?"), t["setup"])}</td>'
+                     f'<td class="num">{_e(t.get("trial", ""))}</td><td>{sparkline(t, truth)}</td>'
+                     f'<td class="path">{"".join(chips) or "–"}</td><td>{answer}</td></tr>')
     return ('<div class="scroll"><table class="trials"><thead><tr><th scope="col">Scenario</th>'
-            '<th scope="col">Model</th><th scope="col">Trial</th><th scope="col">P(deploy) by step</th>'
+            '<th scope="col">System</th><th scope="col" class="num">Trial</th><th scope="col">P(deploy)</th>'
             '<th scope="col">Checks in order</th><th scope="col">Answer</th></tr></thead>'
             f'<tbody>{"".join(items)}</tbody></table></div>')
 
 
 CSS = """
-:root{--bg:#f4f6f8;--surface:#ffffff;--ink:#17202b;--muted:#5a6676;--line:#dbe1e8;--soft:#eef2f5;
---jev:#0b7a73;--jev-soft:#dff1ef;--alone:#5a6676;--good:#1d7a4a;--good-soft:#e1f2e8;--bad:#b0302a;
---bad-soft:#f8e3e1;--warn:#8a5a00;--warn-soft:#fbefd4;--vc:#7a4cc2}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0f1318;
---surface:#161b22;--ink:#e3e8ee;--muted:#95a1b0;--line:#27303b;--soft:#1c232c;--jev:#46c2b7;
---jev-soft:#123330;--alone:#95a1b0;--good:#58c28a;--good-soft:#14301f;--bad:#f07a72;--bad-soft:#3a1a18;
---warn:#e3b35a;--warn-soft:#33270f;--vc:#b18cf0}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1318;--surface:#161b22;--ink:#e3e8ee;--muted:#95a1b0;
---line:#27303b;--soft:#1c232c;--jev:#46c2b7;--jev-soft:#123330;--alone:#95a1b0;--good:#58c28a;
---good-soft:#14301f;--bad:#f07a72;--bad-soft:#3a1a18;--warn:#e3b35a;--warn-soft:#33270f;--vc:#b18cf0}
+:root{--bg:#f6f7f9;--surface:#fff;--ink:#141a22;--muted:#5d6878;--line:#e0e4ea;--soft:#f0f2f5;
+--accent:#0a7c73;--accent-soft:#e0f2ef;--base:#8a94a3;--good:#1a7a47;--good-soft:#e3f3ea;--bad:#b3322b;
+--bad-soft:#f9e5e3;--warn:#8c5a00;--warn-soft:#fcf0d6;--vc:#7446c4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0e1116;--surface:#151a21;
+--ink:#e4e8ee;--muted:#98a3b3;--line:#262e39;--soft:#1b222b;--accent:#4cc4b8;--accent-soft:#12302d;--base:#6b7584;
+--good:#5cc68e;--good-soft:#13301f;--bad:#f27d74;--bad-soft:#3b1b19;--warn:#e6b65c;--warn-soft:#342810;--vc:#b18df2}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0e1116;--surface:#151a21;--ink:#e4e8ee;--muted:#98a3b3;
+--line:#262e39;--soft:#1b222b;--accent:#4cc4b8;--accent-soft:#12302d;--base:#6b7584;--good:#5cc68e;
+--good-soft:#13301f;--bad:#f27d74;--bad-soft:#3b1b19;--warn:#e6b65c;--warn-soft:#342810;--vc:#b18df2}
 body{background:var(--bg);color:var(--ink);font:15px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-margin:0;padding-inline:16px;padding-block:28px 56px}
-main{max-width:1120px;margin:0 auto;display:grid;gap:36px}
+margin:0;padding-inline:16px;padding-block:32px 64px}
+main{max-width:1160px;margin:0 auto;display:grid;gap:40px}
 main>*,section>*{min-width:0}
-h1{font-size:30px;line-height:1.15;margin:0;letter-spacing:-.01em;text-wrap:balance}
-h2{font-size:19px;margin:0 0 4px;text-wrap:balance}
-h3{font-size:15px;margin:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-weight:500}
-p{margin:0;max-width:68ch}
-.eyebrow{font:500 12px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-header{display:grid;gap:10px}
-.lede{color:var(--muted)}
-.notice{border:1px solid var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:8px;padding:12px 14px;
-display:flex;gap:10px;align-items:flex-start}
-.notice b{color:var(--warn);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.06em;
-text-transform:uppercase;white-space:nowrap;padding-top:2px}
-.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;color:var(--muted)}
-.meta span b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
-section{display:grid;gap:12px}
+.mono,code,.num,.eyebrow,.org,.tag{font-family:"IBM Plex Mono",ui-monospace,monospace}
+header{display:grid;gap:12px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:500}
+h1{font-size:34px;line-height:1.1;margin:0;letter-spacing:-.015em}
+h2{font-size:20px;margin:0;text-wrap:balance}
+p{margin:0;max-width:72ch}
+.lede{font-size:16px;color:var(--muted)}
+.muted{color:var(--muted)}
+.notice{border:1px solid var(--warn);background:var(--warn-soft);border-radius:8px;padding:12px 14px;display:flex;gap:12px}
+.notice b{color:var(--warn);font:500 12px/1.6 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.facts{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.facts div{padding:10px 16px;border-right:1px solid var(--line);display:grid;gap:2px}
+.facts div:last-child{border-right:0}
+.facts dt{font-size:12px;color:var(--muted)}
+.facts dd{margin:0;font:500 15px/1.3 "IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+section{display:grid;gap:14px}
+.sec-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px}
+[role=tablist]{display:flex;flex-wrap:wrap;gap:4px;background:var(--soft);padding:4px;border-radius:8px;width:fit-content}
+[role=tab]{font:500 13px/1 "IBM Plex Mono",ui-monospace,monospace;border:0;background:transparent;color:var(--muted);
+padding:8px 12px;border-radius:6px;cursor:pointer}
+[role=tab][aria-selected=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/.08)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
-caption{text-align:left;padding:12px 14px 4px;font-weight:600;font-size:14px}
-th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap}
-thead th{font:500 12px/1.3 "IBM Plex Mono",ui-monospace,monospace;color:var(--muted);letter-spacing:.02em;
-background:var(--soft);cursor:help}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap}
 tbody tr:last-child>*{border-bottom:0}
+thead th{font:500 12px/1.3 "IBM Plex Mono",ui-monospace,monospace;color:var(--muted);background:var(--soft)}
+thead th button{all:unset;cursor:pointer;display:inline-flex;gap:4px;align-items:center}
+thead th button[aria-sort=descending]::after{content:"↓"}
+thead th button[aria-sort=ascending]::after{content:"↑"}
+.num{text-align:right}
+td.rank,th.rank{width:1%;text-align:center}
+td.rank{font:600 15px/1 "IBM Plex Mono",ui-monospace,monospace}
 tbody th{font-weight:400}
-td.num{text-align:right}
-td.rank,th.rank{width:1%;text-align:center;font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--muted)}
-tbody tr:first-child td.rank{color:var(--ink);font-weight:600}
-.model{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px}
-.n{display:block;font-size:12px;color:var(--muted)}
-td.good{color:var(--good);background:var(--good-soft)}
-td.bad{color:var(--bad);background:var(--bad-soft)}
-.chip{display:inline-block;font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;padding:4px 6px;border-radius:4px;
-margin-left:6px;vertical-align:1px}
-.chip.jev{color:var(--jev);background:var(--jev-soft)}
-.chip.alone{color:var(--alone);background:var(--soft)}
-.lifts{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-.lift{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:8px}
-.lift .sub{font-size:12px;color:var(--muted)}
-.lift ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-.lift li{display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:center;font-size:14px;
-font-variant-numeric:tabular-nums}
-.lift li .delta{grid-column:1/-1;font-size:12px;margin-top:-4px}
-.lift .val{font-family:"IBM Plex Mono",ui-monospace,monospace}
-.lift .arrow{color:var(--muted)}
-.delta.up{color:var(--good)}.delta.down{color:var(--bad)}.delta.flat{color:var(--muted)}
-.scenarios{display:grid;gap:20px}
+.sys{display:flex;align-items:center;gap:8px}
+.name{font-weight:600}
+.tag{font-size:11px;font-weight:500;color:var(--accent);background:var(--accent-soft);padding:3px 6px;border-radius:4px}
+.org{display:block;font-size:12px;color:var(--muted)}
+.headline{min-width:170px}
+.score{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.bar{width:90px;height:8px;border-radius:4px;background:var(--soft);overflow:hidden;display:inline-block}
+.bar span{display:block;height:100%;background:var(--ink)}
+tr.jev .bar span{background:var(--accent)}
+.headline .pct{font-size:17px;font-weight:600;min-width:3.2em}
+.sub{display:block;font-size:11px;color:var(--muted)}
+td.good .pct{color:var(--good)}td.bad .pct{color:var(--bad)}
+.chart-wrap{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 8px 4px;overflow-x:auto}
+.chart{display:block;width:100%;max-width:720px;height:auto}
+.chart .grid{stroke:var(--line)}
+.chart .axis,.chart .label{fill:var(--muted);font:12px "IBM Plex Mono",ui-monospace,monospace}
+.chart .label{fill:var(--ink)}
+.chart .val{fill:var(--ink);font:500 12px "IBM Plex Mono",ui-monospace,monospace}
+.b-alone{fill:var(--base);background:var(--base)}.b-jev{fill:var(--accent);background:var(--accent)}
+.legend{display:flex;gap:18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.sw{display:inline-block;width:12px;height:12px;border-radius:2px}
 .trials td{font-size:13px}
 .path{white-space:normal;min-width:260px}
-.path code{display:inline-block;font:12px/1 "IBM Plex Mono",ui-monospace,monospace;padding:4px 5px;border-radius:4px;
-background:var(--soft);margin:2px 3px 2px 0}
-.path code.vc{color:var(--vc);outline:1px solid var(--vc)}
-.path code.trap{color:var(--bad);background:var(--bad-soft)}
-.path code.noise{color:var(--muted);text-decoration:line-through}
-.ans{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;padding:3px 6px;border-radius:4px}
+.path code{display:inline-block;font-size:12px;line-height:1;padding:4px 5px;border-radius:4px;background:var(--soft);margin:2px 3px 2px 0}
+code.vc{color:var(--vc);outline:1px solid var(--vc)}
+code.trap{color:var(--bad);background:var(--bad-soft)}
+code.noise{color:var(--muted);text-decoration:line-through}
+.ans{font:12px/1 "IBM Plex Mono",ui-monospace,monospace;padding:4px 6px;border-radius:4px}
 .ans.right{color:var(--good);background:var(--good-soft)}
+.ans.part{color:var(--warn);background:var(--warn-soft)}
 .ans.wrong{color:var(--bad);background:var(--bad-soft)}
 .ans.none{color:var(--muted);background:var(--soft)}
-.spark{display:block;overflow:visible}
+.spark{display:block}
 .spark path{fill:none;stroke:var(--ink);stroke-width:1.5}
-.spark circle{fill:var(--ink)}
-.spark .base{stroke:var(--line);stroke-dasharray:2 3}
 .spark .vc{stroke:var(--vc);stroke-width:1.5}
-.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:12px;color:var(--muted);align-items:center}
-.legend code{font:12px/1 "IBM Plex Mono",ui-monospace,monospace;padding:4px 5px;border-radius:4px;background:var(--soft)}
-.legend .vc{color:var(--vc);outline:1px solid var(--vc)}
-.legend .trap{color:var(--bad);background:var(--bad-soft)}
-.legend .noise{text-decoration:line-through}
+.keys{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--muted);align-items:center}
+.keys code{font-size:12px;padding:3px 5px;border-radius:4px;background:var(--soft)}
 details{background:var(--surface);border:1px solid var(--line);border-radius:10px}
 details>summary{cursor:pointer;padding:12px 14px;font-weight:600}
-details>summary:focus-visible,th:focus-visible{outline:2px solid var(--jev);outline-offset:2px}
 details .scroll{border:0;border-top:1px solid var(--line);border-radius:0 0 10px 10px}
-.method{font-size:13px;color:var(--muted);display:grid;gap:6px}
-.empty{color:var(--muted)}
-@media (max-width:560px){h1{font-size:24px}th,td{padding:8px}}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;align-items:start}
+dl.defs{margin:0;display:grid;gap:10px}
+dl.defs dt{font-weight:600;font-size:14px}
+dl.defs dd{margin:0;color:var(--muted);font-size:14px}
+pre{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;
+font:13px/1.6 "IBM Plex Mono",ui-monospace,monospace}
+@media (max-width:560px){h1{font-size:26px}th,td{padding:8px}.facts div{flex:1 1 40%}}
+"""
+
+JS = """
+document.querySelectorAll('[role=tablist]').forEach(function (list) {
+  var tabs = list.querySelectorAll('[role=tab]');
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on);
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    });
+  });
+});
+document.querySelectorAll('table.board thead button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var table = btn.closest('table'), col = +btn.dataset.col, body = table.tBodies[0];
+    var dir = btn.getAttribute('aria-sort') === 'descending' ? 'ascending' : 'descending';
+    if (col === 0 && !btn.hasAttribute('aria-sort')) dir = 'ascending';
+    table.querySelectorAll('thead button').forEach(function (b) { b.removeAttribute('aria-sort'); });
+    btn.setAttribute('aria-sort', dir);
+    var rows = Array.prototype.slice.call(body.rows);
+    rows.sort(function (a, b) {
+      var x = +a.cells[col].dataset.v, y = +b.cells[col].dataset.v;
+      return dir === 'ascending' ? x - y : y - x;
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+});
 """
 
 
@@ -307,51 +384,71 @@ def render(traces, note=None, standalone=True):
     rows = scored(traces)
     scenarios = sorted({t.get("scenario", rca.DEFAULT_SCENARIO) for t, _, _ in rows})
     models = sorted({t.get("model", "?") for t, _, _ in rows})
-    modes = sorted({"forced" if t.get("forced") else "free" for t, _, _ in rows})
-    notice = (f'<div class="notice" role="note"><b>Note</b><p>{_e(note)}</p></div>' if note else "")
-    per_scenario = "".join(
-        table([r for r in rows if r[0].get("scenario", rca.DEFAULT_SCENARIO) == n], f"Scenario: {n}")
-        for n in scenarios)
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    modes = sorted({"forced version check" if t.get("forced") else "free choice" for t, _, _ in rows})
+    per_system = sorted({len(sc) for _, _, sc in leaderboard(rows)})
+    notice = f'<div class="notice" role="note"><b>Note</b><p>{_e(note)}</p></div>' if note else ""
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    panels = [("overall", "Overall", rows)] + [
+        (f"s-{n}", n, [r for r in rows if r[0].get("scenario", rca.DEFAULT_SCENARIO) == n]) for n in scenarios]
+    tabs = "".join(f'<button type="button" role="tab" id="tab-{pid}" aria-controls="panel-{pid}" '
+                   f'aria-selected="{"true" if i == 0 else "false"}">{_e(label)}</button>'
+                   for i, (pid, label, _) in enumerate(panels))
+    boards = "".join(f'<div role="tabpanel" id="panel-{pid}" aria-labelledby="tab-{pid}"{"" if i == 0 else " hidden"}>'
+                     f'{table(prs, label)}</div>' for i, (pid, label, prs) in enumerate(panels))
+    defs = "".join(f"<dt>{_e(h)}</dt><dd>{_e(d)}</dd>" for _, h, _, d, _ in RATES)
+    defs += "".join(f"<dt>{_e(h)}</dt><dd>{_e(d)}</dd>" for _, h, d in MEANS)
     body = f"""<title>RCA Leaderboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>{CSS}</style>
 <main>
 <header>
-<span class="eyebrow">jev-oncall · RCA experiment</span>
-<h1>Does the agent change course when the deploy is cleared?</h1>
-<p class="lede">Each model investigates frozen incidents alone and with Jev re-scoring every hypothesis
-after each check. A deploy looks guilty; a version check shows old and new versions failing alike.
-Ranked by right cause, then mechanism, then changing course.</p>
+<span class="eyebrow">jev-oncall · open RCA benchmark</span>
+<h1>RCA Leaderboard</h1>
+<p class="lede">Can an agent find the root cause of an outage when the first suspect is wrong? Each system
+investigates frozen incidents where a recent deploy looks guilty and a version check clears it.
+Systems run alone and with Jev re-scoring every hypothesis after each check.</p>
 {notice}
-<div class="meta"><span>{_b(len(rows), "trial")}</span><span>{_b(len(models), "model")}</span>
-<span>{_b(len(scenarios), "scenario")}</span><span>mode <b>{_e(", ".join(modes))}</b></span>
-<span>generated <b>{generated}</b></span></div>
+<dl class="facts">
+<div><dt>Systems</dt><dd>{len(leaderboard(rows))}</dd></div>
+<div><dt>Models</dt><dd>{len(models)}</dd></div>
+<div><dt>Scenarios</dt><dd>{len(scenarios)}</dd></div>
+<div><dt>Trials per system</dt><dd>{_e("/".join(str(n) for n in per_system))}</dd></div>
+<div><dt>Mode</dt><dd>{_e(", ".join(modes))}</dd></div>
+<div><dt>Updated</dt><dd>{generated}</dd></div>
+</dl>
 </header>
-<section aria-labelledby="overall"><h2 id="overall">Ranking, all scenarios</h2>
-<p class="lede">Counts are trials that met the test out of trials where it applies. Hover a column for its definition.</p>
-{table(rows, "All scenarios combined")}
+<section aria-labelledby="board-h">
+<div class="sec-head"><h2 id="board-h">Leaderboard</h2><div role="tablist" aria-label="Scenario">{tabs}</div></div>
+{boards}
+<p class="muted">Ranked by % Resolved. The bar shows the score; below it, the raw count and a 95% confidence
+interval. Click a column to sort; hover it for its definition.</p>
 </section>
-<section aria-labelledby="lift"><h2 id="lift">Alone vs with Jev</h2>
-<div class="lifts">{lift(rows)}</div>
+<section aria-labelledby="lift-h">
+<h2 id="lift-h">Does Jev help? % Resolved, alone vs + Jev</h2>
+{lift_chart(rows)}
 </section>
-<section aria-labelledby="per"><h2 id="per">By scenario</h2>
-<p class="lede">A result that holds on one scenario and not the other is itself a finding.</p>
-<div class="scenarios">{per_scenario}</div>
-</section>
-<section aria-labelledby="paths"><h2 id="paths">Every trial</h2>
-<div class="legend"><span>P(deploy) as measured: the model's own alone, Jev's with Jev.</span>
+<section aria-labelledby="trials-h">
+<h2 id="trials-h">Trials</h2>
+<div class="keys"><span>P(deploy): the model's own belief alone, Jev's with Jev. Vertical line: the version check.</span>
 <code class="vc">version check</code><code class="trap">trap</code><code class="noise">noise</code></div>
-<details><summary>{_n(len(rows), "trial")}: checks in order and how P(deploy) moved</summary>{trials(rows)}</details>
+<details><summary>{_n(len(rows), "trial")}: checks in order, P(deploy) and answer</summary>{trials_table(rows)}</details>
 </section>
-<section class="method" aria-labelledby="how"><h2 id="how">How to read this</h2>
-<p>Right cause and mechanism are scored separately: naming the right hypothesis without the check
-that shows how it failed doesn't count as finding the mechanism. Changed course only counts trials
-where the deploy led right before the version check. Tokens are the reasoning model's; Jev's cost
-is not included. Five trials per cell shows direction, not significance.</p>
+<section class="two" aria-label="Method and submissions">
+<div><h2>Metrics</h2><dl class="defs">{defs}</dl></div>
+<div style="display:grid;gap:12px"><h2>Run it on your model</h2>
+<p class="muted">Any Anthropic model or OpenAI-compatible endpoint. Keys come from environment variables.</p>
+<pre>git clone https://github.com/mingleiw/jev-oncall
+cd jev-oncall
+export ANTHROPIC_API_KEY=... OPENAI_API_KEY=... TYPESAFE_API_KEY=...
+python3 rca_experiment.py --check --models openai:your-model
+python3 rca_experiment.py --models openai:your-model \\
+  --trials 5 --forced --html rca_report.html</pre>
+<p class="muted">Frozen evidence, fixed check menu, answers kept in separate files the agent never sees.
+Few trials per system: read the intervals before the ranks.</p></div>
 </section>
-</main>"""
+</main>
+<script>{JS}</script>"""
     if not standalone:
         return body
     head, main = body.split("<main>", 1)

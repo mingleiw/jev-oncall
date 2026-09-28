@@ -108,12 +108,13 @@ python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
    state's beliefs and Jev scores, the checks, the final answer, token usage, and
    the scenario name and digest. `--report` re-scores any trace file, so scoring changes
    don't need new runs.
-5. `--html rca_report.html` also writes the results as one page: every model and
-   setup ranked, overall and per scenario (right cause first, then mechanism, then
-   changing course), each model alone vs with Jev, tokens and seconds per trial, and
-   every trial's checks in order with a small chart of how P(deploy) moved. It works
-   after a run or with `--report`; `--note` adds a notice at the top, for example to
-   mark test data.
+5. `--html rca_report.html` also writes the results as a leaderboard page, laid out
+   like an open model benchmark: each system (a model alone, or the model + Jev)
+   ranked by % Resolved (right cause and its mechanism), with the raw count and a 95%
+   confidence interval, a tab per scenario, a chart of each model alone vs + Jev,
+   tokens and time per trial, and every trial's checks and how P(deploy) moved. It
+   works after a run or with `--report`; `--note` adds a notice at the top, for
+   example to mark test data.
 
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
 list) narrows it. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`

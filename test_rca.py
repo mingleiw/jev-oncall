@@ -519,19 +519,35 @@ class HtmlReport(unittest.TestCase):
                 dict(rca.run_trial(SCENARIO, "jev", switched, FakeJev()), model="test:m",
                      scenario="pool_etl_cron", trial=1)]
 
-    def test_ranks_models_and_compares_alone_with_jev(self):
+    def test_ranks_systems_by_resolved_with_counts_and_intervals(self):
         import rca_report
         page = rca_report.render(self.traces(), note="Test data only.")
         self.assertTrue(page.startswith("<!doctype html>"))
         self.assertIn("<title>RCA Leaderboard</title>", page.split("</head>")[0])
         self.assertIn("Test data only.", page)
         board = rca_report.leaderboard(rca_report.scored(self.traces()))
-        self.assertEqual([setup for _, setup, _ in board], ["jev", "alone"])  # right cause ranks first
-        self.assertIn("better with Jev", page)
-        self.assertIn('<span class="val">0/1</span><span class="arrow" aria-hidden="true">→</span>'
-                      '<span class="val">1/1</span>', page)
-        self.assertIn("1 trial<", page)
-        self.assertNotIn("%", page.split("<main>")[1].split("<section")[1])  # counts, not percentages
+        self.assertEqual([setup for _, setup, _ in board], ["jev", "alone"])
+        self.assertIn('<span class="name">m</span><span class="tag">+ Jev</span>', page)
+        self.assertIn("Test stand-in", page)  # the vendor, from the test: prefix
+        self.assertIn("1/1 · CI 21–100", page)  # headline score with count and 95% interval
+        self.assertIn("0/1 · CI 0–79", page)
+        self.assertIn('role="tab"', page)
+        self.assertIn("Does Jev help?", page)
+
+    def test_wilson_interval(self):
+        import rca_report
+        self.assertEqual(rca_report.wilson(0, 0), (0.0, 0.0))
+        lo, hi = rca_report.wilson(5, 10)
+        self.assertAlmostEqual(lo, 0.2366, places=3)
+        self.assertAlmostEqual(hi, 0.7634, places=3)
+
+    def test_unfinished_counts_as_not_resolved(self):
+        import rca_report
+        t = self.traces()[1]
+        t = dict(t, final=None, status="unfinished")
+        (_, s, _), = rca_report.scored([t])
+        self.assertFalse(s["resolved"])
+        self.assertEqual(rca_report.rate([s], "correct_hypothesis"), (0, 1))
 
     def test_trace_text_is_escaped(self):
         import rca_report
