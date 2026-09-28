@@ -106,6 +106,22 @@ clock, shadow mode, webhook signing and each provider's mapping.
 [guide/evaluation.md](guide/evaluation.md) covers replaying labeled history, choosing
 thresholds, and a measured latency run.
 
+## RCA experiment
+
+When a deploy looks guilty and the next query clears it, does an agent change course?
+`rca_experiment.py` runs any model on frozen incidents, alone and with Jev re-scoring
+every hypothesis after each check, and writes a ranked leaderboard page.
+
+```
+python3 rca_experiment.py --dry-run                          # the prompts and plan; no keys
+python3 rca_experiment.py --check --models anthropic:claude-opus-5
+python3 rca_experiment.py --models anthropic:claude-opus-5 --trials 5 --forced --html rca_report.html
+```
+
+It needs a key for each model you test (or none, for a model you run yourself) and
+`TYPESAFE_API_KEY` for the "+ Jev" rows. [guide/rca.md](guide/rca.md) covers the
+scenarios, the metrics, and running it on free or local models.
+
 ## Development
 
 ```
