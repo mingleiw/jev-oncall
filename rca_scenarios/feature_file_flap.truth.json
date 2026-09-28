@@ -8,7 +8,8 @@
     "analytics-db",
     "access-grant",
     "grant migration",
-    "system.columns"
+    "system.columns",
+    "permissions cleanup"
   ],
   "mechanism": "The analytics-db access-grant migration makes the feature-list query also return rows from the shard databases, so on migrated nodes it lists every feature several times. The bot feature file generated from it has 212 entries, over the edge-proxy's preallocated limit of 200, and nodes panic when they load it. The file is regenerated every 5 minutes on a random node, so errors flap as good and bad files alternate.",
   "mechanism_checks": [
@@ -83,6 +84,9 @@
     },
     "office_vpn": {
       "notes": "Noise: unrelated to the edge errors."
+    },
+    "dns_resolution": {
+      "rules_out": "dns"
     }
   }
 }

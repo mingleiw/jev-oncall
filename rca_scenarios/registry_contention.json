@@ -5,25 +5,25 @@
     "description": "service-registry (5-node cluster used for service discovery and config by every backend service): p50 key-value write latency 2.1s (normal under 300ms). Backend services timing out on registry lookups; game sessions failing to start (58% failure).",
     "started_at": "2026-09-23T19:52:00Z"
   },
-  "initial_context": "Shown before any check. Last Thursday, registry node reg-03 fired two disk-latency alerts, and a hardware ticket for it is still open with the vendor. Recent changes: yesterday 16:00 UTC the registry's 'streaming' delivery mode (sends changes to clients as a stream instead of long-polling, to cut CPU) was enabled for the traffic-routing services, ramping from 10% to 100% of their clients by 19:30 today. 18:10 UTC today matchmaking-api v12.8 deployed. Traffic is at its weekly Saturday peak.",
+  "initial_context": "Shown before any check. Registry node reg-03 fired disk-latency alerts last Thursday and again at 19:48 today (fsync p99 180ms for two minutes); a hardware ticket for it is open with the vendor. Changes in the last 48 hours: registry 'streaming' delivery mode being rolled out to more client services (started yesterday; planned CPU saving); 18:10 today matchmaking-api v12.8; Tuesday registry-client library bump in 40 services. Traffic is at its weekly Saturday peak.",
   "hypotheses": {
     "hardware": "A failing disk or node in the registry cluster is slowing writes.",
-    "streaming": "A recent change in how the registry delivers updates causes contention inside the registry.",
-    "matchmaking_release": "The matchmaking-api v12.8 deploy is overloading the registry with requests.",
+    "streaming": "A recent registry configuration change is degrading its performance.",
+    "matchmaking_release": "The matchmaking-api v12.8 deploy is overloading the registry.",
     "load": "Peak traffic is more than the registry cluster can handle.",
-    "storage": "The registry's on-disk data store has grown or fragmented, making each write slow."
+    "storage": "The registry's on-disk data store has grown or fragmented, making writes slow."
   },
   "checks": {
     "node_health": {
       "description": "Per-node disk, CPU and memory health for the 5 registry nodes, and write latency per node.",
-      "result": "All 5 nodes: disk health checks passing, fsync p99 3-5ms, no disk errors (reg-03's disk was replaced on Monday). Write latency is the same on every node, leader and followers alike: p50 2.0-2.2s. CPU 55-62% on each node."
+      "result": "All 5 nodes pass disk health checks. reg-03: fsync p99 180ms from 19:48 to 19:50, 4ms since; the other nodes 3-5ms throughout. Write latency is the same on every node, leader (reg-01) and followers alike: p50 2.0-2.2s, including during reg-03's normal periods. CPU 55-62% on each node."
     },
     "request_rate": {
       "description": "Requests to the registry per second, by client service.",
       "result": "Total 410k/s at 19:50, vs 395k/s at the same time last Saturday. matchmaking-api: 22k/s before and after its 18:10 deploy. No client grew by more than 6% day over day."
     },
     "latency_history": {
-      "description": "Registry write latency p50 over the last 36 hours, with the streaming rollout marked.",
+      "description": "Registry write latency p50 over the last 36 hours, alongside recent change events.",
       "result": "p50 write latency 180-260ms until 19:35 today, including last Saturday's peak at the same load. Streaming reached 50% of traffic-routing clients at 15:00 today: p50 290ms. 100% at 19:30: p50 900ms at 19:40, 2.1s at 19:50."
     },
     "registry_profile": {

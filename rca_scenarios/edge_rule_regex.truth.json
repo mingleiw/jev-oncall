@@ -19,7 +19,9 @@
       "regex",
       "regular expression",
       "backtrack",
-      "pattern"
+      "pattern",
+      "100894",
+      "expensive"
     ],
     [
       "cpu"
@@ -72,6 +74,9 @@
     },
     "cert_renewals": {
       "notes": "Noise: unrelated to the edge CPU exhaustion."
+    },
+    "log_shipper_usage": {
+      "rules_out": "log_shipper"
     }
   }
 }

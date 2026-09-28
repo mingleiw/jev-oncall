@@ -5,13 +5,14 @@
     "description": "edge-proxy: 5xx rate swinging between 1% and 45% every few minutes on all points of presence since 11:21 UTC (threshold 1%).",
     "started_at": "2026-09-22T11:24:00Z"
   },
-  "initial_context": "Shown before any check. At 11:31 UTC our public status page, hosted by a third-party provider and not behind our edge, also stopped loading. The on-call channel is discussing a possible large attack. Recent changes: 11:05 UTC analytics-db access-grant migration started, rolling across its 16 nodes one at a time ('make grants explicit for distributed queries'). 10:40 UTC bot-score service v8.4 deployed to all regions. 09:15 UTC edge-proxy v57.0 rolled to 50% of nodes (the other half still run v56.3).",
+  "initial_context": "Shown before any check. At 11:31 UTC our public status page, hosted by a third-party provider and not behind our edge, also stopped loading. Last month a peer was hit by a pulsed HTTP flood that switched on and off every few minutes, and the on-call channel suspects the same. Changes in the last 24 hours: 11:05 analytics-db permissions cleanup, rolling node by node; 10:40 bot-score service v8.4 to all regions; 10:00-12:00 DNS provider scheduled maintenance; 09:15 edge-proxy v57.0 to 50% of nodes (the other half run v56.3).",
   "hypotheses": {
     "attack": "An attack is overloading the edge and our status page.",
-    "config_file": "A configuration file the edge loads is being generated wrong, and nodes fail when they load it.",
+    "config_file": "Configuration or data pushed to the edge nodes is making them fail.",
     "proxy_release": "The edge-proxy v57.0 release introduced a bug.",
     "bot_score_release": "The bot-score service v8.4 deploy returns bad responses that fail requests.",
-    "kv_store": "The edge key-value store is failing, and requests that read from it error."
+    "kv_store": "The edge key-value store is failing, and requests that read from it error.",
+    "dns": "The DNS provider maintenance is breaking name resolution for the edge."
   },
   "checks": {
     "traffic_by_source": {
@@ -65,6 +66,10 @@
     "office_vpn": {
       "description": "Office VPN connectivity.",
       "result": "London office VPN reconnect storm at 11:02-11:04 UTC after a firewall firmware update; stable since."
+    },
+    "dns_resolution": {
+      "description": "DNS resolution success and latency for edge and origin names.",
+      "result": "Resolution success 99.99%, p99 12ms throughout 10:00-11:40 UTC. The provider's maintenance touched only its management API."
     }
   },
   "version_check": "traffic_by_source",
