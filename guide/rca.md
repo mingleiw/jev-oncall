@@ -71,6 +71,16 @@ simplify: each scenario has one cause, so contributing factors in the original (
 storage bug at Roblox, the provisioning limits at Slack) are either ruled out or shown
 as later effects.
 
+The first version of these five gave the answer away. In DeepSeek's run
+(`rca_results/2026-09-28-v4-deepseek/`) the model favoured the true cause before any
+check in three of them, because hypotheses were worded as the mechanism ("the release
+pushed at 13:42 makes request processing too expensive") and the initial context
+singled out the real change. The current version words hypotheses neutrally, lists the
+real change as one routine change among several, adds a distractor change with its own
+hypothesis in two scenarios, and gives the decoy fresh evidence (flood alerts, a disk
+alert minutes earlier, the provider's own outage notice). Traces record the scenario
+digest: don't pool runs from before and after this change.
+
 To add a scenario, drop a `<name>.json` and `<name>.truth.json` pair in the folder,
 following the existing ones; the scenario tests check its shape and run the leak test
 on it automatically. Put the source of an adapted incident in the truth file, never in

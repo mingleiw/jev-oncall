@@ -8,7 +8,7 @@
   "initial_context": "Shown before any check. Today is the first working Monday after a two-week holiday break. Recent changes: 13:45 UTC chat-web v3.8.0 rolled to 6 of 12 web pools (the other 6 still run v3.7.2). Change summary: 'Send the full workspace bootstrap on first connect after long idle; client cache TTL raised to 14 days.' 09:00 UTC: database connection proxy config change (idle timeout 300s to 600s).",
   "hypotheses": {
     "deploy": "The chat-web v3.8.0 deploy introduced a regression that causes the errors.",
-    "network_gateway": "A network component between our tiers is dropping packets under the traffic surge.",
+    "network_gateway": "A network problem between our tiers.",
     "capacity": "The web tier does not have enough instances for the load.",
     "database": "The databases are slow or overloaded, so web requests time out.",
     "provisioning": "The system that sets up new instances is failing, and broken instances are serving traffic."

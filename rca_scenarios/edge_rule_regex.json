@@ -2,21 +2,22 @@
   "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
   "incident": {
     "title": "EdgeProxy5xxGlobal",
-    "description": "edge-proxy: 502 rate 71% across all 48 points of presence (threshold 1%); CPU at 99-100% on every edge node.",
+    "description": "edge-proxy: 502 rate 71% across all 48 points of presence (threshold 1%); CPU at 99-100% on every edge node. Flood detection raised 'elevated' at Frankfurt, Paris and Madrid at 13:43.",
     "started_at": "2026-09-21T13:44:00Z"
   },
-  "initial_context": "Shown before any check. The security team reports a large HTTP flood campaign hitting two peer companies since this morning, from rotating residential IPs. Recent changes: 13:42 UTC firewall-rules release 2026.09.21-3 pushed through the config channel, which reaches every edge node within seconds ('Add 3 managed rules for script injection patterns'). 09:00 UTC edge-proxy v41.2 rolled to the 5% canary group (the other 95% still run v41.1). Yesterday 17:00 UTC: new transit provider added in Frankfurt.",
+  "initial_context": "Shown before any check. Since 11:00 UTC the security team has been tracking an HTTP flood campaign from rotating residential IPs against two peer CDNs, and warned this morning that we are a likely next target. Changes in the last 24 hours, each of a kind that ships routinely: 13:42 weekly firewall managed-rules update (release 2026.09.21-3); 12:10 log-shipper config change on all edge nodes (adds two fields); 09:00 edge-proxy v41.2 to the 5% canary group (the other 95% run v41.1); yesterday 17:00 new transit provider added in Frankfurt.",
   "hypotheses": {
-    "attack": "An HTTP flood attack is overloading the edge nodes.",
-    "rule_push": "The firewall-rules release pushed at 13:42 makes request processing too expensive.",
-    "proxy_release": "The edge-proxy v41.2 release introduced a CPU regression.",
-    "origin": "Customer origins are failing, and the edge is passing their errors on.",
-    "network": "A network or routing problem is breaking connectivity at the edge."
+    "attack": "Malicious traffic is overloading the edge.",
+    "rule_push": "A firewall rules update made request processing more expensive.",
+    "proxy_release": "The edge-proxy canary release has a CPU regression.",
+    "log_shipper": "The log-shipper config change is using CPU on edge nodes.",
+    "origin": "Customer origins are failing and the edge is passing their errors on.",
+    "network": "A network or routing problem at the edge, such as the new transit provider."
   },
   "checks": {
     "traffic_sources": {
       "description": "Edge request rate, split by source network and client reputation.",
-      "result": "13:30-13:50 UTC. Requests per second: 13:40 41.2M; 13:43 40.8M; 13:46 12.1M; 13:49 11.7M (served requests fell as errors rose). Offered requests per second at the load balancers: 40-42M throughout, same as this hour last week. Top 10 source networks: 3.1% of requests, the usual share. Requests flagged by the flood-detection system: 0.02%, normal."
+      "result": "13:30-13:50 UTC. Requests per second: 13:40 41.2M; 13:43 40.8M; 13:46 12.1M; 13:49 11.7M (served requests fell as errors rose). Offered requests per second at the load balancers: 40-42M throughout, same as this hour last week. Top 10 source networks: 3.1% of requests, the usual share. Requests flagged by the flood-detection system: 0.02%, normal. The 'elevated' flags at Frankfurt, Paris and Madrid came from the detector's latency signal: request mix and per-source rates there are unchanged."
     },
     "cpu_by_version": {
       "description": "Edge node CPU, split by edge-proxy version.",
@@ -65,6 +66,10 @@
     "cert_renewals": {
       "description": "Customer certificate renewal queue.",
       "result": "2,140 renewals pending, 3 failed validation (customer DNS misconfigured). Queue normal for a Monday."
+    },
+    "log_shipper_usage": {
+      "description": "CPU and memory used by the log-shipper on edge nodes.",
+      "result": "log-shipper CPU 0.3-0.5% per node before and after the 12:10 change; memory unchanged. Edge CPU stayed at 38-45% from 12:10 until 13:42."
     }
   },
   "version_check": "traffic_sources",

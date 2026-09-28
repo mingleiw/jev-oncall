@@ -2,21 +2,21 @@
   "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
   "incident": {
     "title": "KubernetesNodesNotReady",
-    "description": "About 60% of Kubernetes nodes NotReady or unreachable across all 4 production regions since 06:04 UTC; ingestion and API error rates above 50%.",
+    "description": "Kubernetes nodes NotReady since 06:01 UTC, first in us-east-1 (main cloud provider); ingestion and API error rates above 50%.",
     "started_at": "2026-09-24T06:06:00Z"
   },
-  "initial_context": "Shown before any check. There is a change freeze this week: no application deploys in the last 40 hours. At 05:52 UTC our main cloud provider's status page posted 'Investigating elevated API error rates' for its us-east region. Our 4 regions run on 3 cloud providers (2 regions on the main provider, 1 each on the other two). Scheduled overnight: cluster certificate rotation job at 05:30 UTC.",
+  "initial_context": "Shown before any check. There is a change freeze this week: no application deploys in the last 40 hours. At 05:58 UTC our main cloud provider's status page posted 'Degraded network connectivity for some instances in us-east' (investigating). Our 4 regions run on 3 cloud providers (2 regions on the main provider, 1 each on the other two). Scheduled overnight: cluster certificate rotation job at 05:30 UTC; node OS images are maintained by the platform team.",
   "hypotheses": {
     "provider": "A cloud provider outage is taking our nodes down.",
-    "host_update": "An automatic change on the hosts themselves broke their networking.",
+    "host_update": "Something changed on the nodes themselves.",
     "certificates": "Rotated or expired cluster certificates stop nodes from talking to the control plane.",
-    "network_plugin": "The container network plugin (its version or config) broke pod networking.",
+    "network_plugin": "The container network plugin broke pod networking.",
     "control_plane": "The Kubernetes control plane is overloaded and marking healthy nodes NotReady."
   },
   "checks": {
     "failures_by_provider": {
       "description": "Share of nodes NotReady, by region and cloud provider, over time.",
-      "result": "All 4 regions on all 3 providers fail together: 06:00 0-1% NotReady; 06:04 38-44%; 06:10 57-63%. The provider with the status notice is no worse than the other two. Its us-east notice was resolved at 06:01 and concerned its management API, not running instances."
+      "result": "All 4 regions on all 3 providers fail: 06:00 0-1% NotReady; 06:04 38-44%; 06:10 57-63%. us-east-1 was first by 40 seconds. The main provider's notice was updated at 06:20: 'resolved at 06:12; affected under 1% of instances in one zone.' Our unaffected nodes in that zone are healthy, and the other two providers report no incidents."
     },
     "node_timeline": {
       "description": "When affected nodes lost connectivity, and which nodes were not affected.",
@@ -27,7 +27,7 @@
       "result": "node a: 06:03:12 unattended-upgrades: Installing systemd 249.11-0ubuntu3.12 (security). 06:03:19 systemd-networkd restarted. 06:03:19 systemd-networkd: removing foreign routes on eth0 (14 routes). 06:03:20 kubelet: pod network unreachable. Nodes b and c: the same sequence at 06:21 and 06:47."
     },
     "package_history": {
-      "description": "Automatic package updates applied across the fleet in the last 24 hours.",
+      "description": "Package changes on nodes in the last 24 hours.",
       "result": "security-updates channel (enabled on the Ubuntu 22.04 image, window 06:00-07:00 UTC with random delay): systemd security release installed on 61% of nodes between 06:00 and 06:58. No other package changes."
     },
     "cert_status": {
