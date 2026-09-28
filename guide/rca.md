@@ -49,10 +49,16 @@ Same model, scenario, check menu, and prompt wording in both.
 
 - **alone**: after every observation the model reports its beliefs over all
   hypotheses as JSON, then picks a check or gives a final answer (hypothesis,
-  component, mechanism, cited evidence). Its own beliefs are measured.
+  component, mechanism, cited evidence).
 - **jev**: the same, but before the first check and after every check Jev re-scores
-  every hypothesis on all the evidence so far, and the model sees those scores. Jev's
-  distribution is the belief measured.
+  every hypothesis on all the evidence so far, and the model sees those scores.
+
+The belief metrics measure the **model's own stated belief in both setups**, so the
+alone and + Jev columns compare the same thing. Jev's scores are reported separately,
+as their own lines ("Jev: changed direction", and a Jev row in the page's belief
+table). Mixing them would compare two different believers: in the first pilot, Jev
+started at P(deploy) = 1.0 and still ranked the deploy first after the version check,
+while the model alone moved off it.
 
 Jev gets one call per state: a Choice question over the hypotheses ("which best
 explains all the evidence") and a Noul question per hypothesis ("does any observation
@@ -160,9 +166,8 @@ reliably, or if Jev's scores move but the final answers don't improve.
   Two independent authors is better than one, but both scenarios share a shape
   (pool exhaustion, a deploy decoy). Recorded incidents would be better still.
 - **Few trials.** Five trials per cell show direction, not significance.
-- **Measured belief differs by setup.** Alone measures the model's stated beliefs,
-  which may not be calibrated; jev measures Jev's. The final-answer metrics are
-  comparable across setups either way.
+- **Stated beliefs.** The belief metrics use what the model says its probabilities
+  are, which may not be calibrated. The final-answer metrics don't depend on them.
 - **Keyword scoring.** Mechanism and component checks match words in the answer.
   Read the traces of any surprising trial.
 - **A frozen menu.** The agent picks from fixed checks rather than writing

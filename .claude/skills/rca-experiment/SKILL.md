@@ -15,9 +15,13 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
   one, or write one to a file. Check presence with
   `python3 -c "import os;print({k: bool(os.environ.get(k)) for k in ('ANTHROPIC_API_KEY','OPENAI_API_KEY','OPENAI_BASE_URL','TYPESAFE_API_KEY')})"`.
   If one is missing, tell the user which variable to add in the environment settings.
-- **Don't change the scenarios, prompts or scoring mid-experiment.** If something must
-  change, bump `HARNESS_VERSION` in `rca_experiment.py`, and rerun everything:
-  results from different versions are not comparable.
+- **Don't change the scenarios, prompts or scoring mid-experiment.** If what the model
+  or Jev is sent must change, bump `HARNESS_VERSION` in `rca_experiment.py` and rerun
+  everything: results from different versions are not comparable. A scoring-only change
+  needs no rerun: `--report` re-scores saved traces.
+- **Belief metrics are the model's own stated belief in both setups.** Jev's scores are
+  reported on separate lines. Never compare the model's belief in one setup with Jev's
+  in the other.
 - **Report every trial.** Invalid replies, unfinished runs and errors count. Never drop
   or rerun a trial because its result looks wrong; `--resume` only retries trials that
   failed with a model or network error.

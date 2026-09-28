@@ -28,8 +28,8 @@ RATES = [
      "Unfinished trials count as not resolved.", "all"),
     ("correct_hypothesis", "Right cause", "high", "Final hypothesis is the true one.", "all"),
     ("changed_direction", "Changed course", "high",
-     "Of trials where the deploy led right before the version check, the share where it no "
-     "longer led right after.", "applicable"),
+     "The model's own stated belief, in both setups: of trials where the deploy led right "
+     "before the version check, the share where it no longer led right after.", "applicable"),
     ("blamed_decoy", "Blamed deploy", "low", "Final answer blamed the deploy.", "all"),
     ("cited_trap", "Cited a trap", "low", "Cited a failed or empty query as evidence.", "applicable"),
 ]
@@ -206,24 +206,69 @@ def lift_chart(rows):
     return f'<div class="chart-wrap">{"".join(parts)}</div>{legend}'
 
 
+def _avg(scores, key):
+    v = _mean(scores, key)
+    return "–" if v is None else f"{v:.2f}"
+
+
+def belief_table(rows):
+    """P(deploy) across the version check: the model's own belief in both setups, and
+    Jev's scores on the + Jev rows, so the two believers are never mixed."""
+    by = {}
+    for t, s, _ in rows:
+        by.setdefault(t.get("model", "?"), {}).setdefault(t["setup"], []).append(s)
+    body = []
+    for model in sorted(by):
+        _, name = split_model(model)
+        lines = [("alone", "model", "", by[model].get("alone", [])),
+                 ("jev", "model", "", by[model].get("jev", [])),
+                 ("jev", "Jev's scores", "jev_", by[model].get("jev", []))]
+        for setup, who, pre, scores in lines:
+            if not scores:
+                continue
+            k, n = rate(scores, pre + "changed_direction")
+            tag = '<span class="tag">+ Jev</span>' if setup == "jev" else ""
+            label = f'<span class="sys"><span class="name">{_e(name)}</span>{tag}</span>'
+            body.append(f'<tr class="{"jevrow" if pre else ""}"><th scope="row">{label}</th>'
+                        f'<td>{_e(who)}</td>'
+                        f'<td class="num">{_avg(scores, pre + "p_decoy_start")}</td>'
+                        f'<td class="num">{_avg(scores, pre + "p_decoy_before")}</td>'
+                        f'<td class="num">{_avg(scores, pre + "p_decoy_after")}</td>'
+                        f'<td class="num">{_avg(scores, pre + "p_decoy_drop")}</td>'
+                        f'<td class="num">{f"{k}/{n}" if n else "–"}</td></tr>')
+    return ('<div class="scroll"><table class="beliefs"><thead><tr><th scope="col">System</th>'
+            '<th scope="col">Whose belief</th><th scope="col" class="num">At start</th>'
+            '<th scope="col" class="num">Before version check</th><th scope="col" class="num">After</th>'
+            '<th scope="col" class="num">Drop</th><th scope="col" class="num" '
+            'title="Deploy led before the version check and not after, of trials where it led">'
+            'Changed course</th></tr></thead>'
+            f'<tbody>{"".join(body)}</tbody></table></div>')
+
+
 def sparkline(trace, truth):
     """Measured P(deploy) at each state, with the version check marked."""
-    beliefs = rca.measured_beliefs(trace)
     decoy = truth["decoy"]
-    pts = [(i, b[decoy]) for i, b in enumerate(beliefs) if b]
-    if len(pts) < 2:
+    model = [(i, b[decoy]) for i, b in enumerate(rca.measured_beliefs(trace)) if b]
+    jev = ([(i, b[decoy]) for i, b in enumerate(rca.jev_beliefs(trace)) if b]
+           if trace["setup"] == "jev" else [])
+    if len(model) < 2 and len(jev) < 2:
         return '<span class="muted">–</span>'
     w, h, pad = 120, 32, 4
-    n = max(len(beliefs) - 1, 1)
+    n = max(len(trace["states"]) - 1, 1)
     x = lambda i: pad + (w - 2 * pad) * i / n
     y = lambda p: pad + (h - 2 * pad) * (1 - p)
-    path = " ".join(f"{'M' if k == 0 else 'L'}{x(i):.1f},{y(p):.1f}" for k, (i, p) in enumerate(pts))
+    line = lambda pts, cls: ('<path class="%s" d="%s"/>' % (cls, " ".join(
+        f"{'M' if k == 0 else 'L'}{x(i):.1f},{y(p):.1f}" for k, (i, p) in enumerate(pts)))
+        if len(pts) >= 2 else "")
     marker = ""
     if truth["version_check"] in trace["observed"]:
         k = trace["observed"].index(truth["version_check"]) + 1
         marker = f'<line class="vc" x1="{x(k):.1f}" x2="{x(k):.1f}" y1="{pad}" y2="{h - pad}"/>'
+    label = (f"model P(deploy) {model[0][1]:.2f} to {model[-1][1]:.2f}" if len(model) >= 2 else "")
+    if len(jev) >= 2:
+        label += f"; Jev {jev[0][1]:.2f} to {jev[-1][1]:.2f}"
     return (f'<svg class="spark" viewBox="0 0 {w} {h}" width="{w}" height="{h}" role="img" '
-            f'aria-label="P(deploy) from {pts[0][1]:.2f} to {pts[-1][1]:.2f}">{marker}<path d="{path}"/></svg>')
+            f'aria-label="{_e(label)}">{marker}{line(jev, "jevline")}{line(model, "model")}</svg>')
 
 
 def trials_table(rows):
@@ -333,6 +378,10 @@ code.noise{color:var(--muted);text-decoration:line-through}
 .ans.none{color:var(--muted);background:var(--soft)}
 .spark{display:block}
 .spark path{fill:none;stroke:var(--ink);stroke-width:1.5}
+.spark path.jevline{stroke:var(--accent);stroke-dasharray:3 2}
+tr.jevrow>*{background:var(--accent-soft)}
+.key-model,.key-jev{display:inline-block;width:18px;height:0;border-top:2px solid var(--ink);vertical-align:middle;margin-right:4px}
+.key-jev{border-top:2px dashed var(--accent)}
 .spark .vc{stroke:var(--vc);stroke-width:1.5}
 .keys{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--muted);align-items:center}
 .keys code{font-size:12px;padding:3px 5px;border-radius:4px;background:var(--soft)}
@@ -428,9 +477,15 @@ interval. Click a column to sort; hover it for its definition.</p>
 <h2 id="lift-h">Does Jev help? % Resolved, alone vs + Jev</h2>
 {lift_chart(rows)}
 </section>
+<section aria-labelledby="belief-h">
+<h2 id="belief-h">Belief in the deploy, across the version check</h2>
+<p class="muted">Mean P(deploy). The model's own stated belief is measured in both setups; on + Jev rows,
+Jev's scores are shown on their own line. A bigger drop from a higher start is not the same as changing course.</p>
+{belief_table(rows)}
+</section>
 <section aria-labelledby="trials-h">
 <h2 id="trials-h">Trials</h2>
-<div class="keys"><span>P(deploy): the model's own belief alone, Jev's with Jev. Vertical line: the version check.</span>
+<div class="keys"><span><i class="key-model"></i>model's P(deploy)</span><span><i class="key-jev"></i>Jev's P(deploy)</span><span>Vertical line: the version check.</span>
 <code class="vc">version check</code><code class="trap">trap</code><code class="noise">noise</code></div>
 <details><summary>{_n(len(rows), "trial")}: checks in order, P(deploy) and answer</summary>{trials_table(rows)}</details>
 </section>

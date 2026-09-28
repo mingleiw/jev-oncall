@@ -482,32 +482,46 @@ def _top(dist):
 
 
 def measured_beliefs(trace):
-    """The belief being measured at each state: Jev's in the jev setup, the model's alone."""
-    if trace["setup"] == "jev":
-        return [(s.get("jev") or {}).get("beliefs") for s in trace["states"]]
+    """The belief the metrics measure: the model's own stated belief at each state, in
+    both setups, so alone and + Jev compare the same thing."""
     return [s.get("model_beliefs") for s in trace["states"]]
 
 
-def score_trial(trace, truth):
+def jev_beliefs(trace):
+    """Jev's scores at each state (jev setup only), reported beside the model's."""
+    return [(s.get("jev") or {}).get("beliefs") for s in trace["states"]]
+
+
+def belief_shift(beliefs, observed, truth, prefix=""):
+    """How P(decoy) and the top hypothesis moved across the version check."""
     decoy, vcheck = truth["decoy"], truth["version_check"]
-    beliefs = measured_beliefs(trace)
-    observed = trace["observed"]
-    out = {"finished": trace["final"] is not None,
-           "jev_errors": sum(1 for s in trace["states"] if s.get("jev_error"))}
-
     first = beliefs[0] if beliefs else None
-    out["decoy_led_initially"] = _top(first) == decoy if first else None
-
-    out["ran_version_check"] = vcheck in observed
-    out["changed_direction"] = out["p_decoy_drop"] = None
+    out = {f"{prefix}decoy_led_initially": _top(first) == decoy if first else None,
+           f"{prefix}p_decoy_start": round(first[decoy], 3) if first else None,
+           f"{prefix}changed_direction": None, f"{prefix}p_decoy_drop": None,
+           f"{prefix}p_decoy_before": None, f"{prefix}p_decoy_after": None}
     if vcheck in observed:
         k = observed.index(vcheck) + 1  # states[k] is right after the version check
-        before, after = beliefs[k - 1], beliefs[k] if k < len(beliefs) else None
+        before = beliefs[k - 1] if k - 1 < len(beliefs) else None
+        after = beliefs[k] if k < len(beliefs) else None
         if before and after:
-            out["p_decoy_before"], out["p_decoy_after"] = round(before[decoy], 3), round(after[decoy], 3)
-            out["p_decoy_drop"] = round(before[decoy] - after[decoy], 3)
+            out[f"{prefix}p_decoy_before"] = round(before[decoy], 3)
+            out[f"{prefix}p_decoy_after"] = round(after[decoy], 3)
+            out[f"{prefix}p_decoy_drop"] = round(before[decoy] - after[decoy], 3)
             # Changing direction needs a direction to change from.
-            out["changed_direction"] = (_top(after) != decoy) if _top(before) == decoy else None
+            out[f"{prefix}changed_direction"] = (_top(after) != decoy) if _top(before) == decoy else None
+    return out
+
+
+def score_trial(trace, truth):
+    observed = trace["observed"]
+    out = {"finished": trace["final"] is not None,
+           "jev_errors": sum(1 for s in trace["states"] if s.get("jev_error")),
+           "ran_version_check": truth["version_check"] in observed}
+    out.update(belief_shift(measured_beliefs(trace), observed, truth))
+    jev = jev_beliefs(trace) if trace["setup"] == "jev" else []
+    out.update(belief_shift(jev, observed, truth, prefix="jev_"))
+    decoy = truth["decoy"]
 
     final = trace["final"]
     if final:
@@ -536,6 +550,9 @@ METRICS = [
     ("ran_version_check", "count", "ran the version check"),
     ("changed_direction", "count", "changed direction after it"),
     ("p_decoy_drop", "mean", "mean drop in P(deploy)"),
+    ("jev_decoy_led_initially", "count", "Jev: decoy on top at start"),
+    ("jev_changed_direction", "count", "Jev: changed direction"),
+    ("jev_p_decoy_drop", "mean", "Jev: mean drop in P(deploy)"),
     ("correct_hypothesis", "count", "right hypothesis"),
     ("found_mechanism", "count", "found the mechanism"),
     ("named_component", "count", "named the component"),
