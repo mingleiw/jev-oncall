@@ -11,23 +11,29 @@ model **alone** vs the same model **with Jev**, not Jev against the models.
 
 ## The scenarios
 
-`rca_scenarios/` holds two frozen incidents, written independently by different
-authors so that neither author's sense of the answer is the only one tested. Both
-start the same way: database connection pool exhaustion takes down checkout, and
-before any check the agent is told about a `checkout-api` deploy, rolled to part of
-the fleet minutes earlier, whose change summary sounds relevant. It looks guilty. The
-causes differ:
+`rca_scenarios/` holds three frozen incidents. In each, before any check, the agent
+is told about a deploy rolled to part of the fleet minutes earlier, whose change
+summary sounds relevant. It looks guilty. The first two were written independently by
+different authors, so that neither author's sense of the answer is the only one
+tested:
 
-| | `pool_etl_cron` | `pool_lock_batch` |
-| --- | --- | --- |
-| True cause | An analytics cron job moved from 03:00 to peak hours; its long queries hold 73 of the pool's 200 connections | An archive batch job, triggered by hand at 14:01, holds row locks on `orders`, so checkout queries wait and hold their connections about 50 times longer |
-| Kind of failure | Direct resource use | Lock contention, seen first as slow queries |
-| Hypotheses / checks | 6 / 15 | 5 / 15 |
+| | `pool_etl_cron` | `pool_lock_batch` | `product_cache_partial` |
+| --- | --- | --- | --- |
+| Incident | Checkout down: database connection pool exhausted | Checkout down: database connection pool exhausted | Product pages slow and failing |
+| True cause | An analytics cron job moved from 03:00 to peak hours; its long queries hold 73 of the pool's 200 connections | An archive batch job, triggered by hand at 14:01, holds row locks on `orders`, so checkout queries wait and hold their connections about 50 times longer | A cache node replaced during maintenance came back empty; lookups fall through to the database, which saturates |
+| Version check | Clears the deploy: both versions fail alike | Clears the deploy: both versions fail alike | Only weakens it: the new version is worse (11.4% vs 7.1% errors), but the old one fails too |
+| Hypotheses / checks | 6 / 15 | 5 / 15 | 6 / 14 |
+
+`product_cache_partial` is the hard one, added after the first pilot showed a strong
+model solving the other two alone every time, leaving no room for Jev to help. Its
+deploy really is involved: a shorter cache TTL makes the new version recover more
+slowly. But it amplifies the outage rather than causing it, and an agent that stops at
+"the new version is worse" blames the wrong thing.
 
 Each scenario has:
 - telemetry frozen at one moment: metrics, logs, config, job schedules;
-- **a version check** showing the old and new versions fail at the same rate, from the
-  same moment, which contradicts the deploy;
+- **a version check** showing the old version failing too, from the same moment, which
+  contradicts the deploy as the cause (fully in the first two, partly in the third);
 - a check that rules out every wrong hypothesis;
 - **2 traps**, a query that times out and an empty result from a wrong service name,
   neither of which is evidence;
@@ -54,18 +60,16 @@ Same model, scenario, check menu, and prompt wording in all three.
   every hypothesis on all the evidence so far, and the model sees those scores: Jev's
   ranking (which hypothesis best explains the evidence) and a contradiction score for
   each.
-- **jev-contra**: Jev scores the same way, but the model sees only the hypotheses Jev
-  judges the evidence contradicts (P(contradicted) ≥ 0.5), most contradicted first,
-  and nothing before the first check, when there is no evidence to contradict. It
-  never sees Jev's ranking.
+- **jev-contra**: Jev scores the same way, but the model sees only the one hypothesis
+  Jev judges the evidence most contradicts, or that none is, and nothing before the
+  first check, when there is no evidence to contradict. It never sees Jev's ranking.
 
 Why a third setup: in the first pilot the model sometimes adopted Jev's ranking
 wholesale, including Jev's overconfident start (P(deploy) of 0.88 to 1.0 before any
 evidence). After the version check, Jev's contradiction score for the deploy was
 right (0.75) while its ranking still put the deploy first, and the model followed the
 ranking. jev-contra tests whether Jev helps when it only says what the evidence rules
-out. Adding it changed nothing the other two setups send, so their traces stay
-comparable across versions.
+out.
 
 The belief metrics measure the **model's own stated belief in every setup**, so the
 alone and + Jev columns compare the same thing. Jev's scores are reported separately,
@@ -74,9 +78,15 @@ table). Mixing them would compare two different believers: in the first pilot, J
 started at P(deploy) = 1.0 and still ranked the deploy first after the version check,
 while the model alone moved off it.
 
-Jev gets one call per state: a Choice question over the hypotheses ("which best
-explains all the evidence") and a Noul question per hypothesis ("does any observation
-contradict it"). It goes through `triage.call_jev`, the same client triage uses.
+Jev gets one call per state with two Choice questions: which hypothesis best explains
+all the evidence, and which one the evidence most contradicts (or none). It goes
+through `triage.call_jev`, the same client triage uses.
+
+Harness version 4 changed the second question. Version 3 asked a yes/no question per
+hypothesis ("is this one contradicted?"); in the pilot Jev answered yes for most of
+them at once, the true cause included, while still ranking the deploy highest. A
+single choice has to compare them. Version 3 traces still re-score with `--report`,
+but don't pool them with version 4.
 
 Fairness: what Jev is told about failed and empty queries is also in the model's
 system prompt, and Jev sees the same initial context the model does. Trials rotate
@@ -94,6 +104,8 @@ Reported as counts ("3/5"), per scenario, model and mode, with a column per setu
 | ran the version check | It chose (or, in forced mode, was given) `error-by-version` |
 | changed direction after it | The deploy led right before the version check and not right after. Trials where it didn't lead before are left out |
 | mean drop in P(deploy) | Measured P(deploy) before the version check minus after |
+| checks the deploy still led | Checks, from the version check on, for which the deploy was still the top hypothesis (ties count). How long the decoy survived the contradiction |
+| checks until the cause led | Checks until the true cause was the top hypothesis on its own. Separates agents that all reach the right answer by how fast they get there |
 | right hypothesis | The final hypothesis is the true one |
 | found the mechanism | Ran a check that shows it, and the answer says what changed and how it exhausted the pool. Scored apart from the hypothesis |
 | named the component | Names the job at fault, not just "the database" |
@@ -140,7 +152,8 @@ Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separ
 list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
 `--resume`: it skips finished trials and retries the ones that errored. The same
 command without `--resume` adds a new set of trials after the ones already in the file. Options: `--setup` (`all`, the default, or a comma-separated list of `alone`, `jev`,
-`jev-contra`), `--max-checks` (default 10), `--jev-model`
+`jev-contra`), `--max-checks` (default 6),
+`--max-tokens` (caps each model reply; use it for models that ramble), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
@@ -178,9 +191,9 @@ reliably, or if Jev's scores move but the final answers don't improve.
 
 ## Known limits
 
-- **Two scenarios, written by hand.** Each author knew their answer while writing it.
-  Two independent authors is better than one, but both scenarios share a shape
-  (pool exhaustion, a deploy decoy). Recorded incidents would be better still.
+- **Three scenarios, written by hand.** Each author knew their answer while writing
+  it. Two independent authors and a second incident shape help, but every scenario
+  has a deploy decoy. Recorded incidents would be better still.
 - **Few trials.** Five trials per cell show direction, not significance.
 - **Stated beliefs.** The belief metrics use what the model says its probabilities
   are, which may not be calibrated. The final-answer metrics don't depend on them.

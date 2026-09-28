@@ -1,0 +1,96 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "hypothesis": "cache",
+  "component": "product-cache",
+  "component_aliases": [
+    "product-cache",
+    "redis",
+    "cache cluster",
+    "cache node",
+    "cache primary"
+  ],
+  "mechanism": "The product-cache primary was replaced during host maintenance at 14:03 and came back empty, because persistence is disabled. Nearly every product lookup then missed the cache and fell through to products-db, whose query rate rose 12x; the database saturated and requests timed out waiting for connections on both versions. The v5.3.0 deploy made it worse, not the cause: its shorter cache TTL keeps its hit rate lower while the cache refills.",
+  "mechanism_checks": [
+    "cache_events",
+    "cache_hit_rate"
+  ],
+  "mechanism_keywords": [
+    [
+      "empty",
+      "failover",
+      "replaced",
+      "cold",
+      "flush",
+      "lost",
+      "restart",
+      "maintenance",
+      "wiped"
+    ],
+    [
+      "cache",
+      "redis"
+    ]
+  ],
+  "decoy": "deploy",
+  "version_check": "errors_by_version",
+  "traps": [
+    "cache_logs",
+    "service_logs"
+  ],
+  "noise": [
+    "cert_warnings",
+    "ci_queue",
+    "log_disk"
+  ],
+  "check_notes": {
+    "errors_by_version": {
+      "rules_out": "deploy",
+      "notes": "Weakens the deploy without clearing it: the new version is worse (11.4% vs 7.1%), but the old version, which has none of the change, fails too, starting at the same second, 9 minutes after the rollout ended. The deploy amplifies; it doesn't cause."
+    },
+    "deploy_diff": {
+      "notes": "Explains why v5.3.0 is worse (shorter TTL, lower hit rate while refilling) but touches nothing that could break v5.2.9."
+    },
+    "cache_hit_rate": {
+      "supports": "cache",
+      "notes": "Hit ratio collapses at 14:04 on both versions; key count drops from 1.9M to 4,100."
+    },
+    "cache_events": {
+      "supports": "cache",
+      "notes": "The cause: the primary was replaced at 14:03 and started empty."
+    },
+    "db_metrics": {
+      "rules_out": "db_slow",
+      "notes": "The database is overloaded by 12x the queries, not degraded on its own: same statements, no slow-query or lock alerts."
+    },
+    "request_rate": {
+      "rules_out": "traffic",
+      "notes": "Traffic is normal."
+    },
+    "inventory_latency": {
+      "rules_out": "dependency",
+      "notes": "inventory-service is healthy, and v5.2.9 doesn't call it yet fails too."
+    },
+    "network_stats": {
+      "rules_out": "network",
+      "notes": "Network is normal."
+    },
+    "product_logs": {
+      "notes": "Cache misses falling through to the database on both versions, then database connection timeouts."
+    },
+    "cache_logs": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "service_logs": {
+      "notes": "Trap: Empty because the service name is wrong (product-api, not product-service)."
+    },
+    "cert_warnings": {
+      "notes": "Noise: unrelated."
+    },
+    "ci_queue": {
+      "notes": "Noise: unrelated."
+    },
+    "log_disk": {
+      "notes": "Noise: unrelated."
+    }
+  }
+}

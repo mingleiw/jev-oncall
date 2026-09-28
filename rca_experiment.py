@@ -45,12 +45,11 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 SCENARIO_DIR = os.path.join(BASE, "rca_scenarios")
 DEFAULT_SCENARIO = "pool_etl_cron"
 TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
-MAX_CHECKS = 10
+MAX_CHECKS = 6  # tight enough that wandering costs; the pilot's agents solved it in 3-7
 SETUPS = ("alone", "jev", "jev-contra")
 JEV_SETUPS = ("jev", "jev-contra")  # setups that call Jev
-CONTRA_SHOW = 0.5  # jev-contra shows a hypothesis once P(contradicted) reaches this
 DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5"}
-HARNESS_VERSION = 3  # bump when prompts or scoring change, so old traces stay tellable
+HARNESS_VERSION = 4  # bump when prompts or scoring change, so old traces stay tellable
 
 
 class ModelError(Exception):
@@ -134,11 +133,11 @@ def post_json(url, body, headers, timeout=600, retries=2):
     raise ModelError(last)
 
 
-def call_anthropic(model, system, messages, api_key):
+def call_anthropic(model, system, messages, api_key, max_tokens=None):
     """Returns (text, assistant message to append, usage)."""
     resp = post_json(
         "https://api.anthropic.com/v1/messages",
-        {"model": model, "max_tokens": 16000, "system": system, "messages": messages},
+        {"model": model, "max_tokens": max_tokens or 16000, "system": system, "messages": messages},
         {"x-api-key": api_key, "anthropic-version": "2023-06-01"})
     if resp.get("stop_reason") == "refusal":
         raise ModelError(f"refusal: {resp.get('stop_details')}")
@@ -159,11 +158,13 @@ def openai_url(base_url):
     return base + ("/chat/completions" if has_path else "/v1/chat/completions")
 
 
-def call_openai(model, system, messages, api_key, base_url=None):
+def call_openai(model, system, messages, api_key, base_url=None, max_tokens=None):
     # No token limit: newer OpenAI models reject max_tokens, and compatible
     # servers differ on the name of its replacement.
-    resp = post_json(openai_url(base_url),
-                     {"model": model, "messages": [{"role": "system", "content": system}, *messages]},
+    body = {"model": model, "messages": [{"role": "system", "content": system}, *messages]}
+    if max_tokens:  # opt-in: servers disagree on this field's name, but most accept it
+        body["max_tokens"] = max_tokens
+    resp = post_json(openai_url(base_url), body,
                      {"Authorization": f"Bearer {api_key}"} if api_key else {})
     try:
         text = resp["choices"][0]["message"]["content"] or ""
@@ -183,18 +184,18 @@ def parse_model_spec(spec):
     return provider, model or DEFAULT_MODELS[provider]
 
 
-def model_client(provider, model, env=None):
+def model_client(provider, model, env=None, max_tokens=None):
     """A callable (system, messages) -> (text, assistant_msg, usage)."""
     env = os.environ if env is None else env
     if provider == "anthropic":
         key = env.get("ANTHROPIC_API_KEY")
         if not key:
             raise ModelError("ANTHROPIC_API_KEY is not set")
-        return lambda system, messages: call_anthropic(model, system, messages, key)
+        return lambda system, messages: call_anthropic(model, system, messages, key, max_tokens)
     key, base_url = env.get("OPENAI_API_KEY"), env.get("OPENAI_BASE_URL")
     if not key and not base_url:
         raise ModelError("OPENAI_API_KEY is not set (a local server set with OPENAI_BASE_URL needs none)")
-    return lambda system, messages: call_openai(model, system, messages, key, base_url)
+    return lambda system, messages: call_openai(model, system, messages, key, base_url, max_tokens)
 
 
 # --------------------------------------------------------------------------
@@ -202,8 +203,13 @@ def model_client(provider, model, env=None):
 
 BEST_Q = ("Which hypothesis best explains all of the evidence observed so far? Weigh every "
           "observation, including any that contradict a hypothesis.")
-CONTRA_Q = ('Does any observation so far contradict this hypothesis: "{h}"? Answer yes only when '
-            "a specific observation is inconsistent with what the hypothesis predicts.")
+# One Choice rather than a yes/no per hypothesis: asked separately, Jev called most
+# hypotheses contradicted at once (the true cause included), which told the agent
+# nothing. A single choice has to compare them. Harness version 4.
+CONTRA_Q = ("Which hypothesis does the evidence observed so far most clearly contradict? Pick one "
+            "only when a specific observation is inconsistent with what it predicts; otherwise "
+            "pick 'none'.")
+NO_CONTRADICTION = "No observation so far contradicts any hypothesis"
 
 
 def evidence_text(scenario, observed):
@@ -216,8 +222,8 @@ def build_jev_payload(scenario, observed, model=None):
     hypotheses = scenario["hypotheses"]
     questions = {"best_explanation": {"type": "choice", "instructions": BEST_Q,
                                       "criteria": dict(hypotheses)}}
-    for hid, text in hypotheses.items():
-        questions[f"contradicted_{hid}"] = {"type": "noul", "instructions": CONTRA_Q.format(h=text)}
+    questions["most_contradicted"] = {"type": "choice", "instructions": CONTRA_Q,
+                                      "criteria": {**hypotheses, triage.NONE: NO_CONTRADICTION}}
     incident = scenario["incident"]
     return {
         "model": model or triage.MODEL,
@@ -231,17 +237,16 @@ def build_jev_payload(scenario, observed, model=None):
 
 
 def parse_jev_rca(resp, hypothesis_ids):
-    """Jev's answer as {"beliefs": dist, "contradicted": {h: p}}; JevError if malformed."""
+    """Jev's answer as {"beliefs": dist over hypotheses, "contradicted": dist over
+    hypotheses and "none"} (which one the evidence most contradicts); JevError if malformed."""
     try:
         answers = resp["answers"]
         beliefs = triage._distribution(answers["best_explanation"]["probabilities"],
                                        hypothesis_ids, "best_explanation")
-        contradicted = {}
-        for h in hypothesis_ids:
-            p = triage._validate_finite(answers[f"contradicted_{h}"]["noul"], f"contradicted_{h}")
-            if not 0.0 <= p <= 1.0:
-                raise triage.JevError(f"contradicted_{h}: probability {p} out of range")
-            contradicted[h] = p
+        triage._validate_choice_max(answers["best_explanation"], beliefs, "best_explanation")
+        contradicted = triage._distribution(answers["most_contradicted"]["probabilities"],
+                                            [*hypothesis_ids, triage.NONE], "most_contradicted")
+        triage._validate_choice_max(answers["most_contradicted"], contradicted, "most_contradicted")
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
     return {"beliefs": beliefs, "contradicted": contradicted, "model": str(resp.get("model"))}
@@ -304,20 +309,20 @@ def build_initial_prompt(scenario, max_checks=MAX_CHECKS):
 def format_jev_scores(scores):
     b, c = scores["beliefs"], scores["contradicted"]
     lines = ["## Jev's scores on all evidence so far",
-             "hypothesis: P(best explanation), P(contradicted by the evidence)"]
+             "hypothesis: P(best explanation), P(the evidence most contradicts it)"]
     return "\n".join(lines + [f"- `{h}`: {b[h]:.2f}, {c[h]:.2f}"
                               for h in sorted(b, key=lambda h: -b[h])])
 
 
 def format_jev_contradictions(scores):
-    """What the jev-contra setup shows: only the hypotheses Jev judges the evidence to
-    contradict, never its ranking, so there is no top pick to copy."""
+    """What the jev-contra setup shows: the one hypothesis Jev judges the evidence most
+    contradicts, or that none is, never its ranking, so there is no top pick to copy."""
     c = scores["contradicted"]
-    flagged = sorted((h for h in c if c[h] >= CONTRA_SHOW), key=lambda h: (-c[h], h))
-    lines = ["## Jev's check of every hypothesis against the evidence so far"]
-    if not flagged:
-        return "\n".join(lines + ["- No hypothesis is contradicted by the evidence so far."])
-    return "\n".join(lines + [f"- The evidence contradicts `{h}` (P = {c[h]:.2f})" for h in flagged])
+    h = _top(c)
+    lines = ["## Jev's check of the hypotheses against the evidence so far"]
+    if h == triage.NONE:
+        return "\n".join(lines + ["- No hypothesis is clearly contradicted by the evidence so far."])
+    return "\n".join(lines + [f"- The evidence most contradicts `{h}` (P = {c[h]:.2f})"])
 
 
 def format_jev(scores, setup):
@@ -411,8 +416,9 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
     setups, Jev's full scores, whatever part of them the model was shown.
 
     jev shows the model Jev's ranking and contradiction scores at every state.
-    jev-contra shows only the hypotheses Jev judges contradicted, and nothing before
-    the first check: with no evidence yet, there is nothing to contradict.
+    jev-contra shows only the one hypothesis Jev judges the evidence most contradicts
+    (or that none is), and nothing before the first check: with no evidence yet,
+    there is nothing to contradict.
     """
     if setup not in SETUPS:
         raise ValueError(f"unknown setup {setup!r}")
@@ -521,13 +527,20 @@ def jev_beliefs(trace):
 
 
 def belief_shift(beliefs, observed, truth, prefix=""):
-    """How P(decoy) and the top hypothesis moved across the version check."""
-    decoy, vcheck = truth["decoy"], truth["version_check"]
+    """How P(decoy) and the top hypothesis moved across the version check, and how
+    many checks it took for the true cause to lead on its own."""
+    decoy, vcheck, cause = truth["decoy"], truth["version_check"], truth["hypothesis"]
     first = beliefs[0] if beliefs else None
     out = {f"{prefix}decoy_led_initially": _top(first) == decoy if first else None,
            f"{prefix}p_decoy_start": round(first[decoy], 3) if first else None,
            f"{prefix}changed_direction": None, f"{prefix}p_decoy_drop": None,
-           f"{prefix}p_decoy_before": None, f"{prefix}p_decoy_after": None}
+           f"{prefix}p_decoy_before": None, f"{prefix}p_decoy_after": None,
+           f"{prefix}decoy_held": None,
+           # states[k] follows the k-th check, so the first k where the cause leads
+           # outright is the number of checks it took.
+           f"{prefix}checks_to_cause": next(
+               (k for k, b in enumerate(beliefs)
+                if b and cause in b and all(b[cause] > p for h, p in b.items() if h != cause)), None)}
     if vcheck in observed:
         k = observed.index(vcheck) + 1  # states[k] is right after the version check
         before = beliefs[k - 1] if k - 1 < len(beliefs) else None
@@ -538,6 +551,14 @@ def belief_shift(beliefs, observed, truth, prefix=""):
             out[f"{prefix}p_decoy_drop"] = round(before[decoy] - after[decoy], 3)
             # Changing direction needs a direction to change from.
             out[f"{prefix}changed_direction"] = (not _leads(after, decoy)) if _leads(before, decoy) else None
+            if _leads(before, decoy):
+                # Checks, from the version check on, for which the decoy still led.
+                held = 0
+                for b in beliefs[k:]:
+                    if not b or not _leads(b, decoy):
+                        break
+                    held += 1
+                out[f"{prefix}decoy_held"] = held
     return out
 
 
@@ -578,9 +599,12 @@ METRICS = [
     ("ran_version_check", "count", "ran the version check"),
     ("changed_direction", "count", "changed direction after it"),
     ("p_decoy_drop", "mean", "mean drop in P(deploy)"),
+    ("decoy_held", "mean", "checks the deploy still led"),
+    ("checks_to_cause", "mean", "checks until the cause led"),
     ("jev_decoy_led_initially", "count", "Jev: decoy on top at start"),
     ("jev_changed_direction", "count", "Jev: changed direction"),
     ("jev_p_decoy_drop", "mean", "Jev: mean drop in P(deploy)"),
+    ("jev_checks_to_cause", "mean", "Jev: checks until the cause led"),
     ("correct_hypothesis", "count", "right hypothesis"),
     ("found_mechanism", "count", "found the mechanism"),
     ("named_component", "count", "named the component"),
@@ -613,19 +637,20 @@ def report(traces, out=None):
         name = t.get("scenario", DEFAULT_SCENARIO)
         if name not in truths:
             truths[name] = load_ground_truth(name)
-        groups.setdefault((name, t.get("model", "?"), t.get("forced", False)), {}).setdefault(
+        groups.setdefault((name, t.get("model", "?"), t.get("forced", False),
+                           t.get("harness_version")), {}).setdefault(
             t["setup"], []).append(score_trial(t, truths[name]))
     if not groups:
         print("No trials.", file=out)
         return
-    for (name, model, forced), by_setup in sorted(groups.items()):
+    for (name, model, forced, version), by_setup in sorted(groups.items(), key=lambda g: str(g[0])):
         mode = "forced version check" if forced else "free choice"
-        print(f"\n{name} | {model} | {mode}", file=out)
-        print(f"  {'':<30}" + "".join(f"{s:>10}" for s in SETUPS), file=out)
-        print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>10}" for s in SETUPS),
+        print(f"\n{name} | {model} | {mode} | harness v{version}", file=out)
+        print(f"  {'':<30}" + "".join(f"{s:>12}" for s in SETUPS), file=out)
+        print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>12}" for s in SETUPS),
               file=out)
         for key, kind, label in METRICS:
-            print(f"  {label:<30}" + "".join(f"{_cell(by_setup.get(s, []), key, kind):>10}"
+            print(f"  {label:<30}" + "".join(f"{_cell(by_setup.get(s, []), key, kind):>12}"
                                             for s in SETUPS), file=out)
 
 
@@ -699,11 +724,14 @@ def main(argv=None):
     ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in rca_scenarios/)")
     ap.add_argument("--setup", default="all",
                     help="comma-separated setups from alone, jev (Jev's ranking and contradiction "
-                         "scores), jev-contra (only the hypotheses Jev judges contradicted), or all")
+                         "scores), jev-contra (only the hypothesis Jev judges most contradicted), or all")
     ap.add_argument("--trials", type=int, default=1, help="trials per scenario, model and setup")
     ap.add_argument("--forced", action="store_true",
                     help="run the version check first in every trial, so every trial sees the contradiction")
     ap.add_argument("--max-checks", type=int, default=MAX_CHECKS)
+    ap.add_argument("--max-tokens", type=int,
+                    help="cap each model reply; stops a model that rambles past the reply format "
+                         "from spending thousands of tokens per turn")
     ap.add_argument("--jev-model", default=triage.MODEL)
     ap.add_argument("--out", default=TRACES_PATH, help="JSONL file each trial is appended to")
     ap.add_argument("--resume", action="store_true",
@@ -759,7 +787,7 @@ def main(argv=None):
         return 0 if check_access(models, uses_jev, args.jev_model) else 1
 
     try:
-        clients = {(p, m): model_client(p, m) for p, m in models}
+        clients = {(p, m): model_client(p, m, max_tokens=args.max_tokens) for p, m in models}
         jev = jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model) if uses_jev else None
     except ModelError as e:
         sys.exit(f"error: {e}")

@@ -39,15 +39,19 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
    the guide's "Run it without paid keys" table). Without `TYPESAFE_API_KEY`, add
    `--setup alone` and say the Jev rows are missing. By default every run covers all
    three setups: `alone`, `jev` (the model sees Jev's ranking and contradiction scores)
-   and `jev-contra` (the model sees only what Jev judges contradicted).
+   and `jev-contra` (the model sees only the hypothesis Jev judges most contradicted).
+   Include at least one strong model and one weaker one: Jev can only show value where
+   the agent fails alone.
 3. Make a results folder: `R=rca_results/$(date +%F)-<short label>` and `mkdir -p $R`.
 4. `python3 rca_experiment.py --dry-run --models <models> --trials 5 --forced` and
    check the plan's trial count with the user if it's large.
 5. `python3 rca_experiment.py --check --models <models>`. Stop and report any FAIL.
 6. Pilot: `python3 rca_experiment.py --models <models> --trials 1 --forced --out $R/pilot.jsonl`.
    Read one trace per model: does it follow the reply format, and do Jev's scores move
-   after the version check? From its token counts, estimate the full run's cost and
-   tell the user before continuing.
+   after the version check? Drop a model from the full run if its pilot trials end in
+   invalid replies or replies of many thousands of tokens (try `--max-tokens 4000`
+   first), and say so. From the token counts, estimate the full run's cost and tell
+   the user before continuing.
 7. Full run, forced mode first:
    `python3 rca_experiment.py --models <models> --trials 5 --forced --out $R/forced.jsonl --html $R/forced.html`.
    If it stops (a rate limit, a network error), rerun the same command with `--resume`.

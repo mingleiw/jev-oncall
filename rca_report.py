@@ -34,6 +34,8 @@ RATES = [
     ("cited_trap", "Cited a trap", "low", "Cited a failed or empty query as evidence.", "applicable"),
 ]
 MEANS = [
+    ("checks_to_cause", "To cause", "Mean checks until the model's own top hypothesis was the true cause. "
+     "Lower is faster."),
     ("checks_used", "Checks", "Mean checks run per trial."),
     ("tokens", "Tokens", "Mean reasoning-model tokens per trial, input plus output. Jev's are not included."),
     ("seconds", "Time", "Mean wall time per trial."),
@@ -248,11 +250,14 @@ def belief_table(rows):
                         f'<td class="num">{_avg(scores, pre + "p_decoy_before")}</td>'
                         f'<td class="num">{_avg(scores, pre + "p_decoy_after")}</td>'
                         f'<td class="num">{_avg(scores, pre + "p_decoy_drop")}</td>'
+                        f'<td class="num">{_avg(scores, pre + "decoy_held")}</td>'
                         f'<td class="num">{f"{k}/{n}" if n else "–"}</td></tr>')
     return ('<div class="scroll"><table class="beliefs"><thead><tr><th scope="col">System</th>'
             '<th scope="col">Whose belief</th><th scope="col" class="num">At start</th>'
             '<th scope="col" class="num">Before version check</th><th scope="col" class="num">After</th>'
-            '<th scope="col" class="num">Drop</th><th scope="col" class="num" '
+            '<th scope="col" class="num">Drop</th>'
+            '<th scope="col" class="num" title="Checks, from the version check on, that the deploy still led">'
+            'Deploy held</th><th scope="col" class="num" '
             'title="Deploy led before the version check and not after, of trials where it led">'
             'Changed course</th></tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
@@ -452,6 +457,11 @@ def render(traces, note=None, standalone=True):
     modes = sorted({"forced version check" if t.get("forced") else "free choice" for t, _, _ in rows})
     per_system = sorted({len(sc) for _, _, sc in leaderboard(rows)})
     notice = f'<div class="notice" role="note"><b>Note</b><p>{_e(note)}</p></div>' if note else ""
+    versions = sorted({str(t.get("harness_version")) for t, _, _ in rows})
+    if len(versions) > 1:
+        notice += ('<div class="notice" role="note"><b>Mixed</b><p>These traces come from harness versions '
+                   f'{_e(", ".join(versions))}, which sent the model or Jev different prompts. Compare '
+                   'results within one version; render each version on its own page.</p></div>')
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     panels = [("overall", "Overall", rows)] + [
         (f"s-{n}", n, [r for r in rows if r[0].get("scenario", rca.DEFAULT_SCENARIO) == n]) for n in scenarios]
