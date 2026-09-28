@@ -481,6 +481,11 @@ def _top(dist):
     return max(sorted(dist), key=dist.get) if dist else None
 
 
+def _leads(dist, h):
+    """h is the top hypothesis, or tied for top: a tie is not a change of course."""
+    return dist[h] >= max(dist.values()) - 1e-9
+
+
 def measured_beliefs(trace):
     """The belief the metrics measure: the model's own stated belief at each state, in
     both setups, so alone and + Jev compare the same thing."""
@@ -509,7 +514,7 @@ def belief_shift(beliefs, observed, truth, prefix=""):
             out[f"{prefix}p_decoy_after"] = round(after[decoy], 3)
             out[f"{prefix}p_decoy_drop"] = round(before[decoy] - after[decoy], 3)
             # Changing direction needs a direction to change from.
-            out[f"{prefix}changed_direction"] = (_top(after) != decoy) if _top(before) == decoy else None
+            out[f"{prefix}changed_direction"] = (not _leads(after, decoy)) if _leads(before, decoy) else None
     return out
 
 
@@ -602,21 +607,28 @@ def report(traces, out=None):
 
 
 def trial_key(t):
-    """What makes two traces the same trial: rerunning it replaces the earlier one."""
+    """What makes two traces the same trial: resuming it replaces the earlier one."""
+    return (*cell_key(t), t.get("trial"))
+
+
+def cell_key(t):
+    """The scenario, model, setup, mode and harness version a trial belongs to."""
     return (t.get("scenario", DEFAULT_SCENARIO), t.get("scenario_digest"), t.get("model"), t["setup"],
-            bool(t.get("forced")), t.get("trial"), t.get("harness_version"))
+            bool(t.get("forced")), t.get("harness_version"))
 
 
 def read_traces(path):
-    """Every trace in the file; for a trial run more than once, only the latest.
-    The file itself stays append-only, so every attempt remains on record."""
-    latest = {}
+    """Every trace in the file, except an attempt that failed with a model or network
+    error and was later retried (what --resume does): the retry replaces it. The file
+    itself stays append-only, so every attempt remains on record."""
+    by_key = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 t = json.loads(line)
-                latest[trial_key(t)] = t
-    return list(latest.values())
+                kept = [p for p in by_key.get(trial_key(t), []) if p.get("status") != "model_error"]
+                by_key[trial_key(t)] = kept + [t]
+    return [t for group in by_key.values() for t in group]
 
 
 # --------------------------------------------------------------------------
@@ -725,19 +737,30 @@ def main(argv=None):
         sys.exit(f"error: {e}")
 
     run_id = uuid.uuid4().hex[:8]
-    done = set()
-    if args.resume and os.path.exists(args.out):
-        done = {trial_key(t) for t in read_traces(args.out) if t.get("status") != "model_error"}
+    done, taken = set(), {}
+    if os.path.exists(args.out):
+        existing = read_traces(args.out)
+        if args.resume:
+            done = {trial_key(t) for t in existing if t.get("status") != "model_error"}
+        else:
+            # A new run into the same file adds trials after the ones already there,
+            # instead of reusing their numbers and replacing them.
+            for t in existing:
+                taken[cell_key(t)] = max(taken.get(cell_key(t), 0), t.get("trial") or 0)
     digests = {n: scenario_digest(s) for n, s in scenarios.items()}
-    todo = [(i, n, p, m, s) for i, n, p, m, s in plan
-            if (n, digests[n], f"{p}:{m}", s, args.forced, i + 1, HARNESS_VERSION) not in done]
+
+    def number(i, n, p, m, s):
+        return taken.get((n, digests[n], f"{p}:{m}", s, args.forced, HARNESS_VERSION), 0) + i + 1
+
+    todo = [(number(i, n, p, m, s), n, p, m, s) for i, n, p, m, s in plan
+            if (n, digests[n], f"{p}:{m}", s, args.forced, HARNESS_VERSION, i + 1) not in done]
     print(f"run {run_id}: {len(todo)} of {len(plan)} trials to run, "
           f"{'forced' if args.forced else 'free'} mode, appending to {args.out}")
     traces = []
     for k, (i, name, provider, model, setup) in enumerate(todo, 1):
         trace = run_trial(scenarios[name], setup, clients[(provider, model)],
                           jev if setup == "jev" else None, args.forced, args.max_checks)
-        trace.update({"run_id": run_id, "trial": i + 1, "scenario": name,
+        trace.update({"run_id": run_id, "trial": i, "scenario": name,
                       "scenario_digest": digests[name],
                       "model": f"{provider}:{model}",
                       "jev_model": args.jev_model if setup == "jev" else None,

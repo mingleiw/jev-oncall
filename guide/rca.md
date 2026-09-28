@@ -124,7 +124,8 @@ python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
 
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
 list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
-`--resume`: it skips finished trials and retries the ones that errored. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+`--resume`: it skips finished trials and retries the ones that errored. The same
+command without `--resume` adds a new set of trials after the ones already in the file. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
