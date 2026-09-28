@@ -43,17 +43,31 @@ To add a scenario, drop a `<name>.json` and `<name>.truth.json` pair in the fold
 following the existing two; the scenario tests check its shape and run the leak test
 on it automatically.
 
-## The two setups
+## The three setups
 
-Same model, scenario, check menu, and prompt wording in both.
+Same model, scenario, check menu, and prompt wording in all three.
 
 - **alone**: after every observation the model reports its beliefs over all
   hypotheses as JSON, then picks a check or gives a final answer (hypothesis,
   component, mechanism, cited evidence).
 - **jev**: the same, but before the first check and after every check Jev re-scores
-  every hypothesis on all the evidence so far, and the model sees those scores.
+  every hypothesis on all the evidence so far, and the model sees those scores: Jev's
+  ranking (which hypothesis best explains the evidence) and a contradiction score for
+  each.
+- **jev-contra**: Jev scores the same way, but the model sees only the hypotheses Jev
+  judges the evidence contradicts (P(contradicted) ≥ 0.5), most contradicted first,
+  and nothing before the first check, when there is no evidence to contradict. It
+  never sees Jev's ranking.
 
-The belief metrics measure the **model's own stated belief in both setups**, so the
+Why a third setup: in the first pilot the model sometimes adopted Jev's ranking
+wholesale, including Jev's overconfident start (P(deploy) of 0.88 to 1.0 before any
+evidence). After the version check, Jev's contradiction score for the deploy was
+right (0.75) while its ranking still put the deploy first, and the model followed the
+ranking. jev-contra tests whether Jev helps when it only says what the evidence rules
+out. Adding it changed nothing the other two setups send, so their traces stay
+comparable across versions.
+
+The belief metrics measure the **model's own stated belief in every setup**, so the
 alone and + Jev columns compare the same thing. Jev's scores are reported separately,
 as their own lines ("Jev: changed direction", and a Jev row in the page's belief
 table). Mixing them would compare two different believers: in the first pilot, Jev
@@ -125,7 +139,8 @@ python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
 list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
 `--resume`: it skips finished trials and retries the ones that errored. The same
-command without `--resume` adds a new set of trials after the ones already in the file. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+command without `--resume` adds a new set of trials after the ones already in the file. Options: `--setup` (`all`, the default, or a comma-separated list of `alone`, `jev`,
+`jev-contra`), `--max-checks` (default 10), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
@@ -149,7 +164,7 @@ python3 rca_experiment.py --models openai:qwen3 --setup alone --trials 1 --force
 - Take the model id from the service's model list; names change often.
 - Free tiers are rate-limited. A run that stops on `HTTP 429` can simply be rerun:
   every finished trial is already saved.
-- `--setup alone` needs no Jev key. The "+ Jev" rows need `TYPESAFE_API_KEY` wherever
+- `--setup alone` needs no Jev key. Both Jev setups need `TYPESAFE_API_KEY` wherever
   the model runs.
 - Small models often break the reply format; those trials count as invalid replies.
   Use these runs to test the pipeline, not as headline results.

@@ -46,7 +46,9 @@ SCENARIO_DIR = os.path.join(BASE, "rca_scenarios")
 DEFAULT_SCENARIO = "pool_etl_cron"
 TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
 MAX_CHECKS = 10
-SETUPS = ("alone", "jev")
+SETUPS = ("alone", "jev", "jev-contra")
+JEV_SETUPS = ("jev", "jev-contra")  # setups that call Jev
+CONTRA_SHOW = 0.5  # jev-contra shows a hypothesis once P(contradicted) reaches this
 DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5"}
 HARNESS_VERSION = 3  # bump when prompts or scoring change, so old traces stay tellable
 
@@ -307,13 +309,28 @@ def format_jev_scores(scores):
                               for h in sorted(b, key=lambda h: -b[h])])
 
 
-def format_observation(check, result, jev_scores=None, note=None, checks_left=None):
+def format_jev_contradictions(scores):
+    """What the jev-contra setup shows: only the hypotheses Jev judges the evidence to
+    contradict, never its ranking, so there is no top pick to copy."""
+    c = scores["contradicted"]
+    flagged = sorted((h for h in c if c[h] >= CONTRA_SHOW), key=lambda h: (-c[h], h))
+    lines = ["## Jev's check of every hypothesis against the evidence so far"]
+    if not flagged:
+        return "\n".join(lines + ["- No hypothesis is contradicted by the evidence so far."])
+    return "\n".join(lines + [f"- The evidence contradicts `{h}` (P = {c[h]:.2f})" for h in flagged])
+
+
+def format_jev(scores, setup):
+    return format_jev_contradictions(scores) if setup == "jev-contra" else format_jev_scores(scores)
+
+
+def format_observation(check, result, jev_scores=None, note=None, checks_left=None, setup="jev"):
     parts = []
     if note:
         parts.append(note)
     parts += [f"## Result of `{check}`", result]
     if jev_scores:
-        parts += ["", format_jev_scores(jev_scores)]
+        parts += ["", format_jev(jev_scores, setup)]
     if checks_left is not None:
         parts += ["", f"{checks_left} checks left."]
     parts.append("Report your beliefs, then pick the next check or finish.")
@@ -388,13 +405,19 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
     """Run one investigation.
 
     ask(system, messages) -> (text, assistant_msg, usage); jev(scenario, observed)
-    -> scores, required for the jev setup. The trace has one state per number of
+    -> scores, required for the Jev setups. The trace has one state per number of
     checks observed: states[0] is before any check, states[k] after the k-th. Each
-    state holds the model's beliefs (from its reply to that state) and, in the
-    jev setup, Jev's scores.
+    state holds the model's beliefs (from its reply to that state) and, in the Jev
+    setups, Jev's full scores, whatever part of them the model was shown.
+
+    jev shows the model Jev's ranking and contradiction scores at every state.
+    jev-contra shows only the hypotheses Jev judges contradicted, and nothing before
+    the first check: with no evidence yet, there is nothing to contradict.
     """
-    if setup == "jev" and jev is None:
-        raise ValueError("the jev setup needs a Jev scorer")
+    if setup not in SETUPS:
+        raise ValueError(f"unknown setup {setup!r}")
+    if setup in JEV_SETUPS and jev is None:
+        raise ValueError(f"the {setup} setup needs a Jev scorer")
     checks = scenario["checks"]
     hyps = list(scenario["hypotheses"])
     version_check = scenario["version_check"]
@@ -406,7 +429,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
 
     def new_state(check=None):
         state = {"check": check, "model_beliefs": None, "jev": None, "jev_error": None}
-        if setup == "jev":
+        if setup in JEV_SETUPS:
             try:
                 state["jev"] = jev(scenario, list(trace["observed"]))
                 trace["usage"]["jev_calls"] += 1
@@ -417,7 +440,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
 
     messages = [{"role": "user", "content": build_initial_prompt(scenario, max_checks)}]
     state = new_state()
-    if state["jev"]:
+    if state["jev"] and setup == "jev":
         messages[0]["content"] += "\n\n" + format_jev_scores(state["jev"])
     strikes, finishing = 0, False
 
@@ -464,7 +487,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
         trace["observed"].append(pick)
         state = new_state(pick)
         left = max_checks - len(trace["observed"])
-        prompt = format_observation(pick, checks[pick]["result"], state["jev"], note, left)
+        prompt = format_observation(pick, checks[pick]["result"], state["jev"], note, left, setup)
         if left <= 0 or not [c for c in checks if c not in trace["observed"]]:
             finishing = True
             prompt += "\nNo checks left: finish now with DONE and the final JSON."
@@ -524,7 +547,7 @@ def score_trial(trace, truth):
            "jev_errors": sum(1 for s in trace["states"] if s.get("jev_error")),
            "ran_version_check": truth["version_check"] in observed}
     out.update(belief_shift(measured_beliefs(trace), observed, truth))
-    jev = jev_beliefs(trace) if trace["setup"] == "jev" else []
+    jev = jev_beliefs(trace) if trace["setup"] in JEV_SETUPS else []
     out.update(belief_shift(jev, observed, truth, prefix="jev_"))
     decoy = truth["decoy"]
 
@@ -674,7 +697,9 @@ def main(argv=None):
                     help="comma-separated provider:model, e.g. anthropic:claude-opus-5,openai:gpt-5 "
                          f"(provider alone uses its default: {DEFAULT_MODELS})")
     ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in rca_scenarios/)")
-    ap.add_argument("--setup", choices=["alone", "jev", "both"], default="both")
+    ap.add_argument("--setup", default="all",
+                    help="comma-separated setups from alone, jev (Jev's ranking and contradiction "
+                         "scores), jev-contra (only the hypotheses Jev judges contradicted), or all")
     ap.add_argument("--trials", type=int, default=1, help="trials per scenario, model and setup")
     ap.add_argument("--forced", action="store_true",
                     help="run the version check first in every trial, so every trial sees the contradiction")
@@ -709,16 +734,19 @@ def main(argv=None):
         models = [parse_model_spec(s) for s in args.models.split(",") if s.strip()]
     except ValueError as e:
         ap.error(str(e))
-    setups = list(SETUPS) if args.setup == "both" else [args.setup]
+    setups = list(SETUPS) if args.setup == "all" else [s.strip() for s in args.setup.split(",") if s.strip()]
+    if not setups or set(setups) - set(SETUPS):
+        ap.error(f"--setup takes all, or a comma-separated list of: {', '.join(SETUPS)}")
+    uses_jev = bool(set(setups) & set(JEV_SETUPS))
     plan = [(i, n, p, m, s) for i in range(args.trials) for n in names
             for p, m in models for s in setups]
 
     if args.dry_run:
-        print("=== system prompt (every scenario, both setups) ===\n" + SYSTEM_PROMPT)
+        print("=== system prompt (every scenario and setup) ===\n" + SYSTEM_PROMPT)
         for n, scenario in scenarios.items():
-            print(f"\n=== {n}: first user message (jev adds its starting scores) ===\n"
+            print(f"\n=== {n}: first user message (jev adds Jev's starting scores; jev-contra adds nothing) ===\n"
                   + build_initial_prompt(scenario, args.max_checks))
-            if "jev" in setups:
+            if uses_jev:
                 print(f"\n=== {n}: Jev payload after the version check ===")
                 print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
                                                    args.jev_model), indent=2))
@@ -728,11 +756,11 @@ def main(argv=None):
         return 0
 
     if args.check:
-        return 0 if check_access(models, "jev" in setups, args.jev_model) else 1
+        return 0 if check_access(models, uses_jev, args.jev_model) else 1
 
     try:
         clients = {(p, m): model_client(p, m) for p, m in models}
-        jev = jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model) if "jev" in setups else None
+        jev = jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model) if uses_jev else None
     except ModelError as e:
         sys.exit(f"error: {e}")
 
@@ -759,11 +787,11 @@ def main(argv=None):
     traces = []
     for k, (i, name, provider, model, setup) in enumerate(todo, 1):
         trace = run_trial(scenarios[name], setup, clients[(provider, model)],
-                          jev if setup == "jev" else None, args.forced, args.max_checks)
+                          jev if setup in JEV_SETUPS else None, args.forced, args.max_checks)
         trace.update({"run_id": run_id, "trial": i, "scenario": name,
                       "scenario_digest": digests[name],
                       "model": f"{provider}:{model}",
-                      "jev_model": args.jev_model if setup == "jev" else None,
+                      "jev_model": args.jev_model if setup in JEV_SETUPS else None,
                       "harness_version": HARNESS_VERSION})
         with open(args.out, "a", encoding="utf-8") as f:
             f.write(json.dumps(trace) + "\n")

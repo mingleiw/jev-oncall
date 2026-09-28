@@ -219,6 +219,34 @@ class TrialFlow(unittest.TestCase):
         self.assertTrue(s["changed_direction"])  # the model's own belief still counts
         self.assertIsNone(s["jev_changed_direction"])
 
+    def test_jev_contra_shows_only_contradictions_and_nothing_before_evidence(self):
+        jev = FakeJev()  # deploy tops the ranking until the version check; then it is contradicted
+        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), "cron-history"),
+                         reply(dist("batch-job"), final=RIGHT))
+        t = rca.run_trial(SCENARIO, "jev-contra", model, jev)
+        first = model.seen[0][1][0]["content"]
+        self.assertNotIn("Jev", first)  # no scores before any evidence
+        after_vc = model.seen[1][1][-1]["content"]
+        self.assertIn("The evidence contradicts `deploy` (P = 0.90)", after_vc)
+        for ranking in ("P(best explanation)", "Jev's scores", "batch-job`: 0."):
+            self.assertNotIn(ranking, after_vc)  # never the ranking: nothing to copy
+        # Jev's full scores are still recorded at every state, including the first.
+        self.assertEqual(jev.calls, [[], [VCHECK], [VCHECK, "cron-history"]])
+        self.assertTrue(all(st["jev"] for st in t["states"]))
+        s = rca.score_trial(t, TRUTH)
+        self.assertTrue(s["changed_direction"])  # the model's own belief
+        self.assertTrue(s["jev_changed_direction"])  # Jev's, reported apart
+        with self.assertRaises(ValueError):
+            rca.run_trial(SCENARIO, "jev-contra", Scripted())
+
+    def test_contradiction_list_wording(self):
+        scores = {"beliefs": dist("deploy"), "contradicted": {h: 0.1 for h in HYPS}}
+        self.assertIn("No hypothesis is contradicted", rca.format_jev_contradictions(scores))
+        scores["contradicted"].update(deploy=0.75, traffic=0.9, dns=0.49)
+        text = rca.format_jev_contradictions(scores)
+        self.assertLess(text.index("`traffic`"), text.index("`deploy`"))  # most contradicted first
+        self.assertNotIn("`dns`", text)  # below the 0.5 line
+
     def test_jev_setup_needs_a_scorer(self):
         with self.assertRaises(ValueError):
             rca.run_trial(SCENARIO, "jev", Scripted())
@@ -365,8 +393,8 @@ class Report(unittest.TestCase):
         buf = io.StringIO()
         rca.report(traces, out=buf)
         rows = {line[:32].strip(): line[32:].split() for line in buf.getvalue().splitlines()[2:]}
-        self.assertEqual(rows["right hypothesis"], ["0/1", "1/1"])
-        self.assertEqual(rows["blamed the decoy"], ["1/1", "0/1"])
+        self.assertEqual(rows["right hypothesis"], ["0/1", "1/1", "-"])  # no jev-contra trials
+        self.assertEqual(rows["blamed the decoy"], ["1/1", "0/1", "-"])
         self.assertNotIn("%", buf.getvalue())
 
 
@@ -383,11 +411,11 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(rca.SYSTEM_PROMPT, out)
         self.assertIn('"contradicted_deploy"', out)
-        self.assertIn("16 trials, forced mode", out)  # 2 scenarios x 2 models x 2 setups x 2
+        self.assertIn("24 trials, forced mode", out)  # 2 scenarios x 2 models x 3 setups x 2
         self.assertIn("openai:gpt-x", out)
         # Setups alternate within each trial, so API drift hits both alike.
         plan = [l.split()[-1] for l in out.splitlines() if l.startswith("  trial ")]
-        self.assertEqual(plan[:4], ["alone", "jev", "alone", "jev"])
+        self.assertEqual(plan[:6], ["alone", "jev", "jev-contra", "alone", "jev", "jev-contra"])
 
     def test_missing_keys_stop_before_any_trial(self):
         with self.assertRaises(SystemExit) as cm:
@@ -396,6 +424,14 @@ class CLI(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             self.run_main("--models", "anthropic", env={"ANTHROPIC_API_KEY": "k"})
         self.assertIn("TYPESAFE_API_KEY", str(cm.exception.code))
+
+    def test_setup_choices(self):
+        code, out = self.run_main("--dry-run", "--setup", "alone,jev-contra", "--trials", "1")
+        plan = [l.split()[-1] for l in out.splitlines() if l.startswith("  trial ")]
+        self.assertEqual(set(plan), {"alone", "jev-contra"})
+        self.assertIn("Jev payload", out)  # jev-contra calls Jev too
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
+            self.run_main("--dry-run", "--setup", "both")
 
     def test_bad_model_spec(self):
         with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
@@ -423,7 +459,8 @@ class CLI(unittest.TestCase):
             out = os.path.join(d, "t.jsonl")
             with mock.patch.object(rca, "model_client", return_value=fake), \
                  mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
-                code, text = self.run_main("--models", "anthropic", "--scenarios", "pool_etl_cron", "--out", out)
+                code, text = self.run_main("--models", "anthropic", "--scenarios", "pool_etl_cron",
+                                           "--setup", "alone,jev", "--out", out)
             traces = rca.read_traces(out)
             self.assertEqual(code, 0)
             self.assertEqual([t["setup"] for t in traces], ["alone", "jev"])
@@ -439,7 +476,8 @@ class CLI(unittest.TestCase):
                               (reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))])
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "t.jsonl")
-            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--forced", "--out", out]
+            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--setup", "alone,jev",
+                    "--forced", "--out", out]
             with mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
                 with mock.patch.object(rca, "model_client", return_value=fake()):
                     self.run_main(*args, "--trials", "1")
@@ -463,7 +501,8 @@ class CLI(unittest.TestCase):
                               (reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))])
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "t.jsonl")
-            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--forced", "--out", out]
+            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--setup", "alone,jev",
+                    "--forced", "--out", out]
             with mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
                 for _ in range(2):  # the same command twice, without --resume
                     with mock.patch.object(rca, "model_client", return_value=fake()):
@@ -630,7 +669,7 @@ class HtmlReport(unittest.TestCase):
         self.assertIn("Test data only.", page)
         board = rca_report.leaderboard(rca_report.scored(self.traces()))
         self.assertEqual([setup for _, setup, _ in board], ["jev", "alone"])
-        self.assertIn('<span class="name">m</span><span class="tag">+ Jev</span>', page)
+        self.assertIn('<span class="name">m</span><span class="tag jev">+ Jev</span>', page)
         self.assertIn("Test stand-in", page)  # the vendor, from the test: prefix
         self.assertIn("1/1 · CI 21–100", page)  # headline score with count and 95% interval
         self.assertIn("0/1 · CI 0–79", page)
@@ -641,6 +680,18 @@ class HtmlReport(unittest.TestCase):
         self.assertIn("<td>Jev&#x27;s scores</td>", page)
         self.assertEqual(page.count('<td>model</td>'), 2)  # alone and + Jev
         self.assertIn('class="jevline"', page)
+
+    def test_three_setups_on_the_page(self):
+        import rca_report
+        switched = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), "cron-history"),
+                            reply(dist("batch-job"), final=RIGHT))
+        traces = self.traces() + [dict(rca.run_trial(SCENARIO, "jev-contra", switched, FakeJev()),
+                                       model="test:m", scenario="pool_etl_cron", trial=1)]
+        page = rca_report.render(traces)
+        self.assertIn('<span class="tag jev-contra">+ Jev contradictions</span>', page)
+        self.assertIn('class="b-jev-contra"', page)  # its own bar in the chart
+        self.assertIn("+ Jev (contradictions only)", page)  # and in the legend
+        self.assertEqual(page.count("<td>Jev&#x27;s scores</td>"), 2)  # a Jev row for each Jev setup
 
     def test_wilson_interval(self):
         import rca_report
