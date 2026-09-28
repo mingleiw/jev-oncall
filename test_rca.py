@@ -336,6 +336,19 @@ class Scoring(unittest.TestCase):
         self.assertFalse(s["jev_changed_direction"])
         self.assertAlmostEqual(s["jev_p_decoy_drop"], 0.49, places=3)
 
+    def test_a_tie_at_the_top_is_not_a_change_of_course(self):
+        # From the pilot: with Jev, the model went deploy 0.45 -> 0.25, tied with traffic.
+        before = {"deploy": 0.45, "batch-job": 0.15, "conn-leak": 0.15, "db-config": 0.10,
+                  "traffic": 0.10, "dns": 0.05}
+        after = {"deploy": 0.25, "traffic": 0.25, "batch-job": 0.20, "conn-leak": 0.15,
+                 "db-config": 0.10, "dns": 0.05}
+        s = rca.score_trial(self.trace(beliefs=[before, after], observed=[VCHECK], final=RIGHT), TRUTH)
+        self.assertFalse(s["changed_direction"])
+        tied_before = dict(before, **{"deploy": 0.3, "batch-job": 0.3})
+        moved = dict(after, **{"deploy": 0.1, "traffic": 0.4})
+        s = rca.score_trial(self.trace(beliefs=[tied_before, moved], observed=[VCHECK], final=RIGHT), TRUTH)
+        self.assertTrue(s["changed_direction"])  # tied for the lead counts as leading
+
     def test_alone_has_no_jev_metrics(self):
         s = rca.score_trial(self.trace(beliefs=[dist("deploy"), dist("batch-job")], observed=[VCHECK],
                                        final=RIGHT), TRUTH)
@@ -443,6 +456,36 @@ class CLI(unittest.TestCase):
             traces = rca.read_traces(out)
             self.assertEqual(len(traces), 4)  # but only the latest attempt of each trial counts
             self.assertTrue(all(t["status"] == "ok" for t in traces))
+
+    def test_a_second_run_into_the_same_file_adds_trials(self):
+        def fake():
+            return Scripted(*[r for _ in range(4) for r in
+                              (reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))])
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "t.jsonl")
+            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--forced", "--out", out]
+            with mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
+                for _ in range(2):  # the same command twice, without --resume
+                    with mock.patch.object(rca, "model_client", return_value=fake()):
+                        self.run_main(*args)
+            traces = rca.read_traces(out)
+            self.assertEqual(len(traces), 4)  # nothing replaced
+            self.assertEqual(sorted(t["trial"] for t in traces if t["setup"] == "alone"), [1, 2])
+
+    def test_an_older_file_with_repeated_trial_numbers_keeps_every_trial(self):
+        # The pilot file: a second run reused trial 1 in every cell. Only an errored
+        # attempt may be replaced by a later one; finished trials all count.
+        base = {"scenario": "pool_etl_cron", "scenario_digest": "d", "model": "m", "setup": "alone",
+                "forced": True, "trial": 1, "harness_version": 3}
+        rows = [dict(base, status="ok", run_id="a"), dict(base, status="invalid_reply", run_id="b"),
+                dict(base, setup="jev", status="model_error", run_id="a"),
+                dict(base, setup="jev", status="ok", run_id="b")]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "t.jsonl")
+            with open(path, "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+            got = sorted((t["setup"], t["run_id"]) for t in rca.read_traces(path))
+        self.assertEqual(got, [("alone", "a"), ("alone", "b"), ("jev", "b")])
 
     def test_local_server_needs_no_key(self):
         rca.model_client("openai", "m", env={"OPENAI_BASE_URL": "http://localhost:11434/v1"})
