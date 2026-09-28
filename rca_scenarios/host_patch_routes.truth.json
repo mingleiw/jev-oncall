@@ -1,0 +1,79 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "_source": "Adapted from Datadog's postmortem of the 8 March 2023 outage (an automatic systemd security update restarted systemd-networkd, which deleted routes managed by the container network plugin, on nodes across regions and cloud providers at once).",
+  "hypothesis": "host_update",
+  "component": "systemd security update",
+  "component_aliases": [
+    "systemd",
+    "unattended-upgrades",
+    "unattended upgrade",
+    "security-updates",
+    "security update",
+    "networkd"
+  ],
+  "mechanism": "The automatic security-updates channel installed a systemd release on running Ubuntu 22.04 nodes between 06:00 and 07:00. Installing it restarted systemd-networkd, which removed the routes the container network plugin had added, so each node lost its pod network and dropped out of the cluster. Nodes created later, or on the older image, were unaffected.",
+  "mechanism_checks": [
+    "node_journal",
+    "package_history"
+  ],
+  "mechanism_keywords": [
+    [
+      "systemd",
+      "networkd",
+      "security update",
+      "unattended"
+    ],
+    [
+      "route"
+    ]
+  ],
+  "decoy": "provider",
+  "version_check": "failures_by_provider",
+  "traps": [
+    "node_syslog_search",
+    "kube_proxy_logs"
+  ],
+  "noise": [
+    "marketing_site",
+    "backup_jobs",
+    "on_call_roster"
+  ],
+  "check_notes": {
+    "failures_by_provider": {
+      "rules_out": "provider"
+    },
+    "cert_status": {
+      "rules_out": "certificates"
+    },
+    "network_plugin_status": {
+      "rules_out": "network_plugin"
+    },
+    "control_plane_health": {
+      "rules_out": "control_plane"
+    },
+    "node_timeline": {
+      "supports": "host_update"
+    },
+    "node_journal": {
+      "supports": "host_update"
+    },
+    "package_history": {
+      "supports": "host_update"
+    },
+    "node_syslog_search": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "kube_proxy_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "marketing_site": {
+      "notes": "Noise: unrelated to the node failures."
+    },
+    "backup_jobs": {
+      "notes": "Noise: unrelated to the node failures."
+    },
+    "on_call_roster": {
+      "notes": "Noise: unrelated to the node failures."
+    }
+  }
+}

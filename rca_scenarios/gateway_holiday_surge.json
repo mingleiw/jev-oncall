@@ -1,0 +1,64 @@
+{
+  "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
+  "incident": {
+    "title": "WebTierErrorsAndTimeouts",
+    "description": "chat-web: 5xx and timeouts at 34% of requests (threshold 1%); clients failing to load workspaces. Autoscaler adding hundreds of web instances.",
+    "started_at": "2026-01-05T14:12:00Z"
+  },
+  "initial_context": "Shown before any check. Today is the first working Monday after a two-week holiday break. Recent changes: 13:45 UTC chat-web v3.8.0 rolled to 6 of 12 web pools (the other 6 still run v3.7.2). Change summary: 'Send the full workspace bootstrap on first connect after long idle; client cache TTL raised to 14 days.' 09:00 UTC: database connection proxy config change (idle timeout 300s to 600s).",
+  "hypotheses": {
+    "deploy": "The chat-web v3.8.0 deploy introduced a regression that causes the errors.",
+    "network_gateway": "A network component between our tiers is dropping packets under the traffic surge.",
+    "capacity": "The web tier does not have enough instances for the load.",
+    "database": "The databases are slow or overloaded, so web requests time out.",
+    "provisioning": "The system that sets up new instances is failing, and broken instances are serving traffic."
+  },
+  "checks": {
+    "errors_by_version": {
+      "description": "chat-web 5xx and timeout rate, split by version.",
+      "result": "13:50-14:20 UTC. v3.7.2 (6 pools): 33.1%. v3.8.0 (6 pools): 34.6%. Both under 0.5% until 13:58, then rising together. Bytes per first-connect response: v3.8.0 1.9x v3.7.2."
+    },
+    "network_path_metrics": {
+      "description": "Packet loss and throughput on the network paths between the web, API and database tiers.",
+      "result": "Web-to-database traffic passes through the cloud provider's managed transit gateway tgw-east-2. Its dropped packets: 0 until 13:57, 2.1% at 14:00, 9.8% at 14:10. Throughput through it: 3.2x the previous Monday's peak, rising with the traffic ramp. Paths that do not cross tgw-east-2: 0% loss."
+    },
+    "traffic_pattern": {
+      "description": "Client connections and data transferred, compared with previous Mondays.",
+      "result": "New client sessions 13:30-14:10: 2.4x a normal Monday. Data per session: 1.8x (clients with caches cold after two weeks idle download full workspace state; v3.7.2 clients do too). Traffic ramp from 13:30 to 14:00 is the steepest of the year."
+    },
+    "web_capacity": {
+      "description": "Web tier CPU, instance count and autoscaler actions.",
+      "result": "Web CPU fell from 55% to 22% between 13:58 and 14:03 (instances idle while waiting on the network); the autoscaler removed 140 instances, then added 1,150 between 14:04 and 14:15. Requests per healthy instance at 14:10: 40% of the normal level, yet error rate still 34%."
+    },
+    "database_health": {
+      "description": "Database query latency measured on the database hosts, and replication.",
+      "result": "Server-side query p99 4ms at 14:10, unchanged; CPU 31%. Replication lag under 1s. Queries arriving per second dropped 45% from 14:00. Latency measured from the web tier: p99 2.8s, almost all in network round trips."
+    },
+    "provisioning_service": {
+      "description": "provision-service errors and the instances it has set up today.",
+      "result": "Errors from 14:06: 'too many open files' (limit 1024) and 'instance quota exceeded' while setting up the autoscaler's new instances. Instances it could not finish are held out of the load balancer and receive no traffic. The web errors started at 13:58, before any provisioning error."
+    },
+    "dashboard_query": {
+      "description": "Web tier latency dashboard, 13:50-14:20 UTC.",
+      "result": "QUERY FAILED: dashboard query timed out after 30s (the metrics store is reached across the same network path). 0 points returned. This is a failed query, not an empty result."
+    },
+    "web_gateway_logs": {
+      "description": "Logs for service 'web-gateway', 13:50-14:20 UTC.",
+      "result": "0 matching log lines."
+    },
+    "email_digest": {
+      "description": "Daily email digest job.",
+      "result": "Digest job sent 4.1M emails between 12:00 and 13:10 UTC; 0.2% bounces. Next run tomorrow."
+    },
+    "search_index": {
+      "description": "Message search index lag.",
+      "result": "Indexing lag 45s, normal. Reindex of 3 large workspaces running since 11:00."
+    },
+    "mobile_crash_rate": {
+      "description": "Mobile app crash rate.",
+      "result": "Android crash rate 0.31% (normal 0.28%) after an OS update rolled out by one vendor on Saturday."
+    }
+  },
+  "version_check": "errors_by_version",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}

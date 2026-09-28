@@ -1,0 +1,72 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "_source": "Adapted from Slack's postmortem of the 4 January 2021 outage (a managed AWS Transit Gateway did not scale fast enough for the first-day-back traffic surge and dropped packets; autoscaling then provisioning limits made it worse). The deploy decoy is added for this benchmark.",
+  "hypothesis": "network_gateway",
+  "component": "transit gateway tgw-east-2",
+  "component_aliases": [
+    "tgw-east-2",
+    "transit gateway",
+    "tgw"
+  ],
+  "mechanism": "The first working day after the holidays brought the steepest traffic ramp of the year, with cold client caches downloading full workspace state. The managed transit gateway between the web and database tiers did not scale fast enough and dropped packets, so web requests waited on the network and timed out. Idle CPU then made the autoscaler scale down and up, and provisioning hit its limits, but those came after the errors.",
+  "mechanism_checks": [
+    "network_path_metrics"
+  ],
+  "mechanism_keywords": [
+    [
+      "gateway",
+      "tgw"
+    ],
+    [
+      "packet",
+      "drop",
+      "loss"
+    ]
+  ],
+  "decoy": "deploy",
+  "version_check": "errors_by_version",
+  "traps": [
+    "dashboard_query",
+    "web_gateway_logs"
+  ],
+  "noise": [
+    "email_digest",
+    "search_index",
+    "mobile_crash_rate"
+  ],
+  "check_notes": {
+    "errors_by_version": {
+      "rules_out": "deploy"
+    },
+    "web_capacity": {
+      "rules_out": "capacity"
+    },
+    "database_health": {
+      "rules_out": "database"
+    },
+    "provisioning_service": {
+      "rules_out": "provisioning"
+    },
+    "network_path_metrics": {
+      "supports": "network_gateway"
+    },
+    "traffic_pattern": {
+      "supports": "network_gateway"
+    },
+    "dashboard_query": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "web_gateway_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "email_digest": {
+      "notes": "Noise: unrelated to the web errors."
+    },
+    "search_index": {
+      "notes": "Noise: unrelated to the web errors."
+    },
+    "mobile_crash_rate": {
+      "notes": "Noise: unrelated to the web errors."
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "_source": "Adapted from Roblox's postmortem of the October 2021 outage (Consul streaming under high load caused contention on a single Go channel; hardware was suspected first and replacing it did not help). The storage (BoltDB) contributor is left out here so the scenario has one cause.",
+  "hypothesis": "streaming",
+  "component": "registry streaming",
+  "component_aliases": [
+    "streaming",
+    "stream.publish",
+    "event publisher",
+    "eventbuffer"
+  ],
+  "mechanism": "The streaming delivery mode, fully enabled for the traffic-routing services at 19:30, sends every write through one channel in the registry's event publisher. At peak load writes queue on that channel, write latency rises about tenfold on every node, and services that depend on the registry time out.",
+  "mechanism_checks": [
+    "registry_profile",
+    "latency_history"
+  ],
+  "mechanism_keywords": [
+    [
+      "stream"
+    ],
+    [
+      "contention",
+      "channel",
+      "blocked",
+      "queue",
+      "lock"
+    ]
+  ],
+  "decoy": "hardware",
+  "version_check": "node_health",
+  "traps": [
+    "registry_logs",
+    "discovery_logs"
+  ],
+  "noise": [
+    "cdn_bandwidth",
+    "payment_provider",
+    "build_queue"
+  ],
+  "check_notes": {
+    "node_health": {
+      "rules_out": "hardware"
+    },
+    "matchmaking_changes": {
+      "rules_out": "matchmaking_release"
+    },
+    "request_rate": {
+      "rules_out": "load"
+    },
+    "store_stats": {
+      "rules_out": "storage"
+    },
+    "latency_history": {
+      "supports": "streaming"
+    },
+    "registry_profile": {
+      "supports": "streaming"
+    },
+    "registry_logs": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "discovery_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "cdn_bandwidth": {
+      "notes": "Noise: unrelated to the registry latency."
+    },
+    "payment_provider": {
+      "notes": "Noise: unrelated to the registry latency."
+    },
+    "build_queue": {
+      "notes": "Noise: unrelated to the registry latency."
+    }
+  }
+}

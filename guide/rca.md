@@ -11,11 +11,12 @@ model **alone** vs the same model **with Jev**, not Jev against the models.
 
 ## The scenarios
 
-`rca_scenarios/` holds three frozen incidents. In each, before any check, the agent
-is told about a deploy rolled to part of the fleet minutes earlier, whose change
-summary sounds relevant. It looks guilty. The first two were written independently by
-different authors, so that neither author's sense of the answer is the only one
-tested:
+`rca_scenarios/` holds eight frozen incidents: three written by hand, below, and five
+adapted from public postmortems (next section). In each hand-written one, before any
+check, the agent is told about a deploy rolled to part of the fleet minutes earlier,
+whose change summary sounds relevant. It looks guilty. The first two were written
+independently by different authors, so that neither author's sense of the answer is
+the only one tested:
 
 | | `pool_etl_cron` | `pool_lock_batch` | `product_cache_partial` |
 | --- | --- | --- | --- |
@@ -45,9 +46,35 @@ for scoring. Tests prove no prompt, observation, or Jev payload contains any of 
 and that a trial never opens a truth file. Report results per scenario: a result that
 holds on one and not the other is itself a finding.
 
+### Scenarios adapted from public postmortems
+
+Hand-written scenarios share two weaknesses: the deploy is always innocent, so an agent
+that just distrusts deploys would score well, and each author's clues fit their own
+answer too neatly. Five more scenarios adapt real incidents from public postmortems.
+Service names, times and numbers are changed so a model can't answer from memory of
+the write-up; each truth file's `_source` names the original.
+
+| Scenario | Adapted from | Looks guilty (the decoy) | True cause |
+| --- | --- | --- | --- |
+| `edge_rule_regex` | Cloudflare, 2 July 2019 | An HTTP flood attack | **The deploy**: a firewall rule pushed globally has a backtracking regex that burns all CPU |
+| `feature_file_flap` | Cloudflare, 18 November 2025 | An attack (the third-party status page also went down) | A database grant change doubles a generated config file past a hard limit; errors flap as it is regenerated every 5 minutes |
+| `registry_contention` | Roblox, October 2021 | A registry node with an open hardware ticket | A newly enabled streaming mode makes every write wait on one channel at peak load |
+| `host_patch_routes` | Datadog, 8 March 2023 | A cloud provider outage (no deploys: change freeze) | An automatic systemd security update restarts networking and deletes pod network routes on every running node |
+| `gateway_holiday_surge` | Slack, 4 January 2021 | A web deploy about first-connect payloads | The first day back after the holidays overloads a managed transit gateway, which drops packets |
+
+The decoy is whatever looks guilty at the start; the truth file names it, and the
+metrics follow it (so the metric labelled "P(deploy)" measures the probability given
+to the attack in `edge_rule_regex`, and to the deploy in `pool_etl_cron`). The
+scenario's `version_check` field names its **key check**, the one that contradicts
+the decoy; it is a version split only where the decoy is a deploy. Adaptations
+simplify: each scenario has one cause, so contributing factors in the original (the
+storage bug at Roblox, the provisioning limits at Slack) are either ruled out or shown
+as later effects.
+
 To add a scenario, drop a `<name>.json` and `<name>.truth.json` pair in the folder,
-following the existing two; the scenario tests check its shape and run the leak test
-on it automatically.
+following the existing ones; the scenario tests check its shape and run the leak test
+on it automatically. Put the source of an adapted incident in the truth file, never in
+the scenario file.
 
 ## The three setups
 
@@ -100,16 +127,16 @@ Reported as counts ("3/5"), per scenario, model and mode, with a column per setu
 | Metric | Meaning |
 | --- | --- |
 | finished the investigation | Gave a parseable final answer within the check limit |
-| decoy on top at the start | The deploy led the measured belief before any check |
-| ran the version check | It chose (or, in forced mode, was given) `error-by-version` |
-| changed direction after it | The deploy led right before the version check and not right after. Trials where it didn't lead before are left out |
-| mean drop in P(deploy) | Measured P(deploy) before the version check minus after |
-| checks the deploy still led | Checks, from the version check on, for which the deploy was still the top hypothesis (ties count). How long the decoy survived the contradiction |
+| decoy on top at the start | The decoy led the measured belief before any check |
+| ran the version check | It chose (or, in forced mode, was given) the scenario's key check |
+| changed direction after it | The decoy led right before the key check and not right after. Trials where it didn't lead before are left out |
+| mean drop in P(deploy) | Measured P(decoy) before the key check minus after. The label says deploy because the decoy usually is one |
+| checks the deploy still led | Checks, from the key check on, for which the decoy was still the top hypothesis (ties count). How long the decoy survived the contradiction |
 | checks until the cause led | Checks until the true cause was the top hypothesis on its own. Separates agents that all reach the right answer by how fast they get there |
 | right hypothesis | The final hypothesis is the true one |
 | found the mechanism | Ran a check that shows it, and the answer says what changed and how it exhausted the pool. Scored apart from the hypothesis |
 | named the component | Names the job at fault, not just "the database" |
-| blamed the decoy | Final hypothesis is the deploy |
+| blamed the decoy | Final hypothesis is the decoy |
 | cited only checks it ran | Every cited check was observed |
 | cited a failed/empty query | Cited a trap as evidence |
 | mean checks used, mean noise checks | Effort, and effort spent on noise |
@@ -191,9 +218,11 @@ reliably, or if Jev's scores move but the final answers don't improve.
 
 ## Known limits
 
-- **Three scenarios, written by hand.** Each author knew their answer while writing
-  it. Two independent authors and a second incident shape help, but every scenario
-  has a deploy decoy. Recorded incidents would be better still.
+- **Eight scenarios, all simplified.** Three are written by hand, and each author knew
+  the answer while writing it. Five adapt public postmortems, but the telemetry is
+  still written, not recorded, and each has a single cause. Models may have read the
+  original postmortems; renamed services and changed numbers reduce that, and a
+  held-out set of unpublished scenarios would remove it.
 - **Few trials.** Five trials per cell show direction, not significance.
 - **Stated beliefs.** The belief metrics use what the model says its probabilities
   are, which may not be calibrated. The final-answer metrics don't depend on them.

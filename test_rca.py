@@ -431,7 +431,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(rca.SYSTEM_PROMPT, out)
         self.assertIn('"most_contradicted"', out)
-        self.assertIn("36 trials, forced mode", out)  # 3 scenarios x 2 models x 3 setups x 2
+        self.assertIn(f"{len(rca.scenario_names()) * 12} trials, forced mode", out)  # scenarios x 2 models x 3 setups x 2
         self.assertIn("openai:gpt-x", out)
         # Setups alternate within each trial, so API drift hits both alike.
         plan = [l.split()[-1] for l in out.splitlines() if l.startswith("  trial ")]
@@ -643,8 +643,10 @@ class Scenarios(unittest.TestCase):
             with self.subTest(name):
                 self.assertGreaterEqual(len(hyps), 5)
                 self.assertIn(truth["hypothesis"], hyps)
-                self.assertEqual(truth["decoy"], "deploy")
-                self.assertIn("deploy", scenario["initial_context"])  # seen before any check
+                # The decoy is whatever looks guilty at the start; it can be the deploy or
+                # anything else, and some scenarios have a guilty deploy.
+                self.assertIn(truth["decoy"], hyps)
+                self.assertNotEqual(truth["decoy"], truth["hypothesis"])
                 self.assertEqual(scenario["version_check"], truth["version_check"])
                 self.assertGreaterEqual(len(truth["traps"]), 2)
                 self.assertGreaterEqual(len(truth["noise"]), 3)
