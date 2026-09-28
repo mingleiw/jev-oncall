@@ -325,7 +325,7 @@ class Report(unittest.TestCase):
         traces = [dict(rca.run_trial(SCENARIO, "alone", alone), model="anthropic:m"),
                   dict(rca.run_trial(SCENARIO, "jev", with_jev, FakeJev()), model="anthropic:m")]
         buf = io.StringIO()
-        rca.report(traces, TRUTH, out=buf)
+        rca.report(traces, out=buf)
         rows = {line[:32].strip(): line[32:].split() for line in buf.getvalue().splitlines()[2:]}
         self.assertEqual(rows["right hypothesis"], ["0/1", "1/1"])
         self.assertEqual(rows["blamed the decoy"], ["1/1", "0/1"])
@@ -345,7 +345,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn(rca.SYSTEM_PROMPT, out)
         self.assertIn('"contradicted_deploy"', out)
-        self.assertIn("8 trials, forced mode", out)
+        self.assertIn("16 trials, forced mode", out)  # 2 scenarios x 2 models x 2 setups x 2
         self.assertIn("openai:gpt-x", out)
         # Setups alternate within each trial, so API drift hits both alike.
         plan = [l.split()[-1] for l in out.splitlines() if l.startswith("  trial ")]
@@ -362,6 +362,8 @@ class CLI(unittest.TestCase):
     def test_bad_model_spec(self):
         with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
             self.run_main("--dry-run", "--models", "gemini:x")
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
+            self.run_main("--dry-run", "--scenarios", "nope")
 
     def test_check_reports_each_call(self):
         ok = lambda *a, **k: ("OK", {}, {})
@@ -383,7 +385,7 @@ class CLI(unittest.TestCase):
             out = os.path.join(d, "t.jsonl")
             with mock.patch.object(rca, "model_client", return_value=fake), \
                  mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
-                code, text = self.run_main("--models", "anthropic", "--out", out)
+                code, text = self.run_main("--models", "anthropic", "--scenarios", "pool_etl_cron", "--out", out)
             traces = rca.read_traces(out)
             self.assertEqual(code, 0)
             self.assertEqual([t["setup"] for t in traces], ["alone", "jev"])
@@ -424,57 +426,88 @@ class ModelResponses(unittest.TestCase):
 
 
 class GroundTruthLeak(unittest.TestCase):
-    """Nothing from the ground-truth file may reach the model or Jev."""
+    """Nothing from a scenario's truth file may reach the model or Jev."""
 
-    def agent_inputs(self):
-        every_check = list(SCENARIO["checks"])
+    def agent_inputs(self, scenario):
         yield "system prompt", rca.SYSTEM_PROMPT
-        yield "first message", rca.build_initial_prompt(SCENARIO)
-        yield "jev payload", json.dumps(rca.build_jev_payload(SCENARIO, every_check))
-        for name, check in SCENARIO["checks"].items():
+        yield "first message", rca.build_initial_prompt(scenario)
+        yield "jev payload", json.dumps(rca.build_jev_payload(scenario, list(scenario["checks"])))
+        for name, check in scenario["checks"].items():
             yield name, rca.format_observation(name, check["result"])
 
     def test_no_agent_input_contains_ground_truth(self):
-        secrets = [TRUTH["mechanism"], *[n["notes"] for n in TRUTH["check_notes"].values()]]
-        for where, text in self.agent_inputs():
-            for secret in secrets:
-                self.assertNotIn(secret, text, where)
-            for word in ("TRAP", "NOISE", "decoy", "ground truth"):
-                self.assertNotIn(word, text, f"{where} contains {word!r}")
+        for name in rca.scenario_names():
+            scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+            secrets = [truth["mechanism"], *[n["notes"] for n in truth["check_notes"].values() if "notes" in n]]
+            for where, text in self.agent_inputs(scenario):
+                for secret in secrets:
+                    self.assertNotIn(secret, text, f"{name}: {where}")
+                for word in ("TRAP", "NOISE", "decoy", "ground truth"):
+                    self.assertNotIn(word, text, f"{name}: {where} contains {word!r}")
 
-    def test_scenario_file_holds_no_scoring_fields(self):
-        with open(rca.SCENARIO_PATH, encoding="utf-8") as f:
-            raw = f.read()
-        for key in ("rules_out", "supports", "notes", "decoy", "hypothesis\"", "mechanism", "traps"):
-            self.assertNotIn(key, raw, key)
+    def test_scenario_files_hold_no_scoring_fields(self):
+        for name in rca.scenario_names():
+            with open(os.path.join(rca.SCENARIO_DIR, f"{name}.json"), encoding="utf-8") as f:
+                raw = f.read()
+            for key in ("rules_out", "supports", "notes", "decoy", "hypothesis\"", "mechanism", "traps"):
+                self.assertNotIn(key, raw, f"{name}: {key}")
 
-    def test_running_a_trial_never_reads_the_truth_file(self):
+    def test_running_a_trial_never_reads_a_truth_file(self):
         real_open = open
 
         def guarded(path, *a, **k):
-            if os.path.abspath(str(path)) == rca.GROUND_TRUTH_PATH:
-                raise AssertionError("the trial read the ground truth")
+            if str(path).endswith(".truth.json"):
+                raise AssertionError(f"the trial read {path}")
             return real_open(path, *a, **k)
         model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
         with mock.patch("builtins.open", guarded):
-            rca.run_trial(SCENARIO, "jev", model, FakeJev(), forced=True)
+            rca.run_trial(rca.load_scenario(), "jev", model, FakeJev(), forced=True)
 
 
-class ScenarioShape(unittest.TestCase):
-    def test_the_scenario_has_what_the_experiment_needs(self):
-        checks = SCENARIO["checks"]
-        self.assertGreaterEqual(len(SCENARIO["hypotheses"]), 5)
-        self.assertIn(TRUTH["hypothesis"], SCENARIO["hypotheses"])
-        self.assertIn(TRUTH["decoy"], SCENARIO["hypotheses"])
-        self.assertEqual(SCENARIO["version_check"], TRUTH["version_check"])
-        self.assertGreaterEqual(len(TRUTH["traps"]), 2)
-        self.assertGreaterEqual(len(TRUTH["noise"]), 3)
-        for name in [*TRUTH["traps"], *TRUTH["noise"], *TRUTH["mechanism_checks"], *TRUTH["check_notes"]]:
-            self.assertIn(name, checks)
-        ruled_out = {n.get("rules_out") for n in TRUTH["check_notes"].values()}
-        for h in SCENARIO["hypotheses"]:
-            if h != TRUTH["hypothesis"]:
-                self.assertIn(h, ruled_out, f"no check rules out {h}")
+class Scenarios(unittest.TestCase):
+    def test_every_scenario_has_what_the_experiment_needs(self):
+        self.assertGreaterEqual(len(rca.scenario_names()), 2)
+        for name in rca.scenario_names():
+            scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+            checks, hyps = scenario["checks"], scenario["hypotheses"]
+            with self.subTest(name):
+                self.assertGreaterEqual(len(hyps), 5)
+                self.assertIn(truth["hypothesis"], hyps)
+                self.assertEqual(truth["decoy"], "deploy")
+                self.assertIn("deploy", scenario["initial_context"])  # seen before any check
+                self.assertEqual(scenario["version_check"], truth["version_check"])
+                self.assertGreaterEqual(len(truth["traps"]), 2)
+                self.assertGreaterEqual(len(truth["noise"]), 3)
+                for check in [truth["version_check"], *truth["traps"], *truth["noise"],
+                              *truth["mechanism_checks"], *truth["check_notes"]]:
+                    self.assertIn(check, checks)
+                ruled_out = {n.get("rules_out") for n in truth["check_notes"].values()}
+                for h in hyps:
+                    if h != truth["hypothesis"]:
+                        self.assertIn(h, ruled_out, f"no check rules out {h}")
+
+    def test_each_trace_is_scored_against_its_own_scenario(self):
+        name = "pool_lock_batch"
+        scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+        hyps = list(scenario["hypotheses"])
+        right = {"hypothesis": truth["hypothesis"], "component": "orders-archive job",
+                 "mechanism": "The manually run archive batch holds row locks, so checkout queries "
+                              "wait and hold pool connections.",
+                 "evidence": ["db_lock_waits", "batch_jobs"]}
+        b = lambda top: {h: (0.8 if h == top else 0.05) for h in hyps}
+        model = Scripted(reply(b("deploy"), "errors_by_version"),
+                         reply(b("slow_queries"), "db_lock_waits"),
+                         reply(b("slow_queries"), "batch_jobs"),
+                         reply(b("slow_queries"), final=right))
+        trace = dict(rca.run_trial(scenario, "alone", model, forced=True), scenario=name, model="m")
+        s = rca.score_trial(trace, truth)
+        for key in ("changed_direction", "correct_hypothesis", "found_mechanism", "named_component",
+                    "evidence_all_observed"):
+            self.assertTrue(s[key], key)
+        buf = io.StringIO()
+        rca.report([trace, dict(trace, scenario="pool_etl_cron")], out=buf)
+        self.assertIn("pool_lock_batch | m | forced version check", buf.getvalue())
+        self.assertIn("pool_etl_cron | m | forced version check", buf.getvalue())
 
 
 if __name__ == "__main__":

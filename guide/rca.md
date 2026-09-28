@@ -9,25 +9,39 @@ answer; Jev only judges, after every result, which hypothesis best explains all 
 evidence and whether the evidence contradicts each one. So the comparison is each
 model **alone** vs the same model **with Jev**, not Jev against the models.
 
-## The scenario
+## The scenarios
 
-`rca_scenario.json` is one frozen incident: the `orders-db` connection pool is
-exhausted and checkout is down. Before any check, the agent is told about a deploy of
-`checkout-api` v2.47.1 to 3 of 8 instances twenty minutes earlier, with a change
-summary about connection retries and timeouts. It looks guilty.
+`rca_scenarios/` holds two frozen incidents, written independently by different
+authors so that neither author's sense of the answer is the only one tested. Both
+start the same way: database connection pool exhaustion takes down checkout, and
+before any check the agent is told about a `checkout-api` deploy, rolled to part of
+the fleet minutes earlier, whose change summary sounds relevant. It looks guilty. The
+causes differ:
 
-- 6 hypotheses, and 15 checks returning telemetry frozen at one moment: metrics,
-  logs, config, and job schedules.
-- **The version check** (`error-by-version`): the old and new versions fail at the
-  same rate and started failing at the same second. That contradicts the deploy.
-- Every wrong hypothesis has a check that rules it out.
-- **2 traps**: a query that times out, and an empty result from a wrong service name.
-  Neither is evidence of anything.
+| | `pool_etl_cron` | `pool_lock_batch` |
+| --- | --- | --- |
+| True cause | An analytics cron job moved from 03:00 to peak hours; its long queries hold 73 of the pool's 200 connections | An archive batch job, triggered by hand at 14:01, holds row locks on `orders`, so checkout queries wait and hold their connections about 50 times longer |
+| Kind of failure | Direct resource use | Lock contention, seen first as slow queries |
+| Hypotheses / checks | 6 / 15 | 5 / 15 |
+
+Each scenario has:
+- telemetry frozen at one moment: metrics, logs, config, job schedules;
+- **a version check** showing the old and new versions fail at the same rate, from the
+  same moment, which contradicts the deploy;
+- a check that rules out every wrong hypothesis;
+- **2 traps**, a query that times out and an empty result from a wrong service name,
+  neither of which is evidence;
 - **3 noise checks**: real but unrelated signals.
 
-The answer, the notes on what each check shows, and the lists of traps and noise are
-in `rca_ground_truth.json`, which is used only for scoring. A test proves no prompt,
-observation, or Jev payload contains any of it, and that a trial never opens that file.
+Each `<name>.json` is what the agent and Jev see. The answer, the notes on what each
+check shows, and the lists of traps and noise are in `<name>.truth.json`, used only
+for scoring. Tests prove no prompt, observation, or Jev payload contains any of it,
+and that a trial never opens a truth file. Report results per scenario: a result that
+holds on one and not the other is itself a finding.
+
+To add a scenario, drop a `<name>.json` and `<name>.truth.json` pair in the folder,
+following the existing two; the scenario tests check its shape and run the leak test
+on it automatically.
 
 ## The two setups
 
@@ -46,12 +60,12 @@ contradict it"). It goes through `triage.call_jev`, the same client triage uses.
 
 Fairness: what Jev is told about failed and empty queries is also in the model's
 system prompt, and Jev sees the same initial context the model does. Trials rotate
-setups and models (trial 1: model A alone, A with Jev, B alone, B with Jev; then
-trial 2), so API drift over a run hits every cell alike.
+scenarios, models and setups (trial 1 runs every combination once, alone then with
+Jev, before trial 2 starts), so API drift over a run hits every cell alike.
 
 ## The metrics
 
-Reported as counts ("3/5"), per model and mode, with a column per setup.
+Reported as counts ("3/5"), per scenario, model and mode, with a column per setup.
 
 | Metric | Meaning |
 | --- | --- |
@@ -92,10 +106,11 @@ python3 rca_experiment.py --report rca_traces.jsonl
    this first; free mode then shows whether agents find the check on their own.
 4. Each trial is appended to `rca_traces.jsonl` as soon as it ends: every
    state's beliefs and Jev scores, the checks, the final answer, token usage, and
-   the scenario digest. `--report` re-scores any trace file, so scoring changes
+   the scenario name and digest. `--report` re-scores any trace file, so scoring changes
    don't need new runs.
 
-Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
+list) narrows it. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
@@ -108,9 +123,9 @@ reliably, or if Jev's scores move but the final answers don't improve.
 
 ## Known limits
 
-- **One scenario, written by hand.** Its author knew the answer while writing it.
-  The `rca-experiment` branch has an independently written second scenario; results
-  should be reported per scenario. Recorded incidents would be better still.
+- **Two scenarios, written by hand.** Each author knew their answer while writing it.
+  Two independent authors is better than one, but both scenarios share a shape
+  (pool exhaustion, a deploy decoy). Recorded incidents would be better still.
 - **Few trials.** Five trials per cell show direction, not significance.
 - **Measured belief differs by setup.** Alone measures the model's stated beliefs,
   which may not be calibrated; jev measures Jev's. The final-answer metrics are

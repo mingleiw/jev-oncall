@@ -127,6 +127,6 @@ are a good place to start.
 | [generate_dashboard.py](generate_dashboard.py) | Renders decisions as the HTML dashboard |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default |
 | [build_demo.py](build_demo.py) | Builds the interactive demo in `docs/demo/` |
-| [rca_experiment.py](rca_experiment.py) | RCA experiment: does Jev help an agent change direction? |
+| [rca_experiment.py](rca_experiment.py) | RCA experiment: does an agent change direction, alone vs with Jev? ([guide](guide/rca.md)) |
 | [demo/](demo) | The Docker Compose demo |
 | [docs/](docs) | The website, served by GitHub Pages |

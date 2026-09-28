@@ -2,11 +2,11 @@
 """RCA experiment: when evidence contradicts the leading theory, does the
 agent change direction? And does a Jev re-score after every check help?
 
-One frozen incident (rca_scenario.json). The agent sees a deploy that looks
-guilty, picks checks from a fixed menu, reports its beliefs after every
-observation, and gives a final answer. The version check contradicts the
-deploy theory. Scoring uses rca_ground_truth.json, which no agent input
-contains.
+Frozen incidents in rca_scenarios/, written independently. In each, the
+agent sees a deploy that looks guilty, picks checks from a fixed menu,
+reports its beliefs after every observation, and gives a final answer. The
+version check contradicts the deploy theory. Scoring uses the scenario's
+.truth.json, which no agent input contains.
 
 Two setups per model, same scenario, menu and prompt wording:
 
@@ -41,8 +41,8 @@ from urllib.parse import urlparse
 import triage
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SCENARIO_PATH = os.path.join(BASE, "rca_scenario.json")
-GROUND_TRUTH_PATH = os.path.join(BASE, "rca_ground_truth.json")
+SCENARIO_DIR = os.path.join(BASE, "rca_scenarios")
+DEFAULT_SCENARIO = "pool_etl_cron"
 TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
 MAX_CHECKS = 10
 SETUPS = ("alone", "jev")
@@ -59,12 +59,19 @@ def load_json(path):
         return json.load(f)
 
 
-def load_scenario(path=None):
-    return load_json(path or SCENARIO_PATH)
+def scenario_names():
+    return sorted(f[:-5] for f in os.listdir(SCENARIO_DIR)
+                  if f.endswith(".json") and not f.endswith(".truth.json"))
 
 
-def load_ground_truth(path=None):
-    return load_json(path or GROUND_TRUTH_PATH)
+def load_scenario(name=DEFAULT_SCENARIO):
+    """The agent-facing half of a scenario: never the truth file."""
+    return load_json(os.path.join(SCENARIO_DIR, f"{name}.json"))
+
+
+def load_ground_truth(name=DEFAULT_SCENARIO):
+    """Scoring only."""
+    return load_json(os.path.join(SCENARIO_DIR, f"{name}.truth.json"))
 
 
 def scenario_digest(scenario):
@@ -549,19 +556,23 @@ def _cell(scores, key, kind):
     return f"{sum(vals) / len(vals):.2f}"
 
 
-def report(traces, truth, out=None):
-    """One table per (model, mode): a column for each setup. Counts, not percentages."""
+def report(traces, out=None):
+    """One table per (scenario, model, mode), a column for each setup.
+    Counts, not percentages. Each trace is scored against its own scenario's truth."""
     out = out or sys.stdout
-    groups = {}
+    groups, truths = {}, {}
     for t in traces:
-        groups.setdefault((t.get("model", "?"), t.get("forced", False)), {}).setdefault(
-            t["setup"], []).append(score_trial(t, truth))
+        name = t.get("scenario", DEFAULT_SCENARIO)
+        if name not in truths:
+            truths[name] = load_ground_truth(name)
+        groups.setdefault((name, t.get("model", "?"), t.get("forced", False)), {}).setdefault(
+            t["setup"], []).append(score_trial(t, truths[name]))
     if not groups:
         print("No trials.", file=out)
         return
-    for (model, forced), by_setup in sorted(groups.items()):
+    for (name, model, forced), by_setup in sorted(groups.items()):
         mode = "forced version check" if forced else "free choice"
-        print(f"\n{model} | {mode}", file=out)
+        print(f"\n{name} | {model} | {mode}", file=out)
         print(f"  {'':<30}" + "".join(f"{s:>10}" for s in SETUPS), file=out)
         print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>10}" for s in SETUPS),
               file=out)
@@ -609,8 +620,9 @@ def main(argv=None):
     ap.add_argument("--models", default="anthropic",
                     help="comma-separated provider:model, e.g. anthropic:claude-opus-5,openai:gpt-5 "
                          f"(provider alone uses its default: {DEFAULT_MODELS})")
+    ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in rca_scenarios/)")
     ap.add_argument("--setup", choices=["alone", "jev", "both"], default="both")
-    ap.add_argument("--trials", type=int, default=1, help="trials per model and setup")
+    ap.add_argument("--trials", type=int, default=1, help="trials per scenario, model and setup")
     ap.add_argument("--forced", action="store_true",
                     help="run the version check first in every trial, so every trial sees the contradiction")
     ap.add_argument("--max-checks", type=int, default=MAX_CHECKS)
@@ -623,30 +635,36 @@ def main(argv=None):
     ap.add_argument("--report", metavar="JSONL", help="score saved traces instead of running")
     args = ap.parse_args(argv)
 
-    truth = load_ground_truth()
     if args.report:
-        report(read_traces(args.report), truth)
+        report(read_traces(args.report))
         return 0
 
-    scenario = load_scenario()
+    available = scenario_names()
+    names = [n.strip() for n in args.scenarios.split(",") if n.strip()] if args.scenarios else available
+    unknown = sorted(set(names) - set(available))
+    if unknown:
+        ap.error(f"unknown scenario(s) {', '.join(unknown)}; available: {', '.join(available)}")
+    scenarios = {n: load_scenario(n) for n in names}
     try:
         models = [parse_model_spec(s) for s in args.models.split(",") if s.strip()]
     except ValueError as e:
         ap.error(str(e))
     setups = list(SETUPS) if args.setup == "both" else [args.setup]
-    plan = [(i, p, m, s) for i in range(args.trials) for p, m in models for s in setups]
+    plan = [(i, n, p, m, s) for i in range(args.trials) for n in names
+            for p, m in models for s in setups]
 
     if args.dry_run:
-        print("=== system prompt (both setups) ===\n" + SYSTEM_PROMPT)
-        print("\n=== first user message (both setups; jev adds its starting scores) ===\n"
-              + build_initial_prompt(scenario, args.max_checks))
-        if "jev" in setups:
-            print("\n=== Jev payload after the version check ===")
-            print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
-                                               args.jev_model), indent=2))
+        print("=== system prompt (every scenario, both setups) ===\n" + SYSTEM_PROMPT)
+        for n, scenario in scenarios.items():
+            print(f"\n=== {n}: first user message (jev adds its starting scores) ===\n"
+                  + build_initial_prompt(scenario, args.max_checks))
+            if "jev" in setups:
+                print(f"\n=== {n}: Jev payload after the version check ===")
+                print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
+                                                   args.jev_model), indent=2))
         print(f"\n=== plan: {len(plan)} trials, {'forced' if args.forced else 'free'} mode ===")
-        for i, p, m, s in plan:
-            print(f"  trial {i + 1}  {p}:{m}  {s}")
+        for i, n, p, m, s in plan:
+            print(f"  trial {i + 1}  {n}  {p}:{m}  {s}")
         return 0
 
     if args.check:
@@ -659,24 +677,25 @@ def main(argv=None):
         sys.exit(f"error: {e}")
 
     run_id = uuid.uuid4().hex[:8]
-    digest = scenario_digest(scenario)
     print(f"run {run_id}: {len(plan)} trials, {'forced' if args.forced else 'free'} mode, "
           f"appending to {args.out}")
     traces = []
-    for n, (i, provider, model, setup) in enumerate(plan, 1):
-        trace = run_trial(scenario, setup, clients[(provider, model)],
+    for k, (i, name, provider, model, setup) in enumerate(plan, 1):
+        trace = run_trial(scenarios[name], setup, clients[(provider, model)],
                           jev if setup == "jev" else None, args.forced, args.max_checks)
-        trace.update({"run_id": run_id, "trial": i + 1, "model": f"{provider}:{model}",
+        trace.update({"run_id": run_id, "trial": i + 1, "scenario": name,
+                      "scenario_digest": scenario_digest(scenarios[name]),
+                      "model": f"{provider}:{model}",
                       "jev_model": args.jev_model if setup == "jev" else None,
-                      "scenario_digest": digest, "harness_version": HARNESS_VERSION})
+                      "harness_version": HARNESS_VERSION})
         with open(args.out, "a", encoding="utf-8") as f:
             f.write(json.dumps(trace) + "\n")
         traces.append(trace)
-        s = score_trial(trace, truth)
+        s = score_trial(trace, load_ground_truth(name))
         answer = trace["final"]["hypothesis"] if trace["final"] else trace["status"]
-        print(f"[{n}/{len(plan)}] {provider}:{model} {setup:<5} checks={s['checks_used']} "
+        print(f"[{k}/{len(plan)}] {name} {provider}:{model} {setup:<5} checks={s['checks_used']} "
               f"changed_direction={s['changed_direction']} answer={answer} ({trace['seconds']}s)")
-    report(traces, truth)
+    report(traces)
     return 0
 
 
