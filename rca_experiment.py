@@ -1,30 +1,37 @@
 #!/usr/bin/env python3
-"""RCA experiment: does a Jev re-score after each observation help an agent
-change direction when evidence contradicts the leading hypothesis?
+"""RCA experiment: when evidence contradicts the leading theory, does the
+agent change direction? And does a Jev re-score after every check help?
 
-Two setups, same model, same scenario, same prompt wording:
+One frozen incident (rca_scenario.json). The agent sees a deploy that looks
+guilty, picks checks from a fixed menu, reports its beliefs after every
+observation, and gives a final answer. The version check contradicts the
+deploy theory. Scoring uses rca_ground_truth.json, which no agent input
+contains.
 
-  baseline  The model picks checks, reports beliefs, and gives a final answer.
-  jev       Same, but after every observation Jev re-scores every hypothesis
-            and the model sees those scores. Jev's distribution is the belief
-            being measured.
+Two setups per model, same scenario, menu and prompt wording:
+
+  alone   the model reports its own beliefs; those are measured.
+  jev     after every check Jev re-scores every hypothesis (which one best
+          explains all the evidence, and whether the evidence contradicts
+          each one). The model sees those scores; Jev's are measured.
 
 Usage:
-    export ANTHROPIC_API_KEY=...   # or OPENAI_API_KEY + OPENAI_BASE_URL
-    python3 rca_experiment.py --trials 5
-    python3 rca_experiment.py --trials 5 --forced   # version check first
-    python3 rca_experiment.py --dry-run              # no API calls
+    export TYPESAFE_API_KEY=...  ANTHROPIC_API_KEY=...  OPENAI_API_KEY=...
+    python3 rca_experiment.py --dry-run                     # prompts + Jev payload, no calls
+    python3 rca_experiment.py --check --models anthropic:claude-opus-5,openai:gpt-5
+    python3 rca_experiment.py --models anthropic:claude-opus-5,openai:gpt-5 \\
+        --trials 5 --forced                                 # the grid, alone vs + Jev
+    python3 rca_experiment.py --report rca_traces.jsonl     # re-score saved traces
 
-Standard library only.
+guide/rca.md has the design. Standard library only.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import json
-import math
 import os
-import ssl
 import sys
 import time
 import uuid
@@ -36,671 +43,640 @@ import triage
 BASE = os.path.dirname(os.path.abspath(__file__))
 SCENARIO_PATH = os.path.join(BASE, "rca_scenario.json")
 GROUND_TRUTH_PATH = os.path.join(BASE, "rca_ground_truth.json")
-MAX_CHECKS = 12
+TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
+MAX_CHECKS = 10
+SETUPS = ("alone", "jev")
+DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5"}
+HARNESS_VERSION = 2
+
+
+class ModelError(Exception):
+    """A model call failed or its reply could not be used."""
+
+
+def load_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def load_scenario(path=None):
-    with open(path or SCENARIO_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    return load_json(path or SCENARIO_PATH)
 
 
 def load_ground_truth(path=None):
-    with open(path or GROUND_TRUTH_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    return load_json(path or GROUND_TRUTH_PATH)
+
+
+def scenario_digest(scenario):
+    blob = json.dumps(scenario, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:12]
 
 
 # --------------------------------------------------------------------------
 # Model calls: Anthropic and OpenAI-compatible, standard-library HTTP
 
-def _ssl_context():
-    ctx = ssl.create_default_context()
-    ca = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    if ca and os.path.exists(ca):
-        ctx.load_verify_locations(ca)
-    return ctx
-
-
-def _model_request(host, port, path, headers, body, timeout=60):
-    ctx = _ssl_context()
-    proxy = (os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
-             or os.environ.get("all_proxy") or os.environ.get("ALL_PROXY"))
+def _connection(url, timeout):
+    """An HTTP(S) connection to url's host, through HTTPS_PROXY when set."""
+    u = urlparse(url)
+    if u.scheme == "http":
+        return http.client.HTTPConnection(u.hostname, u.port or 80, timeout=timeout)
+    proxy = triage._proxy_for_host(u.hostname)
     if proxy:
         px = urlparse(proxy)
-        conn = http.client.HTTPSConnection(px.hostname, px.port or 8080,
-                                           timeout=timeout, context=ctx)
-        tunnel_headers = {}
+        conn = http.client.HTTPSConnection(px.hostname, px.port or 8080, timeout=timeout)
+        headers = {}
         if px.username:
             import base64
-            auth = base64.b64encode(f"{px.username}:{px.password or ''}".encode()).decode()
-            tunnel_headers["Proxy-Authorization"] = f"Basic {auth}"
-        conn.set_tunnel(host, port or 443, tunnel_headers)
-    else:
-        conn = http.client.HTTPSConnection(host, port or 443, timeout=timeout, context=ctx)
+            cred = base64.b64encode(f"{px.username}:{px.password or ''}".encode()).decode()
+            headers["Proxy-Authorization"] = f"Basic {cred}"
+        conn.set_tunnel(u.hostname, u.port or 443, headers)
+        return conn
+    return http.client.HTTPSConnection(u.hostname, u.port or 443, timeout=timeout)
+
+
+def post_json(url, body, headers, timeout=600, retries=2):
+    """POST JSON, retrying 429, 5xx and network errors. Raises ModelError."""
     data = json.dumps(body).encode("utf-8")
-    conn.request("POST", path, body=data, headers=headers)
-    resp = conn.getresponse()
-    raw = resp.read()
-    if resp.status >= 400:
-        raise RuntimeError(f"HTTP {resp.status}: {raw[:500].decode('utf-8', errors='replace')}")
-    return json.loads(raw.decode("utf-8"))
+    path = urlparse(url).path or "/"
+    last = "no attempt"
+    for attempt in range(retries + 1):
+        conn = _connection(url, timeout)
+        wait = 2.0 * 2 ** attempt
+        try:
+            conn.request("POST", path, body=data,
+                         headers={"Content-Type": "application/json", **headers})
+            resp = conn.getresponse()
+            raw = resp.read()
+            if 200 <= resp.status < 300:
+                return json.loads(raw.decode("utf-8"))
+            last = f"HTTP {resp.status}: {raw[:300].decode('utf-8', 'replace')}"
+            if resp.status != 429 and resp.status < 500:
+                break
+            retry_after = resp.getheader("retry-after")
+            if retry_after and retry_after.replace(".", "", 1).isdigit():
+                wait = min(float(retry_after), 60.0)
+        except (OSError, http.client.HTTPException, json.JSONDecodeError) as e:
+            last = f"{type(e).__name__}: {e}"
+        finally:
+            conn.close()
+        if attempt < retries:
+            time.sleep(wait)
+    raise ModelError(last)
 
 
-def call_anthropic(messages, model="claude-sonnet-4-20250514", system=None, api_key=None):
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-    }
-    body = {"model": model, "max_tokens": 4096, "messages": messages}
-    if system:
-        body["system"] = system
-    resp = _model_request("api.anthropic.com", 443, "/v1/messages", headers, body)
-    return resp["content"][0]["text"]
+def call_anthropic(model, system, messages, api_key):
+    """Returns (text, assistant message to append, usage)."""
+    resp = post_json(
+        "https://api.anthropic.com/v1/messages",
+        {"model": model, "max_tokens": 16000, "system": system, "messages": messages},
+        {"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+    if resp.get("stop_reason") == "refusal":
+        raise ModelError(f"refusal: {resp.get('stop_details')}")
+    content = resp.get("content") or []
+    # Current models think by default, so the first block is often "thinking".
+    text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
+    usage = resp.get("usage") or {}
+    return text, {"role": "assistant", "content": content}, {
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0)}
 
 
-def call_openai(messages, model="gpt-4o", api_key=None, base_url=None):
-    key = api_key or os.environ.get("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-    url = base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
-    parsed = urlparse(url)
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {key}",
-    }
-    body = {"model": model, "max_tokens": 4096, "messages": messages}
-    path = (parsed.path.rstrip("/") or "") + "/v1/chat/completions"
-    if "/v1/" in parsed.path:
-        path = parsed.path.rstrip("/") + "/chat/completions"
-    resp = _model_request(parsed.hostname, parsed.port, path, headers, body)
-    return resp["choices"][0]["message"]["content"]
+def openai_url(base_url):
+    base = (base_url or "https://api.openai.com").rstrip("/")
+    return base + ("/chat/completions" if base.endswith("/v1") else "/v1/chat/completions")
 
 
-def call_model(messages, system=None, provider="anthropic", model=None, api_key=None,
-               base_url=None):
+def call_openai(model, system, messages, api_key, base_url=None):
+    # No token limit: newer OpenAI models reject max_tokens, and compatible
+    # servers differ on the name of its replacement.
+    resp = post_json(openai_url(base_url),
+                     {"model": model, "messages": [{"role": "system", "content": system}, *messages]},
+                     {"Authorization": f"Bearer {api_key}"})
+    try:
+        text = resp["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError) as e:
+        raise ModelError(f"malformed response: {e}") from e
+    usage = resp.get("usage") or {}
+    return text, {"role": "assistant", "content": text}, {
+        "input_tokens": usage.get("prompt_tokens", 0),
+        "output_tokens": usage.get("completion_tokens", 0)}
+
+
+def parse_model_spec(spec):
+    """'anthropic:claude-opus-5' -> ("anthropic", "claude-opus-5")."""
+    provider, _, model = spec.strip().partition(":")
+    if provider not in DEFAULT_MODELS:
+        raise ValueError(f"{spec!r}: provider must be one of {', '.join(DEFAULT_MODELS)}")
+    return provider, model or DEFAULT_MODELS[provider]
+
+
+def model_client(provider, model, env=None):
+    """A callable (system, messages) -> (text, assistant_msg, usage)."""
+    env = os.environ if env is None else env
     if provider == "anthropic":
-        return call_anthropic(messages, model=model or "claude-sonnet-4-20250514",
-                              system=system, api_key=api_key)
-    else:
-        msgs = messages
-        if system:
-            msgs = [{"role": "system", "content": system}] + messages
-        return call_openai(msgs, model=model or "gpt-4o", api_key=api_key, base_url=base_url)
+        key = env.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ModelError("ANTHROPIC_API_KEY is not set")
+        return lambda system, messages: call_anthropic(model, system, messages, key)
+    key = env.get("OPENAI_API_KEY")
+    if not key:
+        raise ModelError("OPENAI_API_KEY is not set")
+    base_url = env.get("OPENAI_BASE_URL")
+    return lambda system, messages: call_openai(model, system, messages, key, base_url)
 
 
 # --------------------------------------------------------------------------
-# Jev hypothesis scoring
+# Jev: re-score every hypothesis on the evidence so far
 
-def build_jev_payload(scenario, evidence_so_far, model=None):
-    """Build a Jev payload to re-score hypotheses given the evidence.
+BEST_Q = ("Which hypothesis best explains all of the evidence observed so far? Weigh every "
+          "observation, including any that contradict a hypothesis.")
+CONTRA_Q = ("Does any observation so far contradict this hypothesis: {h} Answer yes only when a "
+            "specific observation is inconsistent with what the hypothesis predicts.")
 
-    Uses a Choice question for the best-explaining hypothesis and a second
-    Choice for the most-contradicted hypothesis."""
-    incident = scenario["incident"]
+
+def evidence_text(scenario, observed):
+    checks = scenario["checks"]
+    return [{"check": c, "what": checks[c]["description"], "result": checks[c]["result"]}
+            for c in observed]
+
+
+def build_jev_payload(scenario, observed, model=None):
     hypotheses = scenario["hypotheses"]
-
-    state_text = f"Incident: {incident['title']}\n{incident['description']}\n\nEvidence observed so far:\n"
-    for step in evidence_so_far:
-        state_text += f"\n[{step['check']}]: {step['result']}\n"
-
-    guidance = scenario.get("guidance", "")
-    if guidance:
-        state_text += f"\n{guidance}\n"
-
-    criteria_best = {hid: desc for hid, desc in hypotheses.items()}
-    criteria_contra = dict(criteria_best)
-    criteria_contra["none"] = "No hypothesis is clearly contradicted by the evidence so far"
-
+    questions = {"best_explanation": {"type": "choice", "instructions": BEST_Q,
+                                      "criteria": dict(hypotheses)}}
+    for hid, text in hypotheses.items():
+        questions[f"contradicted_{hid}"] = {"type": "noul", "instructions": CONTRA_Q.format(h=text)}
+    incident = scenario["incident"]
     return {
         "model": model or triage.MODEL,
-        "state": {"incident_rca": state_text},
-        "questions": {
-            "best_explanation": {
-                "type": "choice",
-                "instructions": ("Which hypothesis best explains all the evidence observed so "
-                                 "far? Consider how well each hypothesis accounts for every "
-                                 "observation, including any that contradict it."),
-                "criteria": criteria_best,
-            },
-            "contradicted": {
-                "type": "choice",
-                "instructions": ("Which hypothesis is most clearly contradicted by the evidence? "
-                                 "A hypothesis is contradicted when a specific observation is "
-                                 "inconsistent with its predicted outcome."),
-                "criteria": criteria_contra,
-            },
-        },
+        "state": {"incident": {"title": incident["title"], "description": incident["description"],
+                               "started_at": incident["started_at"]},
+                  "initial_context": scenario["initial_context"],
+                  "guidance": scenario["guidance"],
+                  "observations": evidence_text(scenario, observed)},
+        "questions": questions,
     }
 
 
 def parse_jev_rca(resp, hypothesis_ids):
-    """Parse a Jev RCA response into belief and contradiction distributions."""
-    answers = resp["answers"]
+    """Jev's answer as {"beliefs": dist, "contradicted": {h: p}}; JevError if malformed."""
+    try:
+        answers = resp["answers"]
+        beliefs = triage._distribution(answers["best_explanation"]["probabilities"],
+                                       hypothesis_ids, "best_explanation")
+        contradicted = {}
+        for h in hypothesis_ids:
+            p = triage._validate_finite(answers[f"contradicted_{h}"]["noul"], f"contradicted_{h}")
+            if not 0.0 <= p <= 1.0:
+                raise triage.JevError(f"contradicted_{h}: probability {p} out of range")
+            contradicted[h] = p
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
+    return {"beliefs": beliefs, "contradicted": contradicted, "model": str(resp.get("model"))}
 
-    best_raw = answers["best_explanation"]["probabilities"]
-    best = triage._distribution(best_raw, hypothesis_ids, "best_explanation")
 
-    contra_ids = list(hypothesis_ids) + ["none"]
-    contra_raw = answers["contradicted"]["probabilities"]
-    contra = triage._distribution(contra_raw, contra_ids, "contradicted")
+def jev_scorer(api_key, model=None, timeout_s=15.0):
+    """A callable (scenario, observed) -> scores dict. Reuses triage.call_jev."""
+    if not api_key:
+        raise ModelError("TYPESAFE_API_KEY is not set")
 
-    return {"beliefs": best, "contradicted": contra, "model": resp.get("model", "unknown")}
-
-
-def call_jev_rca(scenario, evidence, api_key, model=None, timeout=5.0):
-    payload = build_jev_payload(scenario, evidence, model)
-    hypothesis_ids = list(scenario["hypotheses"].keys())
-    resp, ms = triage.call_jev(payload, api_key, timeout_s=timeout, retries=1, max_wait_s=3.0)
-    scores = parse_jev_rca(resp, hypothesis_ids)
-    scores["latency_ms"] = round(ms)
-    return scores
+    def score(scenario, observed):
+        payload = build_jev_payload(scenario, observed, model)
+        resp, ms = triage.call_jev(payload, api_key, timeout_s, retries=2, max_wait_s=10.0)
+        scores = parse_jev_rca(resp, list(scenario["hypotheses"]))
+        scores["latency_ms"] = round(ms)
+        scores["usage"] = resp.get("usage", {})
+        return scores
+    return score
 
 
 # --------------------------------------------------------------------------
-# Prompt construction
+# Prompts. Identical in both setups; the jev setup only adds Jev's scores.
 
-SYSTEM_PROMPT = """You are an SRE investigating a production incident. You will be given an incident description and a list of hypotheses about its root cause. You have access to a menu of diagnostic checks.
+SYSTEM_PROMPT = """You are an SRE investigating a production incident. You get the incident, some initial context, a list of hypotheses about its root cause, and a menu of diagnostic checks. Each check you ask for is run and its output shown to you.
 
-After each check, you must report your beliefs about the probability of each hypothesis in valid JSON, then pick the next check. When you are confident, say DONE and give your final answer.
+After every message, reply with your current beliefs over ALL hypotheses as JSON probabilities that sum to 1, then either pick one check or finish.
 
-IMPORTANT:
-- A failed query (like a timeout or a locked table) means the check itself could not complete. It is NOT evidence that nothing happened.
-- An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence.
-- Report beliefs as a JSON object mapping hypothesis IDs to probabilities that sum to 1.0.
-- Pick checks strategically: the most informative check is one that would change your beliefs the most.
+Rules:
+- A failed query (a timeout, a locked table) means the check could not complete. It is not evidence that nothing happened.
+- An empty result caused by a wrong service name means the query was malformed, not that there is nothing to find.
+- Cite as evidence only checks you actually ran whose output supports your conclusion.
 
-Response format after each observation:
+To continue:
 ```json
-{"beliefs": {"hypothesis_id": probability, ...}}
+{"beliefs": {"<hypothesis id>": <probability>, ...}}
 ```
-NEXT: <check_name>
+NEXT: <check name>
 
-When done:
+To finish:
+```json
+{"beliefs": {"<hypothesis id>": <probability>, ...}}
+```
 DONE
 ```json
-{"hypothesis": "<id>", "component": "<service or system>", "mechanism": "<one sentence>", "evidence": ["<check_name>", ...]}
+{"hypothesis": "<hypothesis id>", "component": "<service or system at fault>", "mechanism": "<one or two sentences: what failed and how it caused the incident>", "evidence": ["<check name>", ...]}
 ```"""
 
 
-def build_initial_prompt(scenario, forced=False):
-    incident = scenario["incident"]
-    decoy = scenario["decoy"]
-    hypotheses = scenario["hypotheses"]
-    checks = scenario["checks"]
-
-    prompt = f"""## Incident
-{incident['title']}
-{incident['description']}
-
-## Initial Context
-{decoy['summary']}
-
-## Hypotheses
-"""
-    for hid, desc in hypotheses.items():
-        prompt += f"- **{hid}**: {desc}\n"
-
-    prompt += "\n## Available Checks\n"
-    for cname, cdata in checks.items():
-        prompt += f"- `{cname}`: {cdata['description']}\n"
-
-    if forced:
-        prompt += (f"\nYour first check has been run for you: `error-by-version`.\n\n"
-                   f"Result:\n{checks['error-by-version']['result']}\n\n"
-                   "Report your beliefs and pick the next check.")
-    else:
-        prompt += "\nReport your initial beliefs based on the incident description and context, then pick your first check."
-
-    return prompt
+def build_initial_prompt(scenario, max_checks=MAX_CHECKS):
+    incident, lines = scenario["incident"], []
+    lines += ["## Incident", incident["title"], incident["description"], "",
+              "## Initial context", scenario["initial_context"], "", "## Hypotheses"]
+    lines += [f"- `{hid}`: {text}" for hid, text in scenario["hypotheses"].items()]
+    lines += ["", f"## Checks (at most {max_checks})"]
+    lines += [f"- `{name}`: {c['description']}" for name, c in scenario["checks"].items()]
+    lines += ["", "Report your beliefs, then pick your first check."]
+    return "\n".join(lines)
 
 
-def format_observation(check_name, result, jev_scores=None):
-    text = f"## Check result: `{check_name}`\n{result}\n"
+def format_jev_scores(scores):
+    b, c = scores["beliefs"], scores["contradicted"]
+    lines = ["## Jev's scores on all evidence so far",
+             "hypothesis: P(best explanation), P(contradicted by the evidence)"]
+    return "\n".join(lines + [f"- `{h}`: {b[h]:.2f}, {c[h]:.2f}"
+                              for h in sorted(b, key=lambda h: -b[h])])
+
+
+def format_observation(check, result, jev_scores=None, note=None, checks_left=None):
+    parts = []
+    if note:
+        parts.append(note)
+    parts += [f"## Result of `{check}`", result]
     if jev_scores:
-        beliefs = jev_scores["beliefs"]
-        contra = jev_scores["contradicted"]
-        text += "\n## Jev hypothesis scores (updated with this evidence)\n"
-        for hid in sorted(beliefs, key=lambda h: -beliefs[h]):
-            text += f"  {hid}: P={beliefs[hid]:.3f}"
-            if contra.get(hid, 0) > 0.1:
-                text += f"  (P(contradicted)={contra[hid]:.3f})"
-            text += "\n"
-        top_contra = max((h for h in contra if h != "none"), key=lambda h: contra[h], default=None)
-        if top_contra and contra[top_contra] > contra.get("none", 0):
-            text += f"  Most contradicted: {top_contra} ({contra[top_contra]:.3f})\n"
-    text += "\nReport your updated beliefs and pick the next check, or say DONE."
-    return text
+        parts += ["", format_jev_scores(jev_scores)]
+    if checks_left is not None:
+        parts += ["", f"{checks_left} checks left."]
+    parts.append("Report your beliefs, then pick the next check or finish.")
+    return "\n".join(parts)
 
 
 # --------------------------------------------------------------------------
-# Response parsing
+# Reply parsing
 
-def parse_beliefs(text):
-    """Extract a beliefs JSON object from model output."""
-    import re
-    patterns = [
-        r'```json\s*(\{[^}]*"beliefs"[^}]*\{[^}]*\}[^}]*\})\s*```',
-        r'```json\s*(\{"beliefs":\s*\{[^}]+\}\s*\})\s*```',
-        r'(\{"beliefs":\s*\{[^}]+\})',
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
-            try:
-                obj = json.loads(m.group(1))
-                if "beliefs" in obj:
-                    return obj["beliefs"]
-            except json.JSONDecodeError:
-                continue
-    # Try to find any JSON object with hypothesis-like keys
-    for m in re.finditer(r'\{[^{}]+\}', text):
+def json_objects(text):
+    """Every top-level JSON object in text, in order."""
+    decoder, i, out = json.JSONDecoder(), 0, []
+    while (i := text.find("{", i)) >= 0:
         try:
-            obj = json.loads(m.group())
-            if isinstance(obj, dict) and all(isinstance(v, (int, float)) for v in obj.values()):
-                if len(obj) >= 3:
-                    return obj
+            obj, end = decoder.raw_decode(text, i)
         except json.JSONDecodeError:
+            i += 1
             continue
+        if isinstance(obj, dict):
+            out.append(obj)
+        i = end
+    return out
+
+
+def parse_beliefs(text, hypothesis_ids):
+    """The reply's belief distribution over hypothesis_ids, normalized, or None."""
+    for obj in json_objects(text):
+        raw = obj.get("beliefs", obj)
+        if not isinstance(raw, dict) or not set(raw) & set(hypothesis_ids):
+            continue
+        if set(raw) - set(hypothesis_ids):
+            continue
+        try:
+            dist = {h: float(raw.get(h, 0.0)) for h in hypothesis_ids}
+        except (TypeError, ValueError):
+            continue
+        total = sum(dist.values())
+        if total <= 0 or any(p < 0 for p in dist.values()):
+            continue
+        return {h: p / total for h, p in dist.items()}
     return None
 
 
-def parse_next_check(text, available_checks):
-    """Extract the next check name from model output."""
-    import re
-    m = re.search(r'NEXT:\s*`?([a-z][\w-]*)`?', text)
-    if m and m.group(1) in available_checks:
-        return m.group(1)
-    for name in available_checks:
-        if f"`{name}`" in text.split("DONE")[0]:
-            return name
+def parse_next_check(text, available):
+    before_done = text.split("DONE")[0]
+    for line in reversed(before_done.splitlines()):
+        line = line.strip().lstrip("*#> ")
+        if line.upper().startswith("NEXT:"):
+            name = line.split(":", 1)[1].strip().strip("`*. ")
+            return name if name in available else None
     return None
 
 
-def parse_final_answer(text):
-    """Extract the final answer JSON from model output after DONE."""
-    import re
-    done_pos = text.find("DONE")
-    if done_pos < 0:
+def parse_final_answer(text, hypothesis_ids):
+    done = text.find("DONE")
+    if done < 0:
         return None
-    after = text[done_pos:]
-    for m in re.finditer(r'\{[^{}]*\}', after, re.DOTALL):
-        try:
-            obj = json.loads(m.group())
-            if "hypothesis" in obj:
-                return obj
-        except json.JSONDecodeError:
-            continue
-    # Try multiline JSON
-    m = re.search(r'```json\s*(\{.*?\})\s*```', after, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1))
-        except json.JSONDecodeError:
-            pass
+    for obj in json_objects(text[done:]):
+        if obj.get("hypothesis") in hypothesis_ids:
+            evidence = obj.get("evidence")
+            return {"hypothesis": obj["hypothesis"],
+                    "component": str(obj.get("component", "")),
+                    "mechanism": str(obj.get("mechanism", "")),
+                    "evidence": [str(e) for e in evidence] if isinstance(evidence, list) else []}
     return None
 
 
 # --------------------------------------------------------------------------
-# Trial runner
+# One trial
 
-def run_trial(scenario, setup, provider="anthropic", model=None, api_key=None,
-              base_url=None, jev_api_key=None, jev_model=None, forced=False,
-              dry_run=False, max_checks=MAX_CHECKS):
-    """Run one RCA trial. Returns a trace dict."""
+def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECKS):
+    """Run one investigation.
+
+    ask(system, messages) -> (text, assistant_msg, usage); jev(scenario, observed)
+    -> scores, required for the jev setup. The trace has one state per number of
+    checks observed: states[0] is before any check, states[k] after the k-th. Each
+    state holds the model's beliefs (from its reply to that state) and, in the
+    jev setup, Jev's scores.
+    """
+    if setup == "jev" and jev is None:
+        raise ValueError("the jev setup needs a Jev scorer")
     checks = scenario["checks"]
-    available = set(checks.keys())
-    hypothesis_ids = list(scenario["hypotheses"].keys())
+    hyps = list(scenario["hypotheses"])
+    version_check = scenario["version_check"]
+    trace = {"setup": setup, "forced": forced, "status": "ok", "states": [],
+             "observed": [], "final": None, "error": None,
+             "usage": {"input_tokens": 0, "output_tokens": 0, "jev_calls": 0},
+             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    t0 = time.monotonic()
 
-    trace = {
-        "setup": setup,
-        "provider": provider,
-        "model": model,
-        "forced": forced,
-        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "steps": [],
-        "final_answer": None,
-        "error": None,
-    }
-
-    system = SYSTEM_PROMPT
-    messages = []
-
-    initial = build_initial_prompt(scenario, forced=forced)
-    messages.append({"role": "user", "content": initial})
-
-    if forced:
-        # Record the forced version check as step 0
-        jev_scores = None
-        if setup == "jev" and not dry_run:
-            evidence = [{"check": "error-by-version",
-                         "result": checks["error-by-version"]["result"]}]
-            try:
-                jev_scores = call_jev_rca(scenario, evidence, jev_api_key, jev_model)
-            except Exception as e:
-                jev_scores = {"error": str(e)}
-        trace["steps"].append({
-            "check": "error-by-version",
-            "result": checks["error-by-version"]["result"],
-            "jev_scores": jev_scores,
-            "beliefs": None,
-        })
-        used = {"error-by-version"}
-    else:
-        used = set()
-
-    if dry_run:
-        trace["dry_run"] = True
-        trace["prompt_system"] = system
-        trace["prompt_initial"] = initial
+    def new_state(check=None):
+        state = {"check": check, "model_beliefs": None, "jev": None, "jev_error": None}
         if setup == "jev":
-            evidence = [{"check": "error-by-version",
-                         "result": checks["error-by-version"]["result"]}]
-            trace["jev_payload"] = build_jev_payload(scenario, evidence, jev_model)
-        return trace
+            try:
+                state["jev"] = jev(scenario, list(trace["observed"]))
+                trace["usage"]["jev_calls"] += 1
+            except Exception as e:  # recorded, never fatal: the model continues without scores
+                state["jev_error"] = f"{type(e).__name__}: {e}"
+        trace["states"].append(state)
+        return state
 
-    for step_i in range(max_checks):
+    messages = [{"role": "user", "content": build_initial_prompt(scenario, max_checks)}]
+    state = new_state()
+    if state["jev"]:
+        messages[0]["content"] += "\n\n" + format_jev_scores(state["jev"])
+    strikes, finishing = 0, False
+
+    while True:
         try:
-            reply = call_model(messages, system=system, provider=provider,
-                               model=model, api_key=api_key, base_url=base_url)
+            text, assistant_msg, usage = ask(SYSTEM_PROMPT, messages)
         except Exception as e:
-            trace["error"] = f"model call failed: {e}"
+            trace["status"], trace["error"] = "model_error", f"{type(e).__name__}: {e}"
+            break
+        for k in ("input_tokens", "output_tokens"):
+            trace["usage"][k] += usage.get(k, 0)
+        messages.append(assistant_msg)
+        beliefs = parse_beliefs(text, hyps)
+        if beliefs and state["model_beliefs"] is None:
+            state["model_beliefs"] = beliefs
+
+        must_check_first = forced and not trace["observed"]
+        final = None if must_check_first else parse_final_answer(text, hyps)
+        if final:
+            trace["final"] = final
+            break
+        if finishing:
+            trace["status"] = "unfinished"
             break
 
-        messages.append({"role": "assistant", "content": reply})
-
-        if "DONE" in reply:
-            final = parse_final_answer(reply)
-            beliefs = parse_beliefs(reply)
-            trace["final_answer"] = final
-            trace["final_beliefs"] = beliefs
-            break
-
-        beliefs = parse_beliefs(reply)
-        next_check = parse_next_check(reply, available - used)
-        if not next_check:
-            # Model didn't pick a valid check; try once more
+        available = [c for c in checks if c not in trace["observed"]]
+        pick = parse_next_check(text, available)
+        note = None
+        if must_check_first:
+            if pick != version_check:
+                note = (f"(This run fixes the first check for every trial: `{version_check}` "
+                        "was run in place of your pick.)")
+            pick = version_check
+        if pick is None:
+            strikes += 1
+            if strikes > 2:
+                trace["status"] = "invalid_reply"
+                break
             messages.append({"role": "user", "content":
-                             f"Please pick one of the remaining checks: {', '.join(sorted(available - used))}"})
+                             "Your reply needs a beliefs JSON and either `NEXT: <check>` naming one of: "
+                             + ", ".join(f"`{c}`" for c in available) + ", or DONE with the final JSON."})
             continue
+        strikes = 0
+        trace["observed"].append(pick)
+        state = new_state(pick)
+        left = max_checks - len(trace["observed"])
+        prompt = format_observation(pick, checks[pick]["result"], state["jev"], note, left)
+        if left <= 0 or not [c for c in checks if c not in trace["observed"]]:
+            finishing = True
+            prompt += "\nNo checks left: finish now with DONE and the final JSON."
+        messages.append({"role": "user", "content": prompt})
 
-        result = checks[next_check]["result"]
-        used.add(next_check)
-
-        jev_scores = None
-        if setup == "jev":
-            evidence = [{"check": c, "result": checks[c]["result"]}
-                        for s in trace["steps"] for c in [s["check"]]]
-            evidence.append({"check": next_check, "result": result})
-            try:
-                jev_scores = call_jev_rca(scenario, evidence, jev_api_key, jev_model)
-            except Exception as e:
-                jev_scores = {"error": str(e)}
-
-        trace["steps"].append({
-            "check": next_check,
-            "result": result,
-            "beliefs": beliefs,
-            "jev_scores": jev_scores,
-        })
-
-        obs = format_observation(next_check, result,
-                                 jev_scores if setup == "jev" and isinstance(jev_scores, dict)
-                                 and "beliefs" in jev_scores else None)
-        messages.append({"role": "user", "content": obs})
-
-    trace["checks_used"] = [s["check"] for s in trace["steps"]]
-    trace["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    trace["seconds"] = round(time.monotonic() - t0, 1)
     return trace
 
 
 # --------------------------------------------------------------------------
 # Scoring
 
-def score_trial(trace, ground_truth, scenario):
-    """Score one trial against ground truth. Returns a dict of metrics."""
-    gt = ground_truth
-    steps = trace.get("steps", [])
-    final = trace.get("final_answer")
-    checks_used = trace.get("checks_used", [])
-    hypothesis_ids = list(scenario["hypotheses"].keys())
+def _top(dist):
+    return max(sorted(dist), key=dist.get) if dist else None
 
-    scores = {
-        "setup": trace["setup"],
-        "forced": trace.get("forced", False),
-    }
 
-    # 1. Did the decoy lead at the start?
-    first_beliefs = None
-    for s in steps:
-        if s.get("beliefs"):
-            first_beliefs = s["beliefs"]
-            break
-    if first_beliefs:
-        decoy = gt["decoy_id"]
-        scores["decoy_led_initially"] = (
-            max(first_beliefs, key=first_beliefs.get) == decoy
-            if isinstance(first_beliefs, dict) else None
-        )
-    else:
-        scores["decoy_led_initially"] = None
+def measured_beliefs(trace):
+    """The belief being measured at each state: Jev's in the jev setup, the model's alone."""
+    if trace["setup"] == "jev":
+        return [(s.get("jev") or {}).get("beliefs") for s in trace["states"]]
+    return [s.get("model_beliefs") for s in trace["states"]]
 
-    # 2. Did the agent run the version check?
-    scores["ran_version_check"] = gt["version_check"] in checks_used
 
-    # 3. Did it change direction after the version check?
-    scores["changed_direction"] = None
-    scores["p_deploy_drop"] = None
-    if gt["version_check"] in checks_used:
-        vc_idx = checks_used.index(gt["version_check"])
-        beliefs_before = None
-        beliefs_after = None
+def score_trial(trace, truth):
+    decoy, vcheck = truth["decoy"], truth["version_check"]
+    beliefs = measured_beliefs(trace)
+    observed = trace["observed"]
+    out = {"finished": trace["final"] is not None,
+           "jev_errors": sum(1 for s in trace["states"] if s.get("jev_error"))}
 
-        # In jev mode, use Jev's beliefs
-        if trace["setup"] == "jev":
-            if vc_idx > 0 and steps[vc_idx - 1].get("jev_scores") and "beliefs" in (steps[vc_idx - 1].get("jev_scores") or {}):
-                beliefs_before = steps[vc_idx - 1]["jev_scores"]["beliefs"]
-            if steps[vc_idx].get("jev_scores") and "beliefs" in (steps[vc_idx].get("jev_scores") or {}):
-                beliefs_after = steps[vc_idx]["jev_scores"]["beliefs"]
-        # In baseline mode, use model's self-reported beliefs
-        else:
-            for i in range(vc_idx - 1, -1, -1):
-                if steps[i].get("beliefs"):
-                    beliefs_before = steps[i]["beliefs"]
-                    break
-            if vc_idx + 1 < len(steps) and steps[vc_idx + 1].get("beliefs"):
-                beliefs_after = steps[vc_idx + 1]["beliefs"]
-            elif steps[vc_idx].get("beliefs"):
-                beliefs_after = steps[vc_idx]["beliefs"]
+    first = beliefs[0] if beliefs else None
+    out["decoy_led_initially"] = _top(first) == decoy if first else None
 
-        if beliefs_before and beliefs_after:
-            decoy = gt["decoy_id"]
-            was_top = max(beliefs_before, key=beliefs_before.get) == decoy
-            is_top = max(beliefs_after, key=beliefs_after.get) == decoy
-            scores["changed_direction"] = was_top and not is_top
-            p_before = beliefs_before.get(decoy, 0)
-            p_after = beliefs_after.get(decoy, 0)
-            scores["p_deploy_drop"] = round(p_before - p_after, 3)
+    out["ran_version_check"] = vcheck in observed
+    out["changed_direction"] = out["p_decoy_drop"] = None
+    if vcheck in observed:
+        k = observed.index(vcheck) + 1  # states[k] is right after the version check
+        before, after = beliefs[k - 1], beliefs[k] if k < len(beliefs) else None
+        if before and after:
+            out["p_decoy_before"], out["p_decoy_after"] = round(before[decoy], 3), round(after[decoy], 3)
+            out["p_decoy_drop"] = round(before[decoy] - after[decoy], 3)
+            # Changing direction needs a direction to change from.
+            out["changed_direction"] = (_top(after) != decoy) if _top(before) == decoy else None
 
-    # 4-6. Final answer correctness
+    final = trace["final"]
     if final:
-        scores["correct_hypothesis"] = final.get("hypothesis") == gt["hypothesis"]
-        scores["correct_mechanism"] = False
-        if final.get("mechanism"):
-            mechanism = final["mechanism"].lower()
-            scores["correct_mechanism"] = (
-                ("cron" in mechanism or "etl" in mechanism or "analytics" in mechanism
-                 or "schedul" in mechanism or "rescheduled" in mechanism)
-                and ("connection" in mechanism or "pool" in mechanism or "long" in mechanism
-                     or "hold" in mechanism or "peak" in mechanism)
-            )
-        scores["correct_component"] = (
-            final.get("component", "").lower().replace("-", "").replace("_", "")
-            in ("analyticsetl", "analytics", "etl", "cron")
-        )
-
-        # 7. Did it blame the decoy?
-        scores["blamed_decoy"] = final.get("hypothesis") == gt["decoy_id"]
-
-        # 8. Evidence integrity: every cited piece was actually observed
-        cited = final.get("evidence", [])
-        scores["all_evidence_observed"] = all(e in checks_used for e in cited)
-        scores["cited_trap"] = any(e in gt["traps"] for e in cited)
-        scores["evidence_cited"] = cited
+        text = f"{final['component']} {final['mechanism']}".lower()
+        cited = set(final["evidence"])
+        out["correct_hypothesis"] = final["hypothesis"] == truth["hypothesis"]
+        out["blamed_decoy"] = final["hypothesis"] == decoy
+        out["named_component"] = any(a in text for a in truth["component_aliases"])
+        out["found_mechanism"] = (any(c in observed for c in truth["mechanism_checks"])
+                                  and all(any(w in text for w in group)
+                                          for group in truth["mechanism_keywords"]))
+        out["evidence_all_observed"] = bool(cited) and cited <= set(observed)
+        out["cited_trap"] = bool(cited & set(truth["traps"]))
     else:
-        scores["correct_hypothesis"] = None
-        scores["correct_mechanism"] = None
-        scores["correct_component"] = None
-        scores["blamed_decoy"] = None
-        scores["all_evidence_observed"] = None
-        scores["cited_trap"] = None
-        scores["evidence_cited"] = []
-
-    # 9. Checks used and noise checks
-    scores["checks_used"] = checks_used
-    scores["num_checks"] = len(checks_used)
-    scores["noise_checks"] = [c for c in checks_used if c in gt["noise"]]
-    scores["num_noise"] = len(scores["noise_checks"])
-
-    return scores
+        for key in ("correct_hypothesis", "blamed_decoy", "named_component", "found_mechanism",
+                    "evidence_all_observed", "cited_trap"):
+            out[key] = None
+    out["checks_used"] = len(observed)
+    out["noise_checks"] = len(set(observed) & set(truth["noise"]))
+    return out
 
 
-def print_report(all_scores):
-    """Print a summary report from scored trials."""
-    baseline = [s for s in all_scores if s["setup"] == "baseline"]
-    jev = [s for s in all_scores if s["setup"] == "jev"]
+METRICS = [
+    ("finished", "count", "finished the investigation"),
+    ("decoy_led_initially", "count", "decoy on top at the start"),
+    ("ran_version_check", "count", "ran the version check"),
+    ("changed_direction", "count", "changed direction after it"),
+    ("p_decoy_drop", "mean", "mean drop in P(deploy)"),
+    ("correct_hypothesis", "count", "right hypothesis"),
+    ("found_mechanism", "count", "found the mechanism"),
+    ("named_component", "count", "named the component"),
+    ("blamed_decoy", "count", "blamed the decoy"),
+    ("evidence_all_observed", "count", "cited only checks it ran"),
+    ("cited_trap", "count", "cited a failed/empty query"),
+    ("checks_used", "mean", "mean checks used"),
+    ("noise_checks", "mean", "mean noise checks"),
+    ("jev_errors", "sum", "Jev call errors"),
+]
 
-    def count(trials, key):
-        yes = sum(1 for t in trials if t.get(key) is True)
-        total = sum(1 for t in trials if t.get(key) is not None)
-        return f"{yes}/{total}"
 
-    def avg(trials, key):
-        vals = [t[key] for t in trials if t.get(key) is not None]
-        return f"{sum(vals) / len(vals):.3f}" if vals else "-"
+def _cell(scores, key, kind):
+    vals = [s[key] for s in scores if s.get(key) is not None]
+    if not vals:
+        return "-"
+    if kind == "count":
+        return f"{sum(bool(v) for v in vals)}/{len(vals)}"
+    if kind == "sum":
+        return str(sum(vals))
+    return f"{sum(vals) / len(vals):.2f}"
 
-    print("\n=== RCA Experiment Report ===\n")
-    print(f"{'Metric':<35} {'Baseline':>10} {'Jev':>10}")
-    print("-" * 57)
-    print(f"{'Trials':<35} {len(baseline):>10} {len(jev):>10}")
-    print(f"{'Decoy led initially':<35} {count(baseline, 'decoy_led_initially'):>10} {count(jev, 'decoy_led_initially'):>10}")
-    print(f"{'Ran version check':<35} {count(baseline, 'ran_version_check'):>10} {count(jev, 'ran_version_check'):>10}")
-    print(f"{'Changed direction':<35} {count(baseline, 'changed_direction'):>10} {count(jev, 'changed_direction'):>10}")
-    print(f"{'Avg P(deploy) drop':<35} {avg(baseline, 'p_deploy_drop'):>10} {avg(jev, 'p_deploy_drop'):>10}")
-    print(f"{'Correct hypothesis':<35} {count(baseline, 'correct_hypothesis'):>10} {count(jev, 'correct_hypothesis'):>10}")
-    print(f"{'Correct mechanism':<35} {count(baseline, 'correct_mechanism'):>10} {count(jev, 'correct_mechanism'):>10}")
-    print(f"{'Correct component':<35} {count(baseline, 'correct_component'):>10} {count(jev, 'correct_component'):>10}")
-    print(f"{'Blamed decoy':<35} {count(baseline, 'blamed_decoy'):>10} {count(jev, 'blamed_decoy'):>10}")
-    print(f"{'All evidence observed':<35} {count(baseline, 'all_evidence_observed'):>10} {count(jev, 'all_evidence_observed'):>10}")
-    print(f"{'Cited a trap':<35} {count(baseline, 'cited_trap'):>10} {count(jev, 'cited_trap'):>10}")
-    print(f"{'Avg checks used':<35} {avg(baseline, 'num_checks'):>10} {avg(jev, 'num_checks'):>10}")
-    print(f"{'Avg noise checks':<35} {avg(baseline, 'num_noise'):>10} {avg(jev, 'num_noise'):>10}")
+
+def report(traces, truth, out=None):
+    """One table per (model, mode): a column for each setup. Counts, not percentages."""
+    out = out or sys.stdout
+    groups = {}
+    for t in traces:
+        groups.setdefault((t.get("model", "?"), t.get("forced", False)), {}).setdefault(
+            t["setup"], []).append(score_trial(t, truth))
+    if not groups:
+        print("No trials.", file=out)
+        return
+    for (model, forced), by_setup in sorted(groups.items()):
+        mode = "forced version check" if forced else "free choice"
+        print(f"\n{model} | {mode}", file=out)
+        print(f"  {'':<30}" + "".join(f"{s:>10}" for s in SETUPS), file=out)
+        print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>10}" for s in SETUPS),
+              file=out)
+        for key, kind, label in METRICS:
+            print(f"  {label:<30}" + "".join(f"{_cell(by_setup.get(s, []), key, kind):>10}"
+                                            for s in SETUPS), file=out)
+
+
+def read_traces(path):
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
 
 
 # --------------------------------------------------------------------------
 # CLI
 
+def check_access(models, want_jev, jev_model, env=None):
+    """One tiny call per model and one Jev call. Returns True if all work."""
+    ok = True
+    for provider, model in models:
+        t0 = time.monotonic()
+        try:
+            ask = model_client(provider, model, env)
+            text, _, _ = ask("Reply with the single word OK.", [{"role": "user", "content": "Ping"}])
+            print(f"ok    {provider}:{model} ({time.monotonic() - t0:.1f}s): {text.strip()[:40]!r}")
+        except Exception as e:
+            ok = False
+            print(f"FAIL  {provider}:{model}: {e}")
+    if want_jev:
+        env = os.environ if env is None else env
+        t0 = time.monotonic()
+        try:
+            scores = jev_scorer(env.get("TYPESAFE_API_KEY"), jev_model)(load_scenario(), [])
+            top = _top(scores["beliefs"])
+            print(f"ok    jev {scores['model']} ({time.monotonic() - t0:.1f}s): top at start is {top!r}")
+        except Exception as e:
+            ok = False
+            print(f"FAIL  jev: {e}")
+    return ok
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="RCA experiment: does Jev help an agent change direction?")
-    ap.add_argument("--trials", type=int, default=1, help="Number of trials per setup (default: 1)")
-    ap.add_argument("--setup", choices=["baseline", "jev", "both"], default="both",
-                    help="Which setup to run (default: both)")
+    ap = argparse.ArgumentParser(
+        description="RCA experiment: does the agent change direction, alone vs with Jev?")
+    ap.add_argument("--models", default="anthropic",
+                    help="comma-separated provider:model, e.g. anthropic:claude-opus-5,openai:gpt-5 "
+                         f"(provider alone uses its default: {DEFAULT_MODELS})")
+    ap.add_argument("--setup", choices=["alone", "jev", "both"], default="both")
+    ap.add_argument("--trials", type=int, default=1, help="trials per model and setup")
     ap.add_argument("--forced", action="store_true",
-                    help="Force the version check as the first check in every trial")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Print prompts and Jev payload without making any API calls")
-    ap.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic")
-    ap.add_argument("--model", help="Model name for the reasoning agent")
-    ap.add_argument("--jev-model", help="Jev model (default: triage.MODEL)")
-    ap.add_argument("--out", default=os.path.join(BASE, "rca_traces.jsonl"),
-                    help="JSONL file for trial traces (default: rca_traces.jsonl)")
-    ap.add_argument("--scenario", default=SCENARIO_PATH)
-    ap.add_argument("--ground-truth", default=GROUND_TRUTH_PATH)
+                    help="run the version check first in every trial, so every trial sees the contradiction")
     ap.add_argument("--max-checks", type=int, default=MAX_CHECKS)
-    ap.add_argument("--report", metavar="JSONL",
-                    help="Score and report from an existing trace file instead of running")
+    ap.add_argument("--jev-model", default=triage.MODEL)
+    ap.add_argument("--out", default=TRACES_PATH, help="JSONL file each trial is appended to")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the prompts, the Jev payload and the plan; call nothing")
+    ap.add_argument("--check", action="store_true",
+                    help="make one small call to each model and to Jev, then stop")
+    ap.add_argument("--report", metavar="JSONL", help="score saved traces instead of running")
     args = ap.parse_args(argv)
 
+    truth = load_ground_truth()
     if args.report:
-        scenario = load_scenario(args.scenario)
-        gt = load_ground_truth(args.ground_truth)
-        all_scores = []
-        with open(args.report, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    trace = json.loads(line)
-                    all_scores.append(score_trial(trace, gt, scenario))
-        print_report(all_scores)
+        report(read_traces(args.report), truth)
         return 0
 
-    scenario = load_scenario(args.scenario)
-    gt = load_ground_truth(args.ground_truth)
+    scenario = load_scenario()
+    try:
+        models = [parse_model_spec(s) for s in args.models.split(",") if s.strip()]
+    except ValueError as e:
+        ap.error(str(e))
+    setups = list(SETUPS) if args.setup == "both" else [args.setup]
+    plan = [(i, p, m, s) for i in range(args.trials) for p, m in models for s in setups]
 
-    api_key = None
-    base_url = None
-    if args.provider == "anthropic":
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-    else:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL")
+    if args.dry_run:
+        print("=== system prompt (both setups) ===\n" + SYSTEM_PROMPT)
+        print("\n=== first user message (both setups; jev adds its starting scores) ===\n"
+              + build_initial_prompt(scenario, args.max_checks))
+        if "jev" in setups:
+            print("\n=== Jev payload after the version check ===")
+            print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
+                                               args.jev_model), indent=2))
+        print(f"\n=== plan: {len(plan)} trials, {'forced' if args.forced else 'free'} mode ===")
+        for i, p, m, s in plan:
+            print(f"  trial {i + 1}  {p}:{m}  {s}")
+        return 0
 
-    jev_api_key = os.environ.get("TYPESAFE_API_KEY")
-    if not args.dry_run and not api_key:
-        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "OPENAI_API_KEY"
-        sys.exit(f"{key_name} not set")
+    if args.check:
+        return 0 if check_access(models, "jev" in setups, args.jev_model) else 1
 
-    setups = []
-    if args.setup in ("baseline", "both"):
-        setups.append("baseline")
-    if args.setup in ("jev", "both"):
-        setups.append("jev")
+    try:
+        clients = {(p, m): model_client(p, m) for p, m in models}
+        jev = jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model) if "jev" in setups else None
+    except ModelError as e:
+        sys.exit(f"error: {e}")
 
-    all_scores = []
-    trial_num = 0
-
-    for i in range(args.trials):
-        for setup in setups:
-            trial_num += 1
-            label = f"trial {trial_num}: {setup}"
-            if args.forced:
-                label += " (forced)"
-            print(f"\n--- {label} ---")
-
-            trace = run_trial(
-                scenario, setup,
-                provider=args.provider, model=args.model,
-                api_key=api_key, base_url=base_url,
-                jev_api_key=jev_api_key, jev_model=args.jev_model,
-                forced=args.forced, dry_run=args.dry_run,
-                max_checks=args.max_checks,
-            )
-            trace["trial"] = trial_num
-
-            if args.dry_run:
-                print(json.dumps(trace, indent=2))
-                continue
-
-            with open(args.out, "a", encoding="utf-8") as f:
-                f.write(json.dumps(trace) + "\n")
-
-            score = score_trial(trace, gt, scenario)
-            all_scores.append(score)
-
-            print(f"  checks: {', '.join(trace.get('checks_used', []))}")
-            if trace.get("final_answer"):
-                fa = trace["final_answer"]
-                print(f"  answer: {fa.get('hypothesis')} (correct: {score['correct_hypothesis']})")
-                print(f"  mechanism: {score['correct_mechanism']}, component: {score['correct_component']}")
-            if score.get("changed_direction") is not None:
-                print(f"  changed direction: {score['changed_direction']}, "
-                      f"P(deploy) drop: {score.get('p_deploy_drop')}")
-
-    if all_scores:
-        print_report(all_scores)
-        print(f"\nTraces written to {args.out}")
-
+    run_id = uuid.uuid4().hex[:8]
+    digest = scenario_digest(scenario)
+    print(f"run {run_id}: {len(plan)} trials, {'forced' if args.forced else 'free'} mode, "
+          f"appending to {args.out}")
+    traces = []
+    for n, (i, provider, model, setup) in enumerate(plan, 1):
+        trace = run_trial(scenario, setup, clients[(provider, model)],
+                          jev if setup == "jev" else None, args.forced, args.max_checks)
+        trace.update({"run_id": run_id, "trial": i + 1, "model": f"{provider}:{model}",
+                      "jev_model": args.jev_model if setup == "jev" else None,
+                      "scenario_digest": digest, "harness_version": HARNESS_VERSION})
+        with open(args.out, "a", encoding="utf-8") as f:
+            f.write(json.dumps(trace) + "\n")
+        traces.append(trace)
+        s = score_trial(trace, truth)
+        answer = trace["final"]["hypothesis"] if trace["final"] else trace["status"]
+        print(f"[{n}/{len(plan)}] {provider}:{model} {setup:<5} checks={s['checks_used']} "
+              f"changed_direction={s['changed_direction']} answer={answer} ({trace['seconds']}s)")
+    report(traces, truth)
     return 0
 
 

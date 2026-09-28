@@ -1,137 +1,121 @@
 # The RCA experiment
 
-Does an AI agent change direction when evidence contradicts its leading theory?
+When a deployment looks guilty, the agent starts investigating it, and the next
+query contradicts that theory: does the agent change direction? And does it help
+to have Jev re-score every hypothesis after each new piece of evidence?
 
-Coding agents have a feedback loop: tests. They write code, run the tests, and
-know whether it worked. Incident agents have no equivalent. When a deployment
-looks guilty and the agent starts investigating it, and the next query says
-"errors are the same on old and new versions," does the agent update? Or does it
-keep digging into the deploy?
-
-This experiment measures that.
+Jev isn't the investigator here. A reasoning model picks the checks and writes the
+answer; Jev only judges, after every result, which hypothesis best explains all the
+evidence and whether the evidence contradicts each one. So the comparison is each
+model **alone** vs the same model **with Jev**, not Jev against the models.
 
 ## The scenario
 
-A frozen incident: the orders-db connection pool is exhausted, checkout is down.
+`rca_scenario.json` is one frozen incident: the `orders-db` connection pool is
+exhausted and checkout is down. Before any check, the agent is told about a deploy of
+`checkout-api` v2.47.1 to 3 of 8 instances twenty minutes earlier, with a change
+summary about connection retries and timeouts. It looks guilty.
 
-The agent sees a **decoy** first: a recent deploy (v2.47.1) that changed
-connection retry and timeout settings. The timing and the change summary are
-designed to look guilty.
+- 6 hypotheses, and 15 checks returning telemetry frozen at one moment: metrics,
+  logs, config, and job schedules.
+- **The version check** (`error-by-version`): the old and new versions fail at the
+  same rate and started failing at the same second. That contradicts the deploy.
+- Every wrong hypothesis has a check that rules it out.
+- **2 traps**: a query that times out, and an empty result from a wrong service name.
+  Neither is evidence of anything.
+- **3 noise checks**: real but unrelated signals.
 
-The **true cause** is that the analytics ETL cron job was rescheduled from
-off-peak (03:00 UTC) to peak hours (14:00 UTC). It runs long analytical queries
-on the primary database, each holding a connection for minutes. At peak traffic,
-its 73 connections plus normal application load exceed the 200-connection limit.
-
-The key evidence is the **version check** (`error-by-version`): error rates are
-3.42% on v2.47.0 and 3.38% on v2.47.1, proportional to traffic share. Both
-versions started failing at the same moment. This directly contradicts the deploy
-hypothesis.
-
-Six hypotheses are available, with 15 diagnostic checks:
-- 3 support the true cause (pool-metrics, active-queries, cron-history)
-- 5 rule out wrong hypotheses (traffic-stats, db-config, conn-audit, dns-log,
-  error-by-version)
-- 2 are traps: a query that times out and an empty result from a wrong service
-  name. Neither is evidence
-- 3 are noise: CDN cache, canary memory, TLS cert expiry
-
-Ground truth is in a separate file (`rca_ground_truth.json`) that the agent never
-sees. A test proves no check result contains it.
+The answer, the notes on what each check shows, and the lists of traps and noise are
+in `rca_ground_truth.json`, which is used only for scoring. A test proves no prompt,
+observation, or Jev payload contains any of it, and that a trial never opens that file.
 
 ## The two setups
 
-Both use the same model, scenario, check menu, and prompt wording.
+Same model, scenario, check menu, and prompt wording in both.
 
-**Baseline.** The model picks checks from the menu, reports its beliefs as a
-probability distribution over hypotheses after every observation, and gives a
-final answer: hypothesis, component, mechanism, and cited evidence.
+- **alone**: after every observation the model reports its beliefs over all
+  hypotheses as JSON, then picks a check or gives a final answer (hypothesis,
+  component, mechanism, cited evidence). Its own beliefs are measured.
+- **jev**: the same, but before the first check and after every check Jev re-scores
+  every hypothesis on all the evidence so far, and the model sees those scores. Jev's
+  distribution is the belief measured.
 
-**Jev.** Same, but after every observation, Jev re-scores every hypothesis using
-the same evidence the model sees. Jev answers two questions:
-- Which hypothesis best explains all the evidence so far? (Choice → distribution)
-- Which hypothesis is most contradicted? (Choice → distribution)
+Jev gets one call per state: a Choice question over the hypotheses ("which best
+explains all the evidence") and a Noul question per hypothesis ("does any observation
+contradict it"). It goes through `triage.call_jev`, the same client triage uses.
 
-The model sees Jev's scores alongside its own observations. In this setup, Jev's
-distribution is the belief being measured for scoring.
+Fairness: what Jev is told about failed and empty queries is also in the model's
+system prompt, and Jev sees the same initial context the model does. Trials rotate
+setups and models (trial 1: model A alone, A with Jev, B alone, B with Jev; then
+trial 2), so API drift over a run hits every cell alike.
 
 ## The metrics
 
-| Metric | What it measures |
+Reported as counts ("3/5"), per model and mode, with a column per setup.
+
+| Metric | Meaning |
 | --- | --- |
-| Decoy led initially | Did the deploy hypothesis start as the top belief? |
-| Ran version check | Did the agent choose to run `error-by-version`? |
-| Changed direction | Was deploy the top hypothesis before the version check, and not after? |
-| P(deploy) drop | How much P(deploy) fell after the version check |
-| Correct hypothesis | Did the final answer name `etl-cron`? |
-| Correct mechanism | Did the mechanism mention the cron/schedule change and connection holding? |
-| Correct component | Did it name `analytics-etl` (or close)? |
-| Blamed decoy | Did the final answer name `deploy`? |
-| All evidence observed | Was every cited piece of evidence actually a check the agent ran? |
-| Cited a trap | Did the agent cite the timed-out or empty-result check as evidence? |
-| Checks used | Which checks, and how many |
-| Noise checks | How many of the 3 noise checks were run |
+| finished the investigation | Gave a parseable final answer within the check limit |
+| decoy on top at the start | The deploy led the measured belief before any check |
+| ran the version check | It chose (or, in forced mode, was given) `error-by-version` |
+| changed direction after it | The deploy led right before the version check and not right after. Trials where it didn't lead before are left out |
+| mean drop in P(deploy) | Measured P(deploy) before the version check minus after |
+| right hypothesis | The final hypothesis is the true one |
+| found the mechanism | Ran a check that shows it, and the answer says what changed and how it exhausted the pool. Scored apart from the hypothesis |
+| named the component | Names the job at fault, not just "the database" |
+| blamed the decoy | Final hypothesis is the deploy |
+| cited only checks it ran | Every cited check was observed |
+| cited a failed/empty query | Cited a trap as evidence |
+| mean checks used, mean noise checks | Effort, and effort spent on noise |
+| Jev call errors | Jev calls that failed; the trial carries on without scores |
 
-Counts are reported as fractions ("3/5"), not percentages.
+## Run it
 
-## Running it
-
-Python 3.11+, standard library only.
+Keys go in environment variables, never in files or chat: `TYPESAFE_API_KEY` for
+Jev, `ANTHROPIC_API_KEY` for Claude models, and `OPENAI_API_KEY` (plus
+`OPENAI_BASE_URL` for any OpenAI-compatible server) for the rest.
 
 ```
-export ANTHROPIC_API_KEY=...          # or OPENAI_API_KEY
-export TYPESAFE_API_KEY=...           # for the jev setup
-python3 rca_experiment.py --trials 5  # 5 baseline + 5 jev, alternating
-python3 rca_experiment.py --trials 5 --forced   # version check first in every trial
-python3 rca_experiment.py --dry-run              # print prompts, no API calls
-python3 rca_experiment.py --report rca_traces.jsonl  # score and report from saved traces
+python3 rca_experiment.py --dry-run --models anthropic:claude-opus-5,openai:gpt-5 --trials 5 --forced
+python3 rca_experiment.py --check   --models anthropic:claude-opus-5,openai:gpt-5
+python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5 --forced
+python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5
+python3 rca_experiment.py --report rca_traces.jsonl
 ```
 
-Options:
-- `--setup baseline|jev|both` — run one or both setups (default: both)
-- `--provider anthropic|openai` — which model API to use
-- `--model <name>` — model name (default: claude-sonnet-4-20250514 or gpt-4o)
-- `--jev-model <name>` — Jev model (default: jev-1.13.0)
-- `--forced` — force the version check as the first observation
-- `--max-checks 12` — stop after this many checks
-- `--out <path>` — JSONL file for traces (default: rca_traces.jsonl)
+1. `--dry-run` prints the system prompt, the first message, the Jev payload after
+   the version check, and the trial plan. It calls nothing and needs no keys.
+2. `--check` makes one tiny call to each model and one to Jev, so a bad key or a
+   blocked host fails in seconds, not twenty trials in.
+3. `--forced` runs the version check first in every trial, so every trial meets
+   the contradiction. The model still states its beliefs before seeing it. Run
+   this first; free mode then shows whether agents find the check on their own.
+4. Each trial is appended to `rca_traces.jsonl` as soon as it ends: every
+   state's beliefs and Jev scores, the checks, the final answer, token usage, and
+   the scenario digest. `--report` re-scores any trace file, so scoring changes
+   don't need new runs.
 
-Each trial's full step-by-step trace is appended to the JSONL file.
+Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+(default the pinned triage model), `--out`. A model is `provider:model`; a bare
+provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
-## What would count as "Jev helps"
+## What would count as a result
 
-Jev earns its place if:
-1. The jev setup changes direction more often than baseline after the version
-   check (higher changed-direction rate)
-2. P(deploy) drops further in the jev setup (the contradiction is absorbed, not
-   ignored)
-3. The jev setup reaches the correct hypothesis more often
-
-Jev doesn't earn its place if the baseline model already changes direction
-reliably, or if Jev's scores don't improve the final answer rate.
+Jev earns its place if, for most models, the jev column changes direction more
+often, drops P(deploy) further, and blames the decoy less, without costing right
+answers or mechanisms. It doesn't if models alone already change direction
+reliably, or if Jev's scores move but the final answers don't improve.
 
 ## Known limits
 
-- **One scenario.** The experiment tests direction change on one incident. A real
-  evaluation needs multiple scenarios with different decoys and true causes.
-- **Frozen evidence.** The checks return canned text, not live systems. A real RCA
-  agent would query dashboards and decide what to look at.
-- **Whoever writes the scenario knows the answer.** The scenario is designed to
-  make the ETL cron job discoverable. An independent second scenario (on the
-  `rca-experiment` branch) mitigates this.
-- **Self-reported beliefs.** In baseline mode, the model reports its own beliefs;
-  it may not be calibrated. In jev mode, Jev's beliefs are the measurement, which
-  is more comparable across trials but measures Jev, not the model.
-- **Prompt sensitivity.** The model's behavior depends on the prompt wording, the
-  hypothesis ordering, and the check menu. Small changes could shift results.
-- **No cost control.** Each trial makes many model calls and Jev calls. At scale,
-  the experiment needs budgeting.
-
-## Fairness
-
-The guidance about failed queries and empty results ("a timeout is not evidence
-that nothing happened") appears in both the model's system prompt and the Jev
-payload, so neither setup gets a structural advantage from it.
-
-Trials alternate between setups (baseline, jev, baseline, jev, ...) so API drift
-or rate limiting affects both equally.
+- **One scenario, written by hand.** Its author knew the answer while writing it.
+  The `rca-experiment` branch has an independently written second scenario; results
+  should be reported per scenario. Recorded incidents would be better still.
+- **Few trials.** Five trials per cell show direction, not significance.
+- **Measured belief differs by setup.** Alone measures the model's stated beliefs,
+  which may not be calibrated; jev measures Jev's. The final-answer metrics are
+  comparable across setups either way.
+- **Keyword scoring.** Mechanism and component checks match words in the answer.
+  Read the traces of any surprising trial.
+- **A frozen menu.** The agent picks from fixed checks rather than writing
+  queries, so it can't search the wrong interval or invent a service name itself.

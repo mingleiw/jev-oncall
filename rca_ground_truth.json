@@ -1,14 +1,98 @@
 {
+  "_note": "Scoring only. No agent input may contain anything from this file.",
   "hypothesis": "etl-cron",
   "component": "analytics-etl",
-  "mechanism": "The analytics-etl cron job was rescheduled from 03:00 UTC (off-peak) to 14:00 UTC (peak hours). It runs long analytical queries against the primary database, each holding a connection for minutes. At peak traffic, these 73 long-held connections plus normal application traffic exceeded the 200-connection limit, exhausting the pool.",
-  "evidence_needed": [
-    "pool-metrics",
-    "active-queries",
-    "cron-history"
+  "component_aliases": [
+    "analytics-etl",
+    "analytics etl",
+    "analytics_etl",
+    "etl job",
+    "etl cron"
   ],
-  "decoy_id": "deploy",
+  "mechanism": "The analytics-etl cron job was rescheduled from 03:00 UTC (off-peak) to 14:00 UTC (peak hours). It runs long analytical queries against the primary database, each holding a connection for minutes. At peak traffic, these 73 long-held connections plus normal application traffic exceeded the 200-connection limit, exhausting the pool.",
+  "mechanism_checks": [
+    "cron-history",
+    "active-queries",
+    "pool-metrics"
+  ],
+  "mechanism_keywords": [
+    [
+      "cron",
+      "schedul",
+      "03:00",
+      "14:00",
+      "peak"
+    ],
+    [
+      "connection",
+      "pool"
+    ]
+  ],
+  "decoy": "deploy",
   "version_check": "error-by-version",
-  "traps": ["slow-query-log", "dependency-map"],
-  "noise": ["cdn-cache", "canary-memory", "cert-expiry"]
+  "traps": [
+    "slow-query-log",
+    "dependency-map"
+  ],
+  "noise": [
+    "cdn-cache",
+    "canary-memory",
+    "cert-expiry"
+  ],
+  "check_notes": {
+    "deployment-log": {
+      "notes": "Surfaces the decoy. The timing and change summary are designed to look guilty."
+    },
+    "error-by-version": {
+      "rules_out": "deploy",
+      "notes": "The version check. Errors are proportional to traffic share, not version. Both versions started failing at the same moment. This contradicts the deploy hypothesis."
+    },
+    "pool-metrics": {
+      "supports": "etl-cron",
+      "notes": "Shows the ramp starting around 14:00 (when the ETL job started) and analytics-etl holding 73 connections with very long query times."
+    },
+    "active-queries": {
+      "supports": "etl-cron",
+      "notes": "Shows analytics-etl running 73 long queries, directly consuming most of the pool."
+    },
+    "cron-history": {
+      "supports": "etl-cron",
+      "notes": "Shows the ETL job was rescheduled from 03:00 (off-peak) to 14:00 (peak) yesterday, without approval."
+    },
+    "traffic-stats": {
+      "rules_out": "traffic",
+      "notes": "Traffic is normal. Latency and errors spike at 14:30+ but request volume didn't change."
+    },
+    "db-config": {
+      "rules_out": "db-config",
+      "notes": "max_connections hasn't changed. Rules out the db-config hypothesis."
+    },
+    "conn-audit": {
+      "rules_out": "conn-leak",
+      "notes": "No leaked connections. Per-instance counts are uniform across versions, further weakening the deploy hypothesis."
+    },
+    "dns-log": {
+      "supports": "etl-cron",
+      "rules_out": "dns",
+      "notes": "No DNS issues. Also reveals that analytics-etl hits the primary directly, explaining why it competes with writes for the primary's connection pool."
+    },
+    "deploy-diff": {
+      "notes": "The diff shows the retry code releases connections before sleeping. More retries mean more waiting, not more connections held. A careful reader sees this clears the deploy."
+    },
+    "slow-query-log": {
+      "notes": "TRAP: failed query. The slow query log itself is blocked by the ETL queries. A failed check is not evidence that nothing happened."
+    },
+    "dependency-map": {
+      "notes": "TRAP: empty result from wrong service name. The check works but returns nothing useful because the agent used the wrong name. Not evidence that there are no dependencies."
+    },
+    "cdn-cache": {
+      "notes": "NOISE: unrelated. The CDN cache drop is normal daily variance and has nothing to do with the database connection pool."
+    },
+    "canary-memory": {
+      "notes": "NOISE: canary environment memory spike is unrelated to production. Separate database, separate infrastructure."
+    },
+    "cert-expiry": {
+      "notes": "NOISE: TLS cert expiring in 13 days is a real but unrelated issue. Not connected to connection pool exhaustion."
+    }
+  }
 }
