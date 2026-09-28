@@ -32,11 +32,11 @@
       "result": "182,000 lines 'panic in bot module: feature table has 212 entries, limit 200 (preallocated)', from both versions, first at 11:20:48. Each follows 'loaded bot feature file' within 50ms. Between the bursts, nodes log 'loaded bot feature file (58 entries)' and serve normally."
     },
     "feature_file_history": {
-      "description": "The last 12 versions of the bot feature file, generated every 5 minutes from analytics-db and pushed to all edge nodes.",
+      "description": "The last 12 versions of the bot feature file pushed to edge nodes.",
       "result": "Up to 11:15: 57-58 entries each. From 11:20: alternates between 58 and 212 entries (11:20 212; 11:25 58; 11:30 212; 11:35 212; 11:40 58). The 212-entry files repeat every feature name 3 to 4 times. The generating query ran on analytics-db nodes 1-6 for the 212-entry files and nodes 9-16 for the 58-entry ones."
     },
     "analytics_db_query": {
-      "description": "Result of the feature-list query on one migrated and one unmigrated analytics-db node.",
+      "description": "The feature-list query that builds the bot feature file, run on two analytics-db nodes.",
       "result": "Node 3 (grants migrated at 11:12): 'SELECT name, type FROM system.columns WHERE table = bot_features' returns 212 rows: each column listed once for database 'default' and again for each underlying shard database 'r0'-'r2'. Node 12 (not yet migrated): 58 rows, 'default' only."
     },
     "bot_score_service": {

@@ -27,7 +27,7 @@
       "result": "node a: 06:03:12 unattended-upgrades: Installing systemd 249.11-0ubuntu3.12 (security). 06:03:19 systemd-networkd restarted. 06:03:19 systemd-networkd: removing foreign routes on eth0 (14 routes). 06:03:20 kubelet: pod network unreachable. Nodes b and c: the same sequence at 06:21 and 06:47."
     },
     "package_history": {
-      "description": "Automatic package updates applied across the fleet in the last 24 hours.",
+      "description": "Package changes on nodes in the last 24 hours.",
       "result": "security-updates channel (enabled on the Ubuntu 22.04 image, window 06:00-07:00 UTC with random delay): systemd security release installed on 61% of nodes between 06:00 and 06:58. No other package changes."
     },
     "cert_status": {
