@@ -59,10 +59,14 @@ class Scripted:
 
 
 def jev_response(top, contradicted=()):
+    """A Jev-shaped reply. contradicted names the hypothesis the evidence most
+    contradicts (the first given), or none."""
     probs = dist(top, 0.75)
-    answers = {"best_explanation": {"type": "choice", "choice": top, "probabilities": probs}}
-    for h in HYPS:
-        answers[f"contradicted_{h}"] = {"type": "noul", "noul": 0.9 if h in contradicted else 0.1}
+    most = contradicted[0] if contradicted else triage.NONE
+    options = [*HYPS, triage.NONE]
+    contra = {h: (0.9 if h == most else 0.1 / (len(options) - 1)) for h in options}
+    answers = {"best_explanation": {"type": "choice", "choice": top, "probabilities": probs},
+               "most_contradicted": {"type": "choice", "choice": most, "probabilities": contra}}
     return {"model": triage.MODEL, "answers": answers, "usage": {"input_tokens": 700}}
 
 
@@ -123,8 +127,9 @@ class JevPayload(unittest.TestCase):
     def test_every_hypothesis_is_scored_and_checked_for_contradiction(self):
         p = rca.build_jev_payload(SCENARIO, [VCHECK])
         self.assertEqual(set(p["questions"]["best_explanation"]["criteria"]), set(HYPS))
-        for h in HYPS:
-            self.assertEqual(p["questions"][f"contradicted_{h}"]["type"], "noul")
+        contra = p["questions"]["most_contradicted"]
+        self.assertEqual(contra["type"], "choice")  # one comparison, not a yes/no per hypothesis
+        self.assertEqual(set(contra["criteria"]), {*HYPS, triage.NONE})
         self.assertEqual(p["state"]["observations"][0]["result"], SCENARIO["checks"][VCHECK]["result"])
         self.assertEqual(p["model"], triage.MODEL)
 
@@ -140,9 +145,10 @@ class JevPayload(unittest.TestCase):
     def test_malformed_jev_answers_raise(self):
         good = jev_response("deploy")
         self.assertEqual(rca._top(rca.parse_jev_rca(good, HYPS)["beliefs"]), "deploy")
-        for mutate in (lambda a: a.pop("contradicted_dns"),
-                       lambda a: a["contradicted_dns"].update(noul=1.5),
-                       lambda a: a["contradicted_dns"].update(noul=float("nan")),
+        for mutate in (lambda a: a.pop("most_contradicted"),
+                       lambda a: a["most_contradicted"]["probabilities"].update(dns=1.5),
+                       lambda a: a["most_contradicted"]["probabilities"].update(dns=float("nan")),
+                       lambda a: a["most_contradicted"].update(choice="dns"),  # not the likeliest
                        lambda a: a["best_explanation"]["probabilities"].update(aliens=0.1)):
             resp = json.loads(json.dumps(good))
             mutate(resp["answers"])
@@ -227,7 +233,7 @@ class TrialFlow(unittest.TestCase):
         first = model.seen[0][1][0]["content"]
         self.assertNotIn("Jev", first)  # no scores before any evidence
         after_vc = model.seen[1][1][-1]["content"]
-        self.assertIn("The evidence contradicts `deploy` (P = 0.90)", after_vc)
+        self.assertIn("The evidence most contradicts `deploy` (P = 0.90)", after_vc)
         for ranking in ("P(best explanation)", "Jev's scores", "batch-job`: 0."):
             self.assertNotIn(ranking, after_vc)  # never the ranking: nothing to copy
         # Jev's full scores are still recorded at every state, including the first.
@@ -240,12 +246,13 @@ class TrialFlow(unittest.TestCase):
             rca.run_trial(SCENARIO, "jev-contra", Scripted())
 
     def test_contradiction_list_wording(self):
-        scores = {"beliefs": dist("deploy"), "contradicted": {h: 0.1 for h in HYPS}}
-        self.assertIn("No hypothesis is contradicted", rca.format_jev_contradictions(scores))
-        scores["contradicted"].update(deploy=0.75, traffic=0.9, dns=0.49)
-        text = rca.format_jev_contradictions(scores)
-        self.assertLess(text.index("`traffic`"), text.index("`deploy`"))  # most contradicted first
-        self.assertNotIn("`dns`", text)  # below the 0.5 line
+        none_top = {**{h: 0.05 for h in HYPS}, triage.NONE: 0.7}
+        text = rca.format_jev_contradictions({"beliefs": dist("deploy"), "contradicted": none_top})
+        self.assertIn("No hypothesis is clearly contradicted", text)
+        deploy_top = {**{h: 0.05 for h in HYPS}, "deploy": 0.6, triage.NONE: 0.15}
+        text = rca.format_jev_contradictions({"beliefs": dist("deploy"), "contradicted": deploy_top})
+        self.assertIn("most contradicts `deploy` (P = 0.60)", text)
+        self.assertEqual(text.count("`"), 2)  # one hypothesis named, never a list
 
     def test_jev_setup_needs_a_scorer(self):
         with self.assertRaises(ValueError):
@@ -377,6 +384,19 @@ class Scoring(unittest.TestCase):
         s = rca.score_trial(self.trace(beliefs=[tied_before, moved], observed=[VCHECK], final=RIGHT), TRUTH)
         self.assertTrue(s["changed_direction"])  # tied for the lead counts as leading
 
+    def test_checks_to_cause_and_how_long_the_decoy_held(self):
+        t = self.trace(beliefs=[dist("deploy"), dist("deploy", 0.5), dist("traffic"), dist("batch-job"),
+                                dist("batch-job", 0.9)],
+                       observed=[VCHECK, "traffic-stats", "pool-metrics", "cron-history"], final=RIGHT)
+        s = rca.score_trial(t, TRUTH)
+        self.assertEqual(s["decoy_held"], 1)  # still led right after the version check, then dropped
+        self.assertEqual(s["checks_to_cause"], 3)  # the true cause first led after the third check
+        quick = self.trace(beliefs=[dist("deploy"), dist("batch-job")], observed=[VCHECK], final=RIGHT)
+        s = rca.score_trial(quick, TRUTH)
+        self.assertEqual((s["decoy_held"], s["checks_to_cause"]), (0, 1))
+        never = self.trace(beliefs=[dist("deploy"), dist("deploy")], observed=[VCHECK], final=DECOY)
+        self.assertIsNone(rca.score_trial(never, TRUTH)["checks_to_cause"])
+
     def test_alone_has_no_jev_metrics(self):
         s = rca.score_trial(self.trace(beliefs=[dist("deploy"), dist("batch-job")], observed=[VCHECK],
                                        final=RIGHT), TRUTH)
@@ -410,8 +430,8 @@ class CLI(unittest.TestCase):
                                   "--forced")
         self.assertEqual(code, 0)
         self.assertIn(rca.SYSTEM_PROMPT, out)
-        self.assertIn('"contradicted_deploy"', out)
-        self.assertIn("24 trials, forced mode", out)  # 2 scenarios x 2 models x 3 setups x 2
+        self.assertIn('"most_contradicted"', out)
+        self.assertIn("36 trials, forced mode", out)  # 3 scenarios x 2 models x 3 setups x 2
         self.assertIn("openai:gpt-x", out)
         # Setups alternate within each trial, so API drift hits both alike.
         plan = [l.split()[-1] for l in out.splitlines() if l.startswith("  trial ")]
@@ -558,6 +578,14 @@ class ModelResponses(unittest.TestCase):
             with self.assertRaises(rca.ModelError):
                 rca.call_anthropic("m", "s", [], "k")
 
+    def test_max_tokens_is_opt_in(self):
+        resp = {"choices": [{"message": {"content": "x"}}]}
+        with mock.patch.object(rca, "post_json", return_value=resp) as post:
+            rca.call_openai("m", "s", [], "k")
+            self.assertNotIn("max_tokens", post.call_args[0][1])
+            rca.call_openai("m", "s", [], "k", max_tokens=2000)
+            self.assertEqual(post.call_args[0][1]["max_tokens"], 2000)
+
     def test_openai_shape(self):
         resp = {"choices": [{"message": {"content": "DONE"}}], "usage": {"prompt_tokens": 1}}
         with mock.patch.object(rca, "post_json", return_value=resp) as post:
@@ -608,7 +636,7 @@ class GroundTruthLeak(unittest.TestCase):
 
 class Scenarios(unittest.TestCase):
     def test_every_scenario_has_what_the_experiment_needs(self):
-        self.assertGreaterEqual(len(rca.scenario_names()), 2)
+        self.assertGreaterEqual(len(rca.scenario_names()), 3)
         for name in rca.scenario_names():
             scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
             checks, hyps = scenario["checks"], scenario["hypotheses"]
@@ -627,6 +655,34 @@ class Scenarios(unittest.TestCase):
                 for h in hyps:
                     if h != truth["hypothesis"]:
                         self.assertIn(h, ruled_out, f"no check rules out {h}")
+
+    def test_the_partial_decoy_scenario(self):
+        # The version check only weakens the deploy: the new version is worse, but the
+        # old one fails too. Blaming the deploy is wrong; naming the cache is right.
+        name = "product_cache_partial"
+        scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+        vc = scenario["checks"][scenario["version_check"]]["result"]
+        self.assertIn("v5.3.0 (6 instances): 5xx 11.4%", vc)  # the new version really is worse
+        self.assertIn("v5.2.9 (6 instances): 5xx 7.1%", vc)  # but the old one fails too
+        hyps = list(scenario["hypotheses"])
+        b = lambda top: {h: (0.8 if h == top else 0.04) for h in hyps}
+        right = {"hypothesis": "cache", "component": "product-cache (Redis)",
+                 "mechanism": "The cache primary was replaced during maintenance and came back empty, so "
+                              "lookups fell through to the database; the new TTL made it worse.",
+                 "evidence": ["cache_events", "cache_hit_rate"]}
+        model = Scripted(reply(b("deploy"), "errors_by_version"), reply(b("deploy"), "cache_hit_rate"),
+                         reply(b("cache"), "cache_events"), reply(b("cache"), final=right))
+        s = rca.score_trial(rca.run_trial(scenario, "alone", model, forced=True), truth)
+        for key in ("correct_hypothesis", "found_mechanism", "named_component", "evidence_all_observed"):
+            self.assertTrue(s[key], key)
+        self.assertFalse(s["changed_direction"])  # the deploy survived the version check
+        self.assertEqual((s["decoy_held"], s["checks_to_cause"]), (1, 2))
+        blame = {"hypothesis": "deploy", "component": "product-api v5.3.0",
+                 "mechanism": "The shorter cache TTL caused more database load.", "evidence": ["errors_by_version"]}
+        s = rca.score_trial(rca.run_trial(scenario, "alone", Scripted(
+            reply(b("deploy"), "errors_by_version"), reply(b("deploy"), final=blame)), forced=True), truth)
+        self.assertTrue(s["blamed_decoy"])
+        self.assertFalse(s["named_component"])  # "cache TTL" in a deploy blame doesn't count
 
     def test_each_trace_is_scored_against_its_own_scenario(self):
         name = "pool_lock_batch"
@@ -692,6 +748,13 @@ class HtmlReport(unittest.TestCase):
         self.assertIn('class="b-jev-contra"', page)  # its own bar in the chart
         self.assertIn("+ Jev (contradictions only)", page)  # and in the legend
         self.assertEqual(page.count("<td>Jev&#x27;s scores</td>"), 2)  # a Jev row for each Jev setup
+
+    def test_mixed_harness_versions_are_flagged(self):
+        import rca_report
+        traces = self.traces()
+        self.assertNotIn("Mixed</b>", rca_report.render(traces))
+        traces[0]["harness_version"], traces[1]["harness_version"] = 3, 4
+        self.assertIn("harness versions 3, 4", rca_report.render(traces))
 
     def test_wilson_interval(self):
         import rca_report

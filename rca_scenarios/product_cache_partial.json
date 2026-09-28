@@ -1,0 +1,76 @@
+{
+  "incident": {
+    "title": "ProductApiLatencyHigh",
+    "description": "product-api p99 latency 4.2s (SLO 400ms) and 5xx rate 9% for 11 minutes. Product pages are slow or failing for most customers.",
+    "started_at": "2026-09-22T14:04:00Z"
+  },
+  "initial_context": "Recent deploys, shown before any check: 13:48-13:55 UTC product-api v5.3.0 rolled to 6 of 12 instances (the other 6 still run v5.2.9). Change summary: 'Shorten product-detail cache TTL from 10 minutes to 2 minutes so price changes show sooner; add an inventory lookup to the product page.' No other deploys today.",
+  "hypotheses": {
+    "deploy": "The product-api v5.3.0 deploy introduced a regression that causes the errors and latency.",
+    "cache": "A problem with the product cache is behind the errors and latency.",
+    "db_slow": "The database itself is degraded and slow to answer.",
+    "traffic": "A traffic increase exceeds what the service can handle.",
+    "dependency": "A downstream service the product API calls is slow or failing.",
+    "network": "Network problems between the API and its backends are causing timeouts."
+  },
+  "checks": {
+    "errors_by_version": {
+      "description": "product-api 5xx rate and p99 latency split by application version.",
+      "result": "14:00-14:15 UTC. v5.2.9 (6 instances): 5xx 7.1%, p99 3.6s. v5.3.0 (6 instances): 5xx 11.4%, p99 4.9s. Both versions were under 0.3% 5xx and 180ms p99 before 14:04. First errors on both versions at 14:04:10."
+    },
+    "deploy_diff": {
+      "description": "The code diff between product-api v5.2.9 and v5.3.0.",
+      "result": "2 files changed. cache.py: PRODUCT_DETAIL_TTL = 600 -> 120 (seconds). product_page.py: adds one call to inventory-service GET /stock/{sku} per product page, cached for 30s. No changes to database access, connection pools or timeouts."
+    },
+    "cache_hit_rate": {
+      "description": "product-cache hit ratio over the last hour, per product-api version.",
+      "result": "Hit ratio 97% (both versions) until 14:03. 14:04: 3%. 14:10: v5.2.9 41%, v5.3.0 26%. 14:15: v5.2.9 58%, v5.3.0 35%. Keys stored in product-cache: 1.9M at 14:02, 4,100 at 14:04."
+    },
+    "cache_events": {
+      "description": "Events for product-cache, the Redis cluster product-api reads through.",
+      "result": "14:03:12 UTC product-cache primary node replaced during scheduled host maintenance (infra ticket INFRA-4471). The replacement started with an empty dataset: persistence is disabled on this cluster. Replication to the new primary completed 14:03:40 with 0 keys. No errors reported by the cluster since."
+    },
+    "db_metrics": {
+      "description": "products-db CPU, query rate and query time over the last hour.",
+      "result": "CPU 22% until 14:03, 91% from 14:04. Queries per second 1,100 until 14:03, 13,800 at 14:05, 9,200 at 14:15. Mean query time 3ms normally, 240ms since 14:04, with the same statements as before (product lookups by id). No slow-query or lock alerts. Replication healthy."
+    },
+    "request_rate": {
+      "description": "product-api incoming request rate over the last hour.",
+      "result": "Requests per second: 13:45 3,050; 14:00 3,120; 14:05 3,090; 14:15 3,040. Same-hour average over the last 4 weeks: 3,200."
+    },
+    "inventory_latency": {
+      "description": "inventory-service latency and errors as seen by product-api.",
+      "result": "p50 12ms, p99 38ms, errors 0.02% over the last hour; unchanged since before 14:00. Called only by v5.3.0 instances."
+    },
+    "network_stats": {
+      "description": "Packet loss, retransmits and connection errors between product-api and its backends.",
+      "result": "Packet loss 0.00%, TCP retransmits 0.1% (normal 0.1%), no connection resets or DNS errors in the last hour."
+    },
+    "product_logs": {
+      "description": "product-api application logs, 13:55-14:15 UTC.",
+      "result": "From 14:04:05, about 2,900 lines per second on both versions: 'cache miss for product:{id}, loading from products-db'. From 14:04:40, about 180 per second: 'timeout acquiring products-db connection after 2000ms'. No new exception types on v5.3.0."
+    },
+    "cache_logs": {
+      "description": "product-cache server logs, 13:55-14:15 UTC.",
+      "result": "QUERY FAILED: log search timed out after 30s. 0 lines returned. This is a failed query, not an empty result."
+    },
+    "service_logs": {
+      "description": "Logs for service 'product-service', 13:55-14:15 UTC.",
+      "result": "0 matching log lines."
+    },
+    "cert_warnings": {
+      "description": "Open certificate and security warnings.",
+      "result": "TLS certificate for partners.example.com expires in 19 days. No other warnings."
+    },
+    "ci_queue": {
+      "description": "CI build queue length and wait time.",
+      "result": "38 builds queued, median wait 14 minutes (normal 3 minutes) since 13:30, after two build runners were taken offline for upgrades."
+    },
+    "log_disk": {
+      "description": "Disk usage on the log aggregation hosts.",
+      "result": "log-agg-02 at 88% disk, growing about 2% per day. Other hosts under 60%."
+    }
+  },
+  "version_check": "errors_by_version",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}
