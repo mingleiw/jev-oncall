@@ -1,0 +1,68 @@
+{
+  "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
+  "incident": {
+    "title": "KubernetesNodesNotReady",
+    "description": "About 60% of Kubernetes nodes NotReady or unreachable across all 4 production regions since 06:04 UTC; ingestion and API error rates above 50%.",
+    "started_at": "2026-09-24T06:06:00Z"
+  },
+  "initial_context": "Shown before any check. There is a change freeze this week: no application deploys in the last 40 hours. At 05:52 UTC our main cloud provider's status page posted 'Investigating elevated API error rates' for its us-east region. Our 4 regions run on 3 cloud providers (2 regions on the main provider, 1 each on the other two). Scheduled overnight: cluster certificate rotation job at 05:30 UTC.",
+  "hypotheses": {
+    "provider": "A cloud provider outage is taking our nodes down.",
+    "host_update": "An automatic change on the hosts themselves broke their networking.",
+    "certificates": "Rotated or expired cluster certificates stop nodes from talking to the control plane.",
+    "network_plugin": "The container network plugin (its version or config) broke pod networking.",
+    "control_plane": "The Kubernetes control plane is overloaded and marking healthy nodes NotReady."
+  },
+  "checks": {
+    "failures_by_provider": {
+      "description": "Share of nodes NotReady, by region and cloud provider, over time.",
+      "result": "All 4 regions on all 3 providers fail together: 06:00 0-1% NotReady; 06:04 38-44%; 06:10 57-63%. The provider with the status notice is no worse than the other two. Its us-east notice was resolved at 06:01 and concerned its management API, not running instances."
+    },
+    "node_timeline": {
+      "description": "When affected nodes lost connectivity, and which nodes were not affected.",
+      "result": "Affected nodes lost pod-to-pod connectivity at scattered times between 06:00:40 and 06:58:10. Nodes created after 06:00 are healthy. Every affected node was running before 06:00 and runs the Ubuntu 22.04 image; nodes on the older 20.04 image: 0 affected."
+    },
+    "node_journal": {
+      "description": "systemd journal from 3 affected nodes around the time each lost connectivity.",
+      "result": "node a: 06:03:12 unattended-upgrades: Installing systemd 249.11-0ubuntu3.12 (security). 06:03:19 systemd-networkd restarted. 06:03:19 systemd-networkd: removing foreign routes on eth0 (14 routes). 06:03:20 kubelet: pod network unreachable. Nodes b and c: the same sequence at 06:21 and 06:47."
+    },
+    "package_history": {
+      "description": "Automatic package updates applied across the fleet in the last 24 hours.",
+      "result": "security-updates channel (enabled on the Ubuntu 22.04 image, window 06:00-07:00 UTC with random delay): systemd security release installed on 61% of nodes between 06:00 and 06:58. No other package changes."
+    },
+    "cert_status": {
+      "description": "Cluster certificate validity and the 05:30 rotation job.",
+      "result": "Rotation job finished 05:34 UTC, success on all 4 clusters. kubelet client certificates valid until 2027-03-02. Unaffected nodes use the same certificates and are healthy. No TLS handshake errors in control plane logs."
+    },
+    "network_plugin_status": {
+      "description": "Container network plugin version, config and agent state.",
+      "result": "Plugin version 1.15.6 on all nodes since 2026-08-11; config unchanged since 2026-08-11. On affected nodes the agent is running and logs 'route to pod CIDR missing, re-adding' after 06:00, but the routes are removed again when networking restarts."
+    },
+    "control_plane_health": {
+      "description": "API server latency and etcd health in each cluster.",
+      "result": "API server p99 latency 310ms at 06:10 (normal 120ms, rising as thousands of pods reschedule). etcd healthy, leader stable. Nodes marked NotReady had stopped posting status: their kubelets could not reach the API server over the pod network."
+    },
+    "node_syslog_search": {
+      "description": "Central syslog search on affected nodes, 06:00-06:30 UTC.",
+      "result": "QUERY FAILED: log search timed out after 30s (the log shippers run on the affected nodes). 0 lines returned. This is a failed query, not an empty result."
+    },
+    "kube_proxy_logs": {
+      "description": "Logs for service 'kube-proxy-agent', 06:00-06:30 UTC.",
+      "result": "0 matching log lines."
+    },
+    "marketing_site": {
+      "description": "Marketing website uptime.",
+      "result": "Up; hosted by an external provider. A new pricing page went live at 05:45 UTC."
+    },
+    "backup_jobs": {
+      "description": "Database backup jobs.",
+      "result": "Nightly backups finished 04:12 UTC on all clusters. Verification restore passed."
+    },
+    "on_call_roster": {
+      "description": "Current on-call roster.",
+      "result": "Primary and secondary on-call acknowledged pages at 06:07 UTC. Handover to the EU team scheduled at 08:00."
+    }
+  },
+  "version_check": "failures_by_provider",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}

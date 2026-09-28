@@ -1,0 +1,77 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "_source": "Adapted from Cloudflare's postmortem of the 2 July 2019 outage (a WAF managed rule with a backtracking regular expression pushed globally). Here the deploy is the real cause and an attack is the decoy.",
+  "hypothesis": "rule_push",
+  "component": "firewall rule 100894",
+  "component_aliases": [
+    "100894",
+    "2026.09.21-3",
+    "firewall rule",
+    "firewall-rules"
+  ],
+  "mechanism": "Rule 100894 in firewall-rules release 2026.09.21-3 has a regular expression that backtracks catastrophically. The release reached every edge node in seconds, so every worker spends most of its CPU in regex matching, requests time out before reaching origins, and the edge returns 502s everywhere.",
+  "mechanism_checks": [
+    "cpu_profile",
+    "rule_timing"
+  ],
+  "mechanism_keywords": [
+    [
+      "regex",
+      "regular expression",
+      "backtrack",
+      "pattern"
+    ],
+    [
+      "cpu"
+    ]
+  ],
+  "decoy": "attack",
+  "version_check": "traffic_sources",
+  "traps": [
+    "firewall_logs",
+    "edge_gateway_logs"
+  ],
+  "noise": [
+    "dns_latency",
+    "billing_jobs",
+    "cert_renewals"
+  ],
+  "check_notes": {
+    "traffic_sources": {
+      "rules_out": "attack"
+    },
+    "cpu_by_version": {
+      "rules_out": "proxy_release"
+    },
+    "origin_health": {
+      "rules_out": "origin"
+    },
+    "network_health": {
+      "rules_out": "network"
+    },
+    "cpu_profile": {
+      "supports": "rule_push"
+    },
+    "rule_timing": {
+      "supports": "rule_push"
+    },
+    "config_channel": {
+      "supports": "rule_push"
+    },
+    "firewall_logs": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "edge_gateway_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "dns_latency": {
+      "notes": "Noise: unrelated to the edge CPU exhaustion."
+    },
+    "billing_jobs": {
+      "notes": "Noise: unrelated to the edge CPU exhaustion."
+    },
+    "cert_renewals": {
+      "notes": "Noise: unrelated to the edge CPU exhaustion."
+    }
+  }
+}

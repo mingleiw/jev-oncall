@@ -1,0 +1,64 @@
+{
+  "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
+  "incident": {
+    "title": "ServiceRegistryWritesSlow",
+    "description": "service-registry (5-node cluster used for service discovery and config by every backend service): p50 key-value write latency 2.1s (normal under 300ms). Backend services timing out on registry lookups; game sessions failing to start (58% failure).",
+    "started_at": "2026-09-23T19:52:00Z"
+  },
+  "initial_context": "Shown before any check. Last Thursday, registry node reg-03 fired two disk-latency alerts, and a hardware ticket for it is still open with the vendor. Recent changes: yesterday 16:00 UTC the registry's 'streaming' delivery mode (sends changes to clients as a stream instead of long-polling, to cut CPU) was enabled for the traffic-routing services, ramping from 10% to 100% of their clients by 19:30 today. 18:10 UTC today matchmaking-api v12.8 deployed. Traffic is at its weekly Saturday peak.",
+  "hypotheses": {
+    "hardware": "A failing disk or node in the registry cluster is slowing writes.",
+    "streaming": "A recent change in how the registry delivers updates causes contention inside the registry.",
+    "matchmaking_release": "The matchmaking-api v12.8 deploy is overloading the registry with requests.",
+    "load": "Peak traffic is more than the registry cluster can handle.",
+    "storage": "The registry's on-disk data store has grown or fragmented, making each write slow."
+  },
+  "checks": {
+    "node_health": {
+      "description": "Per-node disk, CPU and memory health for the 5 registry nodes, and write latency per node.",
+      "result": "All 5 nodes: disk health checks passing, fsync p99 3-5ms, no disk errors (reg-03's disk was replaced on Monday). Write latency is the same on every node, leader and followers alike: p50 2.0-2.2s. CPU 55-62% on each node."
+    },
+    "request_rate": {
+      "description": "Requests to the registry per second, by client service.",
+      "result": "Total 410k/s at 19:50, vs 395k/s at the same time last Saturday. matchmaking-api: 22k/s before and after its 18:10 deploy. No client grew by more than 6% day over day."
+    },
+    "latency_history": {
+      "description": "Registry write latency p50 over the last 36 hours, with the streaming rollout marked.",
+      "result": "p50 write latency 180-260ms until 19:35 today, including last Saturday's peak at the same load. Streaming reached 50% of traffic-routing clients at 15:00 today: p50 290ms. 100% at 19:30: p50 900ms at 19:40, 2.1s at 19:50."
+    },
+    "registry_profile": {
+      "description": "Goroutine and lock profile of the registry leader, 19:55 UTC.",
+      "result": "71% of write-path time blocked waiting on a single channel in the streaming event publisher (stream.Publish -> eventBuffer.append). 4,300 goroutines queued on it. Before streaming (profile from last week): no single wait point above 4%."
+    },
+    "store_stats": {
+      "description": "Size and write timings of the registry's embedded data store on the leader.",
+      "result": "Data file 1.3GB, 11% free pages, same as a month ago. Store commit time p99 6ms. Compaction last ran 02:00 UTC, normal."
+    },
+    "matchmaking_changes": {
+      "description": "matchmaking-api v12.8 change summary and its registry calls.",
+      "result": "'Tune queue timeouts for weekend events.' Registry reads per request unchanged (1); registry writes: none. Canary at 17:40 showed no registry latency change."
+    },
+    "registry_logs": {
+      "description": "service-registry server logs, 19:40-20:00 UTC.",
+      "result": "QUERY FAILED: log search timed out after 30s (the log pipeline discovers its shards through the registry). 0 lines returned. This is a failed query, not an empty result."
+    },
+    "discovery_logs": {
+      "description": "Logs for service 'discovery-agent', 19:40-20:00 UTC.",
+      "result": "0 matching log lines."
+    },
+    "cdn_bandwidth": {
+      "description": "CDN bandwidth for game asset downloads.",
+      "result": "1.9 Tbps, 4% above last Saturday; a new game release at 18:00 drove extra downloads. No errors."
+    },
+    "payment_provider": {
+      "description": "Payment provider status.",
+      "result": "Provider reports degraded card authorisations in Brazil since 19:10 UTC. 0.4% of purchases affected."
+    },
+    "build_queue": {
+      "description": "CI build queue.",
+      "result": "31 builds queued, median wait 6 minutes. Two runners offline for maintenance."
+    }
+  },
+  "version_check": "node_health",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}

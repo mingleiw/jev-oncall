@@ -1,0 +1,88 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "_source": "Adapted from Cloudflare's postmortem of the 18 November 2025 outage (a database permissions change made a generated bot feature file exceed a preallocated limit; errors flapped as the file was regenerated, and the status page happened to go down too, suggesting an attack).",
+  "hypothesis": "config_file",
+  "component": "bot feature file",
+  "component_aliases": [
+    "feature file",
+    "analytics-db",
+    "access-grant",
+    "grant migration",
+    "system.columns"
+  ],
+  "mechanism": "The analytics-db access-grant migration makes the feature-list query also return rows from the shard databases, so on migrated nodes it lists every feature several times. The bot feature file generated from it has 212 entries, over the edge-proxy's preallocated limit of 200, and nodes panic when they load it. The file is regenerated every 5 minutes on a random node, so errors flap as good and bad files alternate.",
+  "mechanism_checks": [
+    "proxy_panics",
+    "feature_file_history",
+    "analytics_db_query"
+  ],
+  "mechanism_keywords": [
+    [
+      "limit",
+      "200",
+      "212",
+      "too many",
+      "duplicate",
+      "oversized",
+      "too large"
+    ],
+    [
+      "grant",
+      "permission",
+      "analytics-db",
+      "query"
+    ]
+  ],
+  "decoy": "attack",
+  "version_check": "traffic_by_source",
+  "traps": [
+    "bot_module_logs",
+    "analytics_db_logs"
+  ],
+  "noise": [
+    "email_queue",
+    "disk_alerts",
+    "office_vpn"
+  ],
+  "check_notes": {
+    "traffic_by_source": {
+      "rules_out": "attack"
+    },
+    "status_page_provider": {
+      "rules_out": "attack"
+    },
+    "errors_by_version": {
+      "rules_out": "proxy_release"
+    },
+    "bot_score_service": {
+      "rules_out": "bot_score_release"
+    },
+    "kv_store_health": {
+      "rules_out": "kv_store"
+    },
+    "proxy_panics": {
+      "supports": "config_file"
+    },
+    "feature_file_history": {
+      "supports": "config_file"
+    },
+    "analytics_db_query": {
+      "supports": "config_file"
+    },
+    "bot_module_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "analytics_db_logs": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "email_queue": {
+      "notes": "Noise: unrelated to the edge errors."
+    },
+    "disk_alerts": {
+      "notes": "Noise: unrelated to the edge errors."
+    },
+    "office_vpn": {
+      "notes": "Noise: unrelated to the edge errors."
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "_origin": "Adapted from a public postmortem; names, times and numbers changed.",
+  "incident": {
+    "title": "EdgeProxy5xxFlapping",
+    "description": "edge-proxy: 5xx rate swinging between 1% and 45% every few minutes on all points of presence since 11:21 UTC (threshold 1%).",
+    "started_at": "2026-09-22T11:24:00Z"
+  },
+  "initial_context": "Shown before any check. At 11:31 UTC our public status page, hosted by a third-party provider and not behind our edge, also stopped loading. The on-call channel is discussing a possible large attack. Recent changes: 11:05 UTC analytics-db access-grant migration started, rolling across its 16 nodes one at a time ('make grants explicit for distributed queries'). 10:40 UTC bot-score service v8.4 deployed to all regions. 09:15 UTC edge-proxy v57.0 rolled to 50% of nodes (the other half still run v56.3).",
+  "hypotheses": {
+    "attack": "An attack is overloading the edge and our status page.",
+    "config_file": "A configuration file the edge loads is being generated wrong, and nodes fail when they load it.",
+    "proxy_release": "The edge-proxy v57.0 release introduced a bug.",
+    "bot_score_release": "The bot-score service v8.4 deploy returns bad responses that fail requests.",
+    "kv_store": "The edge key-value store is failing, and requests that read from it error."
+  },
+  "checks": {
+    "traffic_by_source": {
+      "description": "Edge request rate by source network, and requests flagged by flood detection.",
+      "result": "11:00-11:40 UTC. Offered requests per second 38-40M, the same as this hour last week. Top 10 source networks: 2.8% of requests, normal. Flagged by flood detection: 0.01%. The 5xx swings do not follow traffic: 5xx rose to 45% at 11:26 and 11:36 while traffic stayed flat."
+    },
+    "status_page_provider": {
+      "description": "Status of the third-party provider hosting the public status page.",
+      "result": "The provider's own status page reports 'Elevated errors on hosted status pages' from 11:29 to 11:52 UTC, across all its customers. Our status page receives no traffic through our edge."
+    },
+    "errors_by_version": {
+      "description": "edge-proxy 5xx rate split by version.",
+      "result": "v56.3 (50% of nodes) and v57.0 (50% of nodes) swing together: 11:26 44% and 46%; 11:31 2% and 1%; 11:36 45% and 44%. Before 11:20 both under 0.2%."
+    },
+    "proxy_panics": {
+      "description": "edge-proxy crash and panic messages, 11:00-11:40 UTC.",
+      "result": "182,000 lines 'panic in bot module: feature table has 212 entries, limit 200 (preallocated)', from both versions, first at 11:20:48. Each follows 'loaded bot feature file' within 50ms. Between the bursts, nodes log 'loaded bot feature file (58 entries)' and serve normally."
+    },
+    "feature_file_history": {
+      "description": "The last 12 versions of the bot feature file, generated every 5 minutes from analytics-db and pushed to all edge nodes.",
+      "result": "Up to 11:15: 57-58 entries each. From 11:20: alternates between 58 and 212 entries (11:20 212; 11:25 58; 11:30 212; 11:35 212; 11:40 58). The 212-entry files repeat every feature name 3 to 4 times. The generating query ran on analytics-db nodes 1-6 for the 212-entry files and nodes 9-16 for the 58-entry ones."
+    },
+    "analytics_db_query": {
+      "description": "Result of the feature-list query on one migrated and one unmigrated analytics-db node.",
+      "result": "Node 3 (grants migrated at 11:12): 'SELECT name, type FROM system.columns WHERE table = bot_features' returns 212 rows: each column listed once for database 'default' and again for each underlying shard database 'r0'-'r2'. Node 12 (not yet migrated): 58 rows, 'default' only."
+    },
+    "bot_score_service": {
+      "description": "bot-score service error rate and latency.",
+      "result": "v8.4 since 10:40: error rate 0.03%, p99 latency 11ms, unchanged from v8.3. edge-proxy calls to bot-score dropped by 40% during the 5xx bursts because requests fail before the call."
+    },
+    "kv_store_health": {
+      "description": "Edge key-value store errors and dependencies.",
+      "result": "KV read errors 0.1% until 11:21, then swing with the edge 5xx rate. KV reads are served through the edge-proxy; the KV storage backend reports 0 errors and p99 latency 6ms throughout."
+    },
+    "bot_module_logs": {
+      "description": "Logs for service 'bot-manager', 11:00-11:40 UTC.",
+      "result": "0 matching log lines."
+    },
+    "analytics_db_logs": {
+      "description": "analytics-db server logs, 11:00-11:40 UTC.",
+      "result": "QUERY FAILED: log search timed out after 30s. 0 lines returned. This is a failed query, not an empty result."
+    },
+    "email_queue": {
+      "description": "Outbound email queue depth.",
+      "result": "Queue depth 1,200 messages, drained within 2 minutes on average. A marketing send started at 11:00 as scheduled."
+    },
+    "disk_alerts": {
+      "description": "Open disk space alerts.",
+      "result": "logs-archive-07 at 86% disk (warning at 85%) since 08:00. No other disk alerts."
+    },
+    "office_vpn": {
+      "description": "Office VPN connectivity.",
+      "result": "London office VPN reconnect storm at 11:02-11:04 UTC after a firewall firmware update; stable since."
+    }
+  },
+  "version_check": "traffic_by_source",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}
