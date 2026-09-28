@@ -94,7 +94,7 @@ python3 rca_experiment.py --dry-run --models anthropic:claude-opus-5,openai:gpt-
 python3 rca_experiment.py --check   --models anthropic:claude-opus-5,openai:gpt-5
 python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5 --forced
 python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5
-python3 rca_experiment.py --report rca_traces.jsonl
+python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
 ```
 
 1. `--dry-run` prints the system prompt, the first message, the Jev payload after
@@ -108,6 +108,12 @@ python3 rca_experiment.py --report rca_traces.jsonl
    state's beliefs and Jev scores, the checks, the final answer, token usage, and
    the scenario name and digest. `--report` re-scores any trace file, so scoring changes
    don't need new runs.
+5. `--html rca_report.html` also writes the results as one page: every model and
+   setup ranked, overall and per scenario (right cause first, then mechanism, then
+   changing course), each model alone vs with Jev, tokens and seconds per trial, and
+   every trial's checks in order with a small chart of how P(deploy) moved. It works
+   after a run or with `--report`; `--note` adds a notice at the top, for example to
+   mark test data.
 
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
 list) narrows it. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`

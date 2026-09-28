@@ -510,5 +510,57 @@ class Scenarios(unittest.TestCase):
         self.assertIn("pool_etl_cron | m | forced version check", buf.getvalue())
 
 
+class HtmlReport(unittest.TestCase):
+    def traces(self):
+        stuck = Scripted(reply(dist("deploy"), VCHECK), reply(dist("deploy"), final=DECOY))
+        switched = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), "cron-history"),
+                            reply(dist("etl-cron"), final=RIGHT))
+        return [dict(rca.run_trial(SCENARIO, "alone", stuck), model="test:m", scenario="pool_etl_cron", trial=1),
+                dict(rca.run_trial(SCENARIO, "jev", switched, FakeJev()), model="test:m",
+                     scenario="pool_etl_cron", trial=1)]
+
+    def test_ranks_models_and_compares_alone_with_jev(self):
+        import rca_report
+        page = rca_report.render(self.traces(), note="Test data only.")
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertIn("<title>RCA Leaderboard</title>", page.split("</head>")[0])
+        self.assertIn("Test data only.", page)
+        board = rca_report.leaderboard(rca_report.scored(self.traces()))
+        self.assertEqual([setup for _, setup, _ in board], ["jev", "alone"])  # right cause ranks first
+        self.assertIn("better with Jev", page)
+        self.assertIn('<span class="val">0/1</span><span class="arrow" aria-hidden="true">→</span>'
+                      '<span class="val">1/1</span>', page)
+        self.assertIn("1 trial<", page)
+        self.assertNotIn("%", page.split("<main>")[1].split("<section")[1])  # counts, not percentages
+
+    def test_trace_text_is_escaped(self):
+        import rca_report
+        t = self.traces()
+        t[0]["model"] = '<script>alert("x")</script>'
+        t[0]["final"]["hypothesis"] = "<img src=x onerror=alert(1)>"
+        page = rca_report.render(t)
+        self.assertNotIn("<script>alert", page)
+        self.assertNotIn("<img src=x", page)
+        self.assertIn("&lt;script&gt;", page)
+
+    def test_fragment_for_embedding(self):
+        import rca_report
+        frag = rca_report.render(self.traces(), standalone=False)
+        self.assertFalse(frag.lstrip().startswith("<!doctype"))
+        self.assertNotIn("<body>", frag)
+
+    def test_cli_writes_the_page(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, "t.jsonl"), os.path.join(d, "r.html")
+            with open(src, "w") as f:
+                f.writelines(json.dumps(t) + "\n" for t in self.traces())
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rca.main(["--report", src, "--html", out, "--note", "Test data only."])
+            with open(out, encoding="utf-8") as f:
+                self.assertIn("Test data only.", f.read())
+            self.assertIn(f"wrote {out}", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -128,5 +128,6 @@ are a good place to start.
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default |
 | [build_demo.py](build_demo.py) | Builds the interactive demo in `docs/demo/` |
 | [rca_experiment.py](rca_experiment.py) | RCA experiment: does an agent change direction, alone vs with Jev? ([guide](guide/rca.md)) |
+| [rca_report.py](rca_report.py) | Renders RCA results as a ranked leaderboard page |
 | [demo/](demo) | The Docker Compose demo |
 | [docs/](docs) | The website, served by GitHub Pages |

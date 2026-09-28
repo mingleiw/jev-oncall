@@ -22,6 +22,7 @@ Usage:
     python3 rca_experiment.py --models anthropic:claude-opus-5,openai:gpt-5 \\
         --trials 5 --forced                                 # the grid, alone vs + Jev
     python3 rca_experiment.py --report rca_traces.jsonl     # re-score saved traces
+    python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html  # leaderboard page
 
 guide/rca.md has the design. Standard library only.
 """
@@ -589,6 +590,14 @@ def read_traces(path):
 # --------------------------------------------------------------------------
 # CLI
 
+def write_html(traces, path, note=None):
+    if not path:
+        return
+    import rca_report  # imports this module
+    rca_report.write(traces, path, note)
+    print(f"wrote {path}")
+
+
 def check_access(models, want_jev, jev_model, env=None):
     """One tiny call per model and one Jev call. Returns True if all work."""
     ok = True
@@ -633,10 +642,15 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true",
                     help="make one small call to each model and to Jev, then stop")
     ap.add_argument("--report", metavar="JSONL", help="score saved traces instead of running")
+    ap.add_argument("--html", metavar="PATH",
+                    help="also write the leaderboard as an HTML page (with --report or after a run)")
+    ap.add_argument("--note", help="a notice shown at the top of the HTML page")
     args = ap.parse_args(argv)
 
     if args.report:
-        report(read_traces(args.report))
+        traces = read_traces(args.report)
+        report(traces)
+        write_html(traces, args.html, args.note)
         return 0
 
     available = scenario_names()
@@ -696,6 +710,7 @@ def main(argv=None):
         print(f"[{k}/{len(plan)}] {name} {provider}:{model} {setup:<5} checks={s['checks_used']} "
               f"changed_direction={s['changed_direction']} answer={answer} ({trace['seconds']}s)")
     report(traces)
+    write_html(traces, args.html, args.note)
     return 0
 
 
