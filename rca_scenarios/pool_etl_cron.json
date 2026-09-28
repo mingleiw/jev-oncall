@@ -1,0 +1,85 @@
+{
+  "incident": {
+    "title": "OrdersDB connection pool exhausted",
+    "description": "At 14:32 UTC, the orders-db connection pool hit 100% utilization. Checkout and payment services began returning 503 errors. The pool has been at capacity for 12 minutes and shows no sign of recovering. Customer-facing order flow is down.",
+    "started_at": "2026-09-18T14:32:00Z",
+    "services_affected": [
+      "orders-db",
+      "checkout-api",
+      "payment-service"
+    ]
+  },
+  "initial_context": "Application deploy v2.47.1 rolled out to 3 of 8 checkout-api instances between 14:10 and 14:25 UTC. The change summary says: 'Increase connection retry count from 3 to 5, add jitter to retry delays, raise per-request timeout from 2s to 5s.' More retries with longer timeouts could hold connections open longer, exhausting the pool.",
+  "hypotheses": {
+    "deploy": "The v2.47.1 deploy changed connection retry and timeout settings, causing instances to hold connections longer and exhaust the pool",
+    "etl-cron": "The analytics-etl cron job was rescheduled to peak hours and is running long transactions that hold connections",
+    "conn-leak": "A connection leak in application code is gradually exhausting the pool",
+    "db-config": "The database max_connections setting was reduced, shrinking the pool below what normal traffic requires",
+    "traffic": "An unusual traffic spike is creating more concurrent connections than the pool can handle",
+    "dns": "A DNS failover event routed all read traffic to the primary, doubling its connection load"
+  },
+  "checks": {
+    "deployment-log": {
+      "description": "Recent deployments across all services in the last 24 hours",
+      "result": "=== Deployment History (last 24h) ===\n14:10-14:25 UTC  checkout-api  v2.47.0 -> v2.47.1  3/8 instances  deployer: ci-bot\n  Change: connection retry count 3->5, retry jitter, per-request timeout 2s->5s\n  Status: healthy on all 3 instances, no rollback triggered\n08:30 UTC  search-api  v3.12.0 -> v3.12.1  8/8 instances  deployer: ci-bot\n  Change: search ranking weight adjustment\n  Status: complete\n\nNo other deploys in the last 24 hours."
+    },
+    "error-by-version": {
+      "description": "Error counts for checkout-api broken down by application version over the last 30 minutes",
+      "result": "=== checkout-api error breakdown by version (14:15 - 14:44 UTC) ===\nVersion   Instances  Traffic Share  5xx Errors  Error Rate\nv2.47.0   5/8        62.3%          1,847       3.42%\nv2.47.1   3/8        37.7%          1,122       3.38%\n\nError rate difference: 0.04 percentage points (within noise).\nBoth versions began erroring at 14:32 UTC simultaneously.\nPre-14:32 error rate: 0.02% on both versions."
+    },
+    "pool-metrics": {
+      "description": "Connection pool utilization for orders-db over the last 2 hours",
+      "result": "=== orders-db connection pool utilization ===\nTime (UTC)   Active  Idle  Total  Max  Utilization  Waiting\n13:00        28      72    100    200   50%          0\n13:30        31      69    100    200   50%          0\n14:00        34      66    100    200   50%          0\n14:05        48      52    100    200   50%          0\n14:10        67      33    100    200   50%          0\n14:15        89      11    100    200   50%          0\n14:20        134      6    140    200   70%          0\n14:25        168      2    170    200   85%          0\n14:30        195      0    195    200   98%          12\n14:32        200      0    200    200  100%          47\n14:35        200      0    200    200  100%          89\n14:40        200      0    200    200  100%         112\n\nTop consumers at 14:35:\n  analytics-etl (pid 8847):  73 connections, avg query time 4m12s\n  checkout-api:              62 connections, avg query time 45ms\n  payment-service:           38 connections, avg query time 120ms\n  inventory-sync:            27 connections, avg query time 200ms"
+    },
+    "active-queries": {
+      "description": "Currently running queries on orders-db with duration and source",
+      "result": "=== Active queries on orders-db (snapshot at 14:44 UTC) ===\n PID   | Duration | Source          | Query (truncated)\n-------|----------|-----------------|------------------------------------------\n 8847  | 44m 12s  | analytics-etl   | SELECT date_trunc('hour', created_at), \n       |          |                 |   product_category, region, COUNT(*), \n       |          |                 |   SUM(total_amount) FROM orders \n       |          |                 |   WHERE created_at > '2026-06-01' \n       |          |                 |   GROUP BY 1, 2, 3 ORDER BY 1\n 8848  | 43m 55s  | analytics-etl   | SELECT customer_id, COUNT(*) as order_count,\n       |          |                 |   AVG(total_amount) FROM orders \n       |          |                 |   GROUP BY customer_id HAVING COUNT(*) > 5\n 8849  | 42m 30s  | analytics-etl   | SELECT o.*, p.name FROM orders o \n       |          |                 |   JOIN products p ON o.product_id = p.id \n       |          |                 |   WHERE o.status = 'completed' \n       |          |                 |   AND o.created_at > '2026-01-01'\n ... (71 more analytics-etl queries, durations 2m to 44m)\n 12001 |  0.045s  | checkout-api    | INSERT INTO orders (...) VALUES (...)\n 12002 |  0.120s  | payment-service | UPDATE orders SET payment_status = ...\n 12003 |  waiting | checkout-api    | --- waiting for connection ---\n 12004 |  waiting | checkout-api    | --- waiting for connection ---\n\n73 analytics-etl queries running. 62 checkout-api, 38 payment-service.\n47 requests waiting for a connection."
+    },
+    "cron-history": {
+      "description": "Schedule changes for all cron jobs in the last 7 days",
+      "result": "=== Cron Schedule Changes (last 7 days) ===\n2026-09-17 11:22 UTC  analytics-etl  schedule changed\n  Old: 03:00 UTC daily (off-peak)\n  New: 14:00 UTC daily (peak hours)\n  Changed by: data-team/jpark (via Airflow UI)\n  Reason field: 'need fresher data for daily standup at 10am ET'\n  Approved by: (no approval recorded)\n\n2026-09-15 09:00 UTC  backup-compaction  schedule changed\n  Old: 02:00 UTC daily\n  New: 02:30 UTC daily\n  Changed by: dba-team/mchen\n  Reason: 'avoid overlap with log rotation'\n\nNo other schedule changes this week."
+    },
+    "traffic-stats": {
+      "description": "Request rates and traffic patterns for checkout-api over the last 6 hours",
+      "result": "=== checkout-api traffic (last 6h) ===\nTime (UTC)   Requests/min  p99 Latency  Error Rate\n09:00        1,240         45ms         0.01%\n10:00        1,890         48ms         0.02%\n11:00        2,340         52ms         0.01%\n12:00        2,780         50ms         0.02%\n13:00        2,650         47ms         0.01%\n14:00        2,710         49ms         0.02%\n14:15        2,680         55ms         0.02%\n14:30        2,720         890ms        2.10%\n14:35        2,690        4200ms        8.40%\n14:40        2,650        timeout       12.3%\n\nTraffic volume is normal for this time of day (weekday afternoon).\nNo unusual spikes or pattern changes."
+    },
+    "db-config": {
+      "description": "Database configuration change history for orders-db",
+      "result": "=== orders-db configuration history ===\nParameter            Current    Last Changed      Changed By\nmax_connections      200        2026-06-15        dba-team/mchen\nshared_buffers       4GB        2026-06-15        dba-team/mchen\nwork_mem             256MB      2026-06-15        dba-team/mchen\nstatement_timeout    300s       2026-08-01        dba-team/sli\nidle_in_txn_timeout  60s        2026-08-01        dba-team/sli\nmax_wal_size         2GB        2026-06-15        dba-team/mchen\n\nNo configuration changes in the last 47 days.\nmax_connections has been 200 since June."
+    },
+    "conn-audit": {
+      "description": "Connection lifecycle audit for checkout-api: open, close, and leak detection",
+      "result": "=== checkout-api connection audit (last 1h) ===\nConnections opened:     4,812\nConnections closed:     4,810\nCurrently held:            62\nLeak detector:          PASS (no unreturned connections older than 30s)\nPool config:            min=10, max=80, idle_timeout=30s\n\nper-instance breakdown:\n  checkout-api-01 (v2.47.0): 12 active, 0 leaked\n  checkout-api-02 (v2.47.0): 13 active, 0 leaked\n  checkout-api-03 (v2.47.1): 12 active, 0 leaked\n  checkout-api-04 (v2.47.0): 13 active, 0 leaked\n  checkout-api-05 (v2.47.1): 13 active, 0 leaked\n  checkout-api-06 (v2.47.0): 12 active, 0 leaked\n  checkout-api-07 (v2.47.1): 12 active, 0 leaked\n  checkout-api-08 (v2.47.0):  9 active, 0 leaked\n\nNote: checkout-api connections are healthy. The pool exhaustion\nis on the database side (orders-db), not the application side."
+    },
+    "dns-log": {
+      "description": "DNS resolution log for orders-db endpoints over the last 2 hours",
+      "result": "=== DNS resolution for orders-db.internal (last 2h) ===\nAll queries resolved to the expected endpoints:\n  orders-db-primary.internal  -> 10.0.4.12 (primary, read-write)\n  orders-db-replica-1.internal -> 10.0.4.13 (replica, read-only)\n  orders-db-replica-2.internal -> 10.0.4.14 (replica, read-only)\n\nNo failover events. No TTL anomalies. No NXDOMAIN responses.\nRead traffic split: primary 34%, replica-1 33%, replica-2 33%.\n\nNote: analytics-etl connects directly to orders-db-primary\n(hardcoded in its connection string, not using the read replicas)."
+    },
+    "deploy-diff": {
+      "description": "Code diff for the checkout-api v2.47.1 deploy",
+      "result": "=== checkout-api v2.47.0 -> v2.47.1 diff ===\nFiles changed: 2\n\n--- a/src/db/pool.py\n+++ b/src/db/pool.py\n@@ -45,8 +45,9 @@\n     def _execute_with_retry(self, query, params, retries=3):\n-        for attempt in range(retries):\n+    def _execute_with_retry(self, query, params, retries=5):\n+        for attempt in range(retries):\n             try:\n                 conn = self.pool.getconn()\n                 try:\n                     result = conn.execute(query, params)\n                     return result\n                 finally:\n                     self.pool.putconn(conn)\n             except PoolExhausted:\n-                time.sleep(0.1 * (attempt + 1))\n+                delay = 0.1 * (2 ** attempt) + random.uniform(0, 0.05)\n+                time.sleep(delay)\n                 if attempt == retries - 1:\n                     raise\n\n--- a/src/db/config.py\n+++ b/src/db/config.py\n@@ -12,7 +12,7 @@\n-REQUEST_TIMEOUT = 2.0\n+REQUEST_TIMEOUT = 5.0\n\nThe connection is acquired and released within the same try/finally\nblock. The retry loop only retries on PoolExhausted, waiting for a\nfree connection. It does not hold a connection while sleeping."
+    },
+    "slow-query-log": {
+      "description": "Slow query log for orders-db (queries taking longer than 1 second)",
+      "result": "ERROR: query timed out after 30s. 0 rows returned. The query did not complete; this is not an empty result."
+    },
+    "dependency-map": {
+      "description": "Service dependency map for the given service name",
+      "result": "No service found matching 'orders-database'. Available services: orders-db, checkout-api, payment-service, inventory-sync, search-api, analytics-etl, shipping-service, notification-service.\n\nDid you mean 'orders-db'?"
+    },
+    "cdn-cache": {
+      "description": "CDN cache hit rate over the last 6 hours",
+      "result": "=== CDN cache hit rate ===\nTime (UTC)   Hit Rate   Miss Rate   Bandwidth\n09:00        94.2%      5.8%        12.4 Gbps\n10:00        93.8%      6.2%        18.1 Gbps\n11:00        94.1%      5.9%        22.3 Gbps\n12:00        93.5%      6.5%        24.8 Gbps\n13:00        92.1%      7.9%        23.2 Gbps\n14:00        91.8%      8.2%        24.1 Gbps\n14:30        91.5%      8.5%        23.9 Gbps\n\nCache hit rate dropped ~2% over the last few hours.\nThis is within normal daily variance (CDN cache refreshes\nrun between 12:00-15:00 UTC)."
+    },
+    "canary-memory": {
+      "description": "Memory usage alerts from the canary environment",
+      "result": "=== Canary environment alerts (last 6h) ===\n13:45 UTC  WARNING  canary/checkout-api-canary  Memory usage 78% (threshold: 75%)\n14:00 UTC  RESOLVED canary/checkout-api-canary  Memory usage 62% (back to normal)\n\nCanary is running checkout-api v2.48.0-rc1 (next release candidate).\nThis memory spike was caused by a load test that ended at 14:00.\nCanary environment uses a separate database instance (canary-orders-db),\nnot connected to production."
+    },
+    "cert-expiry": {
+      "description": "TLS certificate expiry status for all production services",
+      "result": "=== TLS Certificate Status ===\nService                Expires          Days Left  Status\norders-db.internal     2026-12-15       88         OK\ncheckout-api.prod      2026-10-01       13         WARNING\npayment-service.prod   2026-11-30       73         OK\nsearch-api.prod        2026-12-01       74         OK\ncdn.example.com        2027-03-15      178         OK\n\ncheckout-api.prod certificate expires in 13 days.\nRenewal is scheduled but has not run yet."
+    }
+  },
+  "version_check": "error-by-version",
+  "guidance": "A failed query (like a timeout or a locked table) means the check itself could not complete. It is not evidence that nothing happened. An empty result from a wrong service name means the query was malformed, not that there is nothing to find. Neither should be cited as evidence in a root cause analysis."
+}

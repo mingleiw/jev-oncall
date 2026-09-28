@@ -1,0 +1,78 @@
+{
+  "_note": "Scoring only. No agent input may contain anything from this file.",
+  "hypothesis": "slow_queries",
+  "component": "orders-archive",
+  "component_aliases": [
+    "orders-archive",
+    "archive job",
+    "archive batch",
+    "batch_svc",
+    "pid 48213"
+  ],
+  "mechanism": "The orders-archive batch job, manually triggered at 14:01, holds row locks on the orders table. Checkout queries wait on those locks, connections are held about 50x longer, and the pool fills on every instance regardless of version.",
+  "mechanism_checks": [
+    "db_lock_waits",
+    "batch_jobs"
+  ],
+  "mechanism_keywords": [
+    [
+      "lock"
+    ],
+    [
+      "archive",
+      "batch"
+    ]
+  ],
+  "decoy": "deploy",
+  "version_check": "errors_by_version",
+  "traps": [
+    "orders_service_logs",
+    "orders_db_logs"
+  ],
+  "noise": [
+    "payment_latency",
+    "search_cache",
+    "cert_warnings"
+  ],
+  "check_notes": {
+    "errors_by_version": {
+      "rules_out": "deploy"
+    },
+    "query_latency": {
+      "rules_out": "deploy"
+    },
+    "checkout_logs": {
+      "rules_out": "deploy"
+    },
+    "connection_lifecycle": {
+      "rules_out": "leak"
+    },
+    "request_rate": {
+      "rules_out": "traffic"
+    },
+    "pool_config": {
+      "rules_out": "config"
+    },
+    "db_lock_waits": {
+      "supports": "slow_queries"
+    },
+    "batch_jobs": {
+      "supports": "slow_queries"
+    },
+    "orders_service_logs": {
+      "notes": "Trap: Empty because the service name is wrong, not because nothing happened."
+    },
+    "orders_db_logs": {
+      "notes": "Trap: A failed query, not evidence of absence."
+    },
+    "payment_latency": {
+      "notes": "Noise: unrelated to the pool exhaustion."
+    },
+    "search_cache": {
+      "notes": "Noise: unrelated to the pool exhaustion."
+    },
+    "cert_warnings": {
+      "notes": "Noise: unrelated to the pool exhaustion."
+    }
+  }
+}
