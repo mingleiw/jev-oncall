@@ -94,7 +94,7 @@ python3 rca_experiment.py --dry-run --models anthropic:claude-opus-5,openai:gpt-
 python3 rca_experiment.py --check   --models anthropic:claude-opus-5,openai:gpt-5
 python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5 --forced
 python3 rca_experiment.py           --models anthropic:claude-opus-5,openai:gpt-5 --trials 5
-python3 rca_experiment.py --report rca_traces.jsonl
+python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
 ```
 
 1. `--dry-run` prints the system prompt, the first message, the Jev payload after
@@ -108,11 +108,44 @@ python3 rca_experiment.py --report rca_traces.jsonl
    state's beliefs and Jev scores, the checks, the final answer, token usage, and
    the scenario name and digest. `--report` re-scores any trace file, so scoring changes
    don't need new runs.
+5. `--html rca_report.html` also writes the results as a leaderboard page, laid out
+   like an open model benchmark: each system (a model alone, or the model + Jev)
+   ranked by % Resolved (right cause and its mechanism), with the raw count and a 95%
+   confidence interval, a tab per scenario, a chart of each model alone vs + Jev,
+   tokens and time per trial, and every trial's checks and how P(deploy) moved. It
+   works after a run or with `--report`; `--note` adds a notice at the top, for
+   example to mark test data.
 
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
-list) narrows it. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
+`--resume`: it skips finished trials and retries the ones that errored. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
+
+## Run it without paid keys
+
+Any OpenAI-compatible server works: set `OPENAI_BASE_URL` and use `openai:<model id>`.
+
+| Where | Key | `OPENAI_BASE_URL` |
+| --- | --- | --- |
+| Your own machine, with [Ollama](https://ollama.com) | none | `http://localhost:11434/v1` |
+| Groq free tier | free, from console.groq.com | `https://api.groq.com/openai/v1` |
+| OpenRouter free models (ids end in `:free`) | free, from openrouter.ai | `https://openrouter.ai/api/v1` |
+| Google Gemini free tier | free, from aistudio.google.com | `https://generativelanguage.googleapis.com/v1beta/openai` |
+
+```
+export OPENAI_BASE_URL=http://localhost:11434/v1
+python3 rca_experiment.py --check --models openai:qwen3 --setup alone
+python3 rca_experiment.py --models openai:qwen3 --setup alone --trials 1 --forced --html rca_report.html
+```
+
+- Take the model id from the service's model list; names change often.
+- Free tiers are rate-limited. A run that stops on `HTTP 429` can simply be rerun:
+  every finished trial is already saved.
+- `--setup alone` needs no Jev key. The "+ Jev" rows need `TYPESAFE_API_KEY` wherever
+  the model runs.
+- Small models often break the reply format; those trials count as invalid replies.
+  Use these runs to test the pipeline, not as headline results.
 
 ## What would count as a result
 

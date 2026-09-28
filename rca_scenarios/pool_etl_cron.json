@@ -12,7 +12,7 @@
   "initial_context": "Application deploy v2.47.1 rolled out to 3 of 8 checkout-api instances between 14:10 and 14:25 UTC. The change summary says: 'Increase connection retry count from 3 to 5, add jitter to retry delays, raise per-request timeout from 2s to 5s.' More retries with longer timeouts could hold connections open longer, exhausting the pool.",
   "hypotheses": {
     "deploy": "The v2.47.1 deploy changed connection retry and timeout settings, causing instances to hold connections longer and exhaust the pool",
-    "etl-cron": "The analytics-etl cron job was rescheduled to peak hours and is running long transactions that hold connections",
+    "batch-job": "A scheduled batch or cron job is holding database connections for long periods.",
     "conn-leak": "A connection leak in application code is gradually exhausting the pool",
     "db-config": "The database max_connections setting was reduced, shrinking the pool below what normal traffic requires",
     "traffic": "An unusual traffic spike is creating more concurrent connections than the pool can handle",
