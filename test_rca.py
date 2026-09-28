@@ -586,6 +586,13 @@ class ModelResponses(unittest.TestCase):
             rca.call_openai("m", "s", [], "k", max_tokens=2000)
             self.assertEqual(post.call_args[0][1]["max_tokens"], 2000)
 
+    def test_an_error_in_a_200_body_is_reported(self):
+        resp = {"error": {"code": 429, "message": "Rate limit exceeded: free-models-per-day"}}
+        with mock.patch.object(rca, "post_json", return_value=resp):
+            with self.assertRaises(rca.ModelError) as cm:
+                rca.call_openai("m", "s", [], "k")
+        self.assertIn("free-models-per-day", str(cm.exception))
+
     def test_openai_shape(self):
         resp = {"choices": [{"message": {"content": "DONE"}}], "usage": {"prompt_tokens": 1}}
         with mock.patch.object(rca, "post_json", return_value=resp) as post:
@@ -734,7 +741,7 @@ class HtmlReport(unittest.TestCase):
         self.assertIn('role="tab"', page)
         self.assertIn("Does Jev help?", page)
         # The model's belief and Jev's are shown apart, never mixed in one column.
-        self.assertIn("Belief in the deploy", page)
+        self.assertIn("Belief in the decoy", page)
         self.assertIn("<td>Jev&#x27;s scores</td>", page)
         self.assertEqual(page.count('<td>model</td>'), 2)  # alone and + Jev
         self.assertIn('class="jevline"', page)

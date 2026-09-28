@@ -63,8 +63,8 @@ the write-up; each truth file's `_source` names the original.
 | `gateway_holiday_surge` | Slack, 4 January 2021 | A web deploy about first-connect payloads | The first day back after the holidays overloads a managed transit gateway, which drops packets |
 
 The decoy is whatever looks guilty at the start; the truth file names it, and the
-metrics follow it (so the metric labelled "P(deploy)" measures the probability given
-to the attack in `edge_rule_regex`, and to the deploy in `pool_etl_cron`). The
+metrics follow it (so "P(decoy)" is the probability given to the attack in
+`edge_rule_regex`, and to the deploy in `pool_etl_cron`). The
 scenario's `version_check` field names its **key check**, the one that contradicts
 the decoy; it is a version split only where the decoy is a deploy. Adaptations
 simplify: each scenario has one cause, so contributing factors in the original (the
@@ -130,8 +130,8 @@ Reported as counts ("3/5"), per scenario, model and mode, with a column per setu
 | decoy on top at the start | The decoy led the measured belief before any check |
 | ran the version check | It chose (or, in forced mode, was given) the scenario's key check |
 | changed direction after it | The decoy led right before the key check and not right after. Trials where it didn't lead before are left out |
-| mean drop in P(deploy) | Measured P(decoy) before the key check minus after. The label says deploy because the decoy usually is one |
-| checks the deploy still led | Checks, from the key check on, for which the decoy was still the top hypothesis (ties count). How long the decoy survived the contradiction |
+| mean drop in P(decoy) | Measured P(decoy) before the key check minus after |
+| checks the decoy still led | Checks, from the key check on, for which the decoy was still the top hypothesis (ties count). How long the decoy survived the contradiction |
 | checks until the cause led | Checks until the true cause was the top hypothesis on its own. Separates agents that all reach the right answer by how fast they get there |
 | right hypothesis | The final hypothesis is the true one |
 | found the mechanism | Ran a check that shows it, and the answer says what changed and how it exhausted the pool. Scored apart from the hypothesis |
@@ -171,7 +171,7 @@ python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
    like an open model benchmark: each system (a model alone, or the model + Jev)
    ranked by % Resolved (right cause and its mechanism), with the raw count and a 95%
    confidence interval, a tab per scenario, a chart of each model alone vs + Jev,
-   tokens and time per trial, and every trial's checks and how P(deploy) moved. It
+   tokens and time per trial, and every trial's checks and how P(decoy) moved. It
    works after a run or with `--report`; `--note` adds a notice at the top, for
    example to mark test data.
 
@@ -212,7 +212,7 @@ python3 rca_experiment.py --models openai:qwen3 --setup alone --trials 1 --force
 ## What would count as a result
 
 Jev earns its place if, for most models, the jev column changes direction more
-often, drops P(deploy) further, and blames the decoy less, without costing right
+often, drops P(decoy) further, and blames the decoy less, without costing right
 answers or mechanisms. It doesn't if models alone already change direction
 reliably, or if Jev's scores move but the final answers don't improve.
 
