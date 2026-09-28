@@ -399,6 +399,9 @@ class CLI(unittest.TestCase):
         self.assertEqual(rca.openai_url(None), "https://api.openai.com/v1/chat/completions")
         self.assertEqual(rca.openai_url("https://x.ai/v1/"), "https://x.ai/v1/chat/completions")
         self.assertEqual(rca.openai_url("http://localhost:8000"), "http://localhost:8000/v1/chat/completions")
+        self.assertEqual(rca.openai_url("https://generativelanguage.googleapis.com/v1beta/openai/"),
+                         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+        self.assertEqual(rca.openai_url("https://openrouter.ai/api/v1"), "https://openrouter.ai/api/v1/chat/completions")
 
 
 class ModelResponses(unittest.TestCase):

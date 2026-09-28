@@ -150,8 +150,11 @@ def call_anthropic(model, system, messages, api_key):
 
 
 def openai_url(base_url):
+    """Chat completions URL. A base with a path (".../v1", ".../v1beta/openai") is used
+    as given; a bare host gets the standard /v1."""
     base = (base_url or "https://api.openai.com").rstrip("/")
-    return base + ("/chat/completions" if base.endswith("/v1") else "/v1/chat/completions")
+    has_path = urlparse(base).path not in ("", "/")
+    return base + ("/chat/completions" if has_path else "/v1/chat/completions")
 
 
 def call_openai(model, system, messages, api_key, base_url=None):
