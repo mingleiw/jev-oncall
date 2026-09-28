@@ -2,18 +2,21 @@
 """RCA experiment: when evidence contradicts the leading theory, does the
 agent change direction? And does a Jev re-score after every check help?
 
-Frozen incidents in rca_scenarios/, written independently. In each, the
-agent sees a deploy that looks guilty, picks checks from a fixed menu,
-reports its beliefs after every observation, and gives a final answer. The
-version check contradicts the deploy theory. Scoring uses the scenario's
-.truth.json, which no agent input contains.
+Frozen incidents in rca_scenarios/, some written by hand and some adapted
+from public postmortems. In each, something looks guilty at the start (the
+decoy: usually a deploy, sometimes an attack or a provider outage), the
+agent picks checks from a fixed menu, reports its beliefs after every
+observation, and gives a final answer. One key check (`version_check`)
+contradicts the decoy. Scoring uses the scenario's .truth.json, which no
+agent input contains.
 
-Two setups per model, same scenario, menu and prompt wording:
+Three setups per model, same scenario, menu and prompt wording; the model's
+own stated beliefs are measured in all of them:
 
-  alone   the model reports its own beliefs; those are measured.
-  jev     after every check Jev re-scores every hypothesis (which one best
-          explains all the evidence, and whether the evidence contradicts
-          each one). The model sees those scores; Jev's are measured.
+  alone       the model on its own.
+  jev         after every check Jev re-scores every hypothesis, and the model
+              sees Jev's ranking and the most contradicted hypothesis.
+  jev-contra  the model sees only the hypothesis Jev judges most contradicted.
 
 Usage:
     export TYPESAFE_API_KEY=...  ANTHROPIC_API_KEY=...  OPENAI_API_KEY=...
@@ -166,6 +169,9 @@ def call_openai(model, system, messages, api_key, base_url=None, max_tokens=None
         body["max_tokens"] = max_tokens
     resp = post_json(openai_url(base_url), body,
                      {"Authorization": f"Bearer {api_key}"} if api_key else {})
+    if isinstance(resp, dict) and resp.get("error"):
+        # Some servers (OpenRouter, on rate limits) send the error in a 200 body.
+        raise ModelError(f"server error in response: {json.dumps(resp['error'])[:300]}")
     try:
         text = resp["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
@@ -598,12 +604,12 @@ METRICS = [
     ("decoy_led_initially", "count", "decoy on top at the start"),
     ("ran_version_check", "count", "ran the version check"),
     ("changed_direction", "count", "changed direction after it"),
-    ("p_decoy_drop", "mean", "mean drop in P(deploy)"),
-    ("decoy_held", "mean", "checks the deploy still led"),
+    ("p_decoy_drop", "mean", "mean drop in P(decoy)"),
+    ("decoy_held", "mean", "checks the decoy still led"),
     ("checks_to_cause", "mean", "checks until the cause led"),
     ("jev_decoy_led_initially", "count", "Jev: decoy on top at start"),
     ("jev_changed_direction", "count", "Jev: changed direction"),
-    ("jev_p_decoy_drop", "mean", "Jev: mean drop in P(deploy)"),
+    ("jev_p_decoy_drop", "mean", "Jev: mean drop in P(decoy)"),
     ("jev_checks_to_cause", "mean", "Jev: checks until the cause led"),
     ("correct_hypothesis", "count", "right hypothesis"),
     ("found_mechanism", "count", "found the mechanism"),
