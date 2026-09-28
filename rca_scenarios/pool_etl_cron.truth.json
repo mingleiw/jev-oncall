@@ -1,6 +1,6 @@
 {
   "_note": "Scoring only. No agent input may contain anything from this file.",
-  "hypothesis": "etl-cron",
+  "hypothesis": "batch-job",
   "component": "analytics-etl",
   "component_aliases": [
     "analytics-etl",
@@ -48,15 +48,15 @@
       "notes": "The version check. Errors are proportional to traffic share, not version. Both versions started failing at the same moment. This contradicts the deploy hypothesis."
     },
     "pool-metrics": {
-      "supports": "etl-cron",
+      "supports": "batch-job",
       "notes": "Shows the ramp starting around 14:00 (when the ETL job started) and analytics-etl holding 73 connections with very long query times."
     },
     "active-queries": {
-      "supports": "etl-cron",
+      "supports": "batch-job",
       "notes": "Shows analytics-etl running 73 long queries, directly consuming most of the pool."
     },
     "cron-history": {
-      "supports": "etl-cron",
+      "supports": "batch-job",
       "notes": "Shows the ETL job was rescheduled from 03:00 (off-peak) to 14:00 (peak) yesterday, without approval."
     },
     "traffic-stats": {
@@ -72,7 +72,7 @@
       "notes": "No leaked connections. Per-instance counts are uniform across versions, further weakening the deploy hypothesis."
     },
     "dns-log": {
-      "supports": "etl-cron",
+      "supports": "batch-job",
       "rules_out": "dns",
       "notes": "No DNS issues. Also reveals that analytics-etl hits the primary directly, explaining why it competes with writes for the primary's connection pool."
     },

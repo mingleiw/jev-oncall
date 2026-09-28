@@ -48,7 +48,7 @@ TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
 MAX_CHECKS = 10
 SETUPS = ("alone", "jev")
 DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5"}
-HARNESS_VERSION = 2
+HARNESS_VERSION = 3  # bump when prompts or scoring change, so old traces stay tellable
 
 
 class ModelError(Exception):
@@ -162,7 +162,7 @@ def call_openai(model, system, messages, api_key, base_url=None):
     # servers differ on the name of its replacement.
     resp = post_json(openai_url(base_url),
                      {"model": model, "messages": [{"role": "system", "content": system}, *messages]},
-                     {"Authorization": f"Bearer {api_key}"})
+                     {"Authorization": f"Bearer {api_key}"} if api_key else {})
     try:
         text = resp["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as e:
@@ -189,10 +189,9 @@ def model_client(provider, model, env=None):
         if not key:
             raise ModelError("ANTHROPIC_API_KEY is not set")
         return lambda system, messages: call_anthropic(model, system, messages, key)
-    key = env.get("OPENAI_API_KEY")
-    if not key:
-        raise ModelError("OPENAI_API_KEY is not set")
-    base_url = env.get("OPENAI_BASE_URL")
+    key, base_url = env.get("OPENAI_API_KEY"), env.get("OPENAI_BASE_URL")
+    if not key and not base_url:
+        raise ModelError("OPENAI_API_KEY is not set (a local server set with OPENAI_BASE_URL needs none)")
     return lambda system, messages: call_openai(model, system, messages, key, base_url)
 
 
@@ -201,8 +200,8 @@ def model_client(provider, model, env=None):
 
 BEST_Q = ("Which hypothesis best explains all of the evidence observed so far? Weigh every "
           "observation, including any that contradict a hypothesis.")
-CONTRA_Q = ("Does any observation so far contradict this hypothesis: {h} Answer yes only when a "
-            "specific observation is inconsistent with what the hypothesis predicts.")
+CONTRA_Q = ('Does any observation so far contradict this hypothesis: "{h}"? Answer yes only when '
+            "a specific observation is inconsistent with what the hypothesis predicts.")
 
 
 def evidence_text(scenario, observed):
@@ -585,9 +584,22 @@ def report(traces, out=None):
                                             for s in SETUPS), file=out)
 
 
+def trial_key(t):
+    """What makes two traces the same trial: rerunning it replaces the earlier one."""
+    return (t.get("scenario", DEFAULT_SCENARIO), t.get("scenario_digest"), t.get("model"), t["setup"],
+            bool(t.get("forced")), t.get("trial"), t.get("harness_version"))
+
+
 def read_traces(path):
+    """Every trace in the file; for a trial run more than once, only the latest.
+    The file itself stays append-only, so every attempt remains on record."""
+    latest = {}
     with open(path, encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        for line in f:
+            if line.strip():
+                t = json.loads(line)
+                latest[trial_key(t)] = t
+    return list(latest.values())
 
 
 # --------------------------------------------------------------------------
@@ -640,6 +652,8 @@ def main(argv=None):
     ap.add_argument("--max-checks", type=int, default=MAX_CHECKS)
     ap.add_argument("--jev-model", default=triage.MODEL)
     ap.add_argument("--out", default=TRACES_PATH, help="JSONL file each trial is appended to")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip trials already finished in --out (a model or network error is retried)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the prompts, the Jev payload and the plan; call nothing")
     ap.add_argument("--check", action="store_true",
@@ -694,14 +708,20 @@ def main(argv=None):
         sys.exit(f"error: {e}")
 
     run_id = uuid.uuid4().hex[:8]
-    print(f"run {run_id}: {len(plan)} trials, {'forced' if args.forced else 'free'} mode, "
-          f"appending to {args.out}")
+    done = set()
+    if args.resume and os.path.exists(args.out):
+        done = {trial_key(t) for t in read_traces(args.out) if t.get("status") != "model_error"}
+    digests = {n: scenario_digest(s) for n, s in scenarios.items()}
+    todo = [(i, n, p, m, s) for i, n, p, m, s in plan
+            if (n, digests[n], f"{p}:{m}", s, args.forced, i + 1, HARNESS_VERSION) not in done]
+    print(f"run {run_id}: {len(todo)} of {len(plan)} trials to run, "
+          f"{'forced' if args.forced else 'free'} mode, appending to {args.out}")
     traces = []
-    for k, (i, name, provider, model, setup) in enumerate(plan, 1):
+    for k, (i, name, provider, model, setup) in enumerate(todo, 1):
         trace = run_trial(scenarios[name], setup, clients[(provider, model)],
                           jev if setup == "jev" else None, args.forced, args.max_checks)
         trace.update({"run_id": run_id, "trial": i + 1, "scenario": name,
-                      "scenario_digest": scenario_digest(scenarios[name]),
+                      "scenario_digest": digests[name],
                       "model": f"{provider}:{model}",
                       "jev_model": args.jev_model if setup == "jev" else None,
                       "harness_version": HARNESS_VERSION})
@@ -710,8 +730,10 @@ def main(argv=None):
         traces.append(trace)
         s = score_trial(trace, load_ground_truth(name))
         answer = trace["final"]["hypothesis"] if trace["final"] else trace["status"]
-        print(f"[{k}/{len(plan)}] {name} {provider}:{model} {setup:<5} checks={s['checks_used']} "
+        print(f"[{k}/{len(todo)}] {name} {provider}:{model} {setup:<5} checks={s['checks_used']} "
               f"changed_direction={s['changed_direction']} answer={answer} ({trace['seconds']}s)")
+    if args.resume:
+        traces = read_traces(args.out)  # the whole run so far, not just this sitting
     report(traces)
     write_html(traces, args.html, args.note)
     return 0

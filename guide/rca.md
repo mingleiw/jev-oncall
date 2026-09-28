@@ -117,7 +117,8 @@ python3 rca_experiment.py --report rca_traces.jsonl --html rca_report.html
    example to mark test data.
 
 Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separated
-list) narrows it. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
+list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
+`--resume`: it skips finished trials and retries the ones that errored. Options: `--setup alone|jev|both`, `--max-checks` (default 10), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
 
@@ -127,13 +128,13 @@ Any OpenAI-compatible server works: set `OPENAI_BASE_URL` and use `openai:<model
 
 | Where | Key | `OPENAI_BASE_URL` |
 | --- | --- | --- |
-| Your own machine, with [Ollama](https://ollama.com) | none (set `OPENAI_API_KEY=none`) | `http://localhost:11434/v1` |
+| Your own machine, with [Ollama](https://ollama.com) | none | `http://localhost:11434/v1` |
 | Groq free tier | free, from console.groq.com | `https://api.groq.com/openai/v1` |
 | OpenRouter free models (ids end in `:free`) | free, from openrouter.ai | `https://openrouter.ai/api/v1` |
 | Google Gemini free tier | free, from aistudio.google.com | `https://generativelanguage.googleapis.com/v1beta/openai` |
 
 ```
-export OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=none
+export OPENAI_BASE_URL=http://localhost:11434/v1
 python3 rca_experiment.py --check --models openai:qwen3 --setup alone
 python3 rca_experiment.py --models openai:qwen3 --setup alone --trials 1 --forced --html rca_report.html
 ```

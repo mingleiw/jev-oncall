@@ -38,7 +38,7 @@ def reply(beliefs=None, next_check=None, final=None):
     return "\n".join(parts)
 
 
-RIGHT = {"hypothesis": "etl-cron", "component": "analytics-etl",
+RIGHT = {"hypothesis": "batch-job", "component": "analytics-etl",
          "mechanism": "The analytics ETL cron job was rescheduled to peak hours and its long "
                       "queries held most of the pool's connections.",
          "evidence": ["cron-history", "active-queries"]}
@@ -67,7 +67,7 @@ def jev_response(top, contradicted=()):
 
 
 class FakeJev:
-    """Scores the deploy on top until the version check is observed, then etl-cron."""
+    """Scores the deploy on top until the version check is observed, then batch-job."""
 
     def __init__(self):
         self.calls = []
@@ -75,7 +75,7 @@ class FakeJev:
     def __call__(self, scenario, observed):
         self.calls.append(list(observed))
         if VCHECK in observed:
-            resp = jev_response("etl-cron", contradicted=("deploy",))
+            resp = jev_response("batch-job", contradicted=("deploy",))
         else:
             resp = jev_response("deploy")
         return rca.parse_jev_rca(resp, HYPS)
@@ -85,21 +85,21 @@ class FakeJev:
 
 class ReplyParsing(unittest.TestCase):
     def test_beliefs_are_read_and_normalized(self):
-        b = rca.parse_beliefs(reply({"deploy": 6, "etl-cron": 2, "traffic": 2}), HYPS)
+        b = rca.parse_beliefs(reply({"deploy": 6, "batch-job": 2, "traffic": 2}), HYPS)
         self.assertAlmostEqual(b["deploy"], 0.6)
         self.assertEqual(b["dns"], 0.0)
         self.assertAlmostEqual(sum(b.values()), 1.0)
 
     def test_bare_belief_object_is_accepted(self):
-        b = rca.parse_beliefs('Beliefs: {"deploy": 0.5, "etl-cron": 0.5}', HYPS)
+        b = rca.parse_beliefs('Beliefs: {"deploy": 0.6, "batch-job": 0.4}', HYPS)
         self.assertEqual(rca._top(b), "deploy")
 
     def test_bad_beliefs_are_rejected(self):
         for text in ("no json here",
-                     '{"beliefs": {"deploy": "high", "etl-cron": "low"}}',
+                     '{"beliefs": {"deploy": "high", "batch-job": "low"}}',
                      '{"beliefs": {"deploy": 0.5, "martians": 0.5}}',  # unknown hypothesis
-                     '{"beliefs": {"deploy": 0, "etl-cron": 0}}',
-                     '{"beliefs": {"deploy": -1, "etl-cron": 2}}',
+                     '{"beliefs": {"deploy": 0, "batch-job": 0}}',
+                     '{"beliefs": {"deploy": -1, "batch-job": 2}}',
                      '{"beliefs": {"deploy": 0.5'):  # truncated
             self.assertIsNone(rca.parse_beliefs(text, HYPS), text)
 
@@ -111,7 +111,7 @@ class ReplyParsing(unittest.TestCase):
         self.assertIsNone(rca.parse_next_check("I would look at `pool-metrics`.", avail))
 
     def test_final_answer(self):
-        self.assertEqual(rca.parse_final_answer(reply(final=RIGHT), HYPS)["hypothesis"], "etl-cron")
+        self.assertEqual(rca.parse_final_answer(reply(final=RIGHT), HYPS)["hypothesis"], "batch-job")
         self.assertIsNone(rca.parse_final_answer(json.dumps(RIGHT), HYPS))  # no DONE
         bad = dict(RIGHT, hypothesis="aliens")
         self.assertIsNone(rca.parse_final_answer(reply(final=bad), HYPS))
@@ -150,10 +150,10 @@ class JevPayload(unittest.TestCase):
                 rca.parse_jev_rca(resp, HYPS)
 
     def test_scorer_reuses_triage_call_jev(self):
-        with mock.patch.object(triage, "call_jev", return_value=(jev_response("etl-cron"), 42.0)) as call:
+        with mock.patch.object(triage, "call_jev", return_value=(jev_response("batch-job"), 42.0)) as call:
             scores = rca.jev_scorer("k")(SCENARIO, ["pool-metrics"])
         self.assertEqual(call.call_count, 1)
-        self.assertEqual(rca._top(scores["beliefs"]), "etl-cron")
+        self.assertEqual(rca._top(scores["beliefs"]), "batch-job")
         self.assertEqual(scores["latency_ms"], 42)
         with self.assertRaises(rca.ModelError):
             rca.jev_scorer(None)
@@ -163,18 +163,18 @@ class TrialFlow(unittest.TestCase):
     def test_alone_records_a_belief_for_every_state(self):
         model = Scripted(reply(dist("deploy"), "deployment-log"),
                          reply(dist("deploy"), VCHECK),
-                         reply(dist("etl-cron"), "cron-history"),
-                         reply(dist("etl-cron"), final=RIGHT))
+                         reply(dist("batch-job"), "cron-history"),
+                         reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "alone", model)
         self.assertEqual(t["status"], "ok")
         self.assertEqual(t["observed"], ["deployment-log", VCHECK, "cron-history"])
         self.assertEqual([s["check"] for s in t["states"]], [None, *t["observed"]])
         self.assertTrue(all(s["model_beliefs"] for s in t["states"]))
-        self.assertEqual(t["final"]["hypothesis"], "etl-cron")
+        self.assertEqual(t["final"]["hypothesis"], "batch-job")
         self.assertEqual(t["usage"]["input_tokens"], 40)
 
     def test_the_model_sees_each_result_and_never_its_scoring_notes(self):
-        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
+        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         rca.run_trial(SCENARIO, "alone", model)
         last = model.seen[-1][1][-1]["content"]
         self.assertIn(SCENARIO["checks"][VCHECK]["result"], last)
@@ -182,11 +182,11 @@ class TrialFlow(unittest.TestCase):
 
     def test_forced_mode_runs_the_version_check_first_and_keeps_the_prior(self):
         model = Scripted(reply(dist("deploy"), "deployment-log"),
-                         reply(dist("etl-cron"), final=RIGHT))
+                         reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "alone", model, forced=True)
         self.assertEqual(t["observed"], [VCHECK])
         self.assertEqual(rca._top(t["states"][0]["model_beliefs"]), "deploy")  # before
-        self.assertEqual(rca._top(t["states"][1]["model_beliefs"]), "etl-cron")  # after
+        self.assertEqual(rca._top(t["states"][1]["model_beliefs"]), "batch-job")  # after
         self.assertIn("in place of your pick", model.seen[1][1][-1]["content"])
         self.assertTrue(rca.score_trial(t, TRUTH)["changed_direction"])
 
@@ -210,7 +210,7 @@ class TrialFlow(unittest.TestCase):
     def test_a_failing_jev_is_recorded_and_the_trial_goes_on(self):
         def broken(scenario, observed):
             raise triage.JevError("HTTP 503")
-        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
+        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "jev", model, broken)
         self.assertEqual(t["status"], "ok")
         self.assertEqual(rca.score_trial(t, TRUTH)["jev_errors"], 2)
@@ -223,21 +223,21 @@ class TrialFlow(unittest.TestCase):
     def test_invalid_picks_are_retried_then_give_up(self):
         t = rca.run_trial(SCENARIO, "alone", Scripted("hmm", "hmm", "hmm", "hmm"))
         self.assertEqual(t["status"], "invalid_reply")
-        model = Scripted("hmm", reply(dist("deploy"), "pool-metrics"), reply(dist("etl-cron"), final=RIGHT))
+        model = Scripted("hmm", reply(dist("deploy"), "pool-metrics"), reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "alone", model)
         self.assertEqual((t["status"], t["observed"]), ("ok", ["pool-metrics"]))
 
     def test_a_check_is_never_run_twice(self):
         model = Scripted(reply(dist("deploy"), "pool-metrics"), reply(dist("deploy"), "pool-metrics"),
-                         reply(dist("deploy"), "cron-history"), reply(dist("etl-cron"), final=RIGHT))
+                         reply(dist("deploy"), "cron-history"), reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "alone", model)
         self.assertEqual(t["observed"], ["pool-metrics", "cron-history"])
 
     def test_out_of_checks_forces_a_final_answer_or_counts_unfinished(self):
         picks = [reply(dist("deploy"), c) for c in ("pool-metrics", "cron-history")]
-        t = rca.run_trial(SCENARIO, "alone", Scripted(*picks, reply(dist("etl-cron"), final=RIGHT)),
+        t = rca.run_trial(SCENARIO, "alone", Scripted(*picks, reply(dist("batch-job"), final=RIGHT)),
                           max_checks=2)
-        self.assertEqual((t["status"], t["final"]["hypothesis"]), ("ok", "etl-cron"))
+        self.assertEqual((t["status"], t["final"]["hypothesis"]), ("ok", "batch-job"))
         t = rca.run_trial(SCENARIO, "alone", Scripted(*picks, "still thinking"), max_checks=2)
         self.assertEqual(t["status"], "unfinished")
         self.assertFalse(rca.score_trial(t, TRUTH)["finished"])
@@ -259,8 +259,8 @@ class Scoring(unittest.TestCase):
                 "observed": observed, "final": final}
 
     def test_agent_that_changes_direction(self):
-        t = self.trace(beliefs=[dist("deploy", 0.7), dist("deploy", 0.7), dist("etl-cron", 0.5),
-                                dist("etl-cron", 0.8)],
+        t = self.trace(beliefs=[dist("deploy", 0.7), dist("deploy", 0.7), dist("batch-job", 0.5),
+                                dist("batch-job", 0.8)],
                        observed=["deployment-log", VCHECK, "cron-history", "active-queries"], final=RIGHT)
         s = rca.score_trial(t, TRUTH)
         self.assertTrue(s["decoy_led_initially"])
@@ -282,7 +282,7 @@ class Scoring(unittest.TestCase):
         self.assertFalse(s["evidence_all_observed"])  # cited deployment-log, never ran it
 
     def test_no_direction_to_change_when_the_decoy_did_not_lead(self):
-        t = self.trace(beliefs=[dist("traffic"), dist("etl-cron")], observed=[VCHECK], final=RIGHT)
+        t = self.trace(beliefs=[dist("traffic"), dist("batch-job")], observed=[VCHECK], final=RIGHT)
         self.assertIsNone(rca.score_trial(t, TRUTH)["changed_direction"])
 
     def test_mechanism_is_scored_separately_from_the_hypothesis(self):
@@ -312,7 +312,7 @@ class Scoring(unittest.TestCase):
 
     def test_jev_setup_measures_jev_not_the_model(self):
         t = self.trace(setup="jev", beliefs=[dist("deploy"), dist("deploy")],
-                       jev=[dist("deploy", 0.8), dist("etl-cron", 0.6)], observed=[VCHECK], final=RIGHT)
+                       jev=[dist("deploy", 0.8), dist("batch-job", 0.6)], observed=[VCHECK], final=RIGHT)
         s = rca.score_trial(t, TRUTH)
         self.assertTrue(s["changed_direction"])
         self.assertAlmostEqual(s["p_decoy_drop"], 0.8 - 0.08, places=3)
@@ -321,7 +321,7 @@ class Scoring(unittest.TestCase):
 class Report(unittest.TestCase):
     def test_counts_by_model_and_setup(self):
         alone = Scripted(reply(dist("deploy"), VCHECK), reply(dist("deploy"), final=DECOY))
-        with_jev = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
+        with_jev = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         traces = [dict(rca.run_trial(SCENARIO, "alone", alone), model="anthropic:m"),
                   dict(rca.run_trial(SCENARIO, "jev", with_jev, FakeJev()), model="anthropic:m")]
         buf = io.StringIO()
@@ -379,8 +379,8 @@ class CLI(unittest.TestCase):
         self.assertIn("top at start is 'deploy'", out)
 
     def test_a_run_appends_traces_and_reports(self):
-        fake = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT),
-                        reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
+        fake = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT),
+                        reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "t.jsonl")
             with mock.patch.object(rca, "model_client", return_value=fake), \
@@ -394,6 +394,38 @@ class CLI(unittest.TestCase):
             self.assertIn("right hypothesis", text)
             _, again = self.run_main("--report", out)
             self.assertIn("right hypothesis", again)
+
+    def test_resume_skips_finished_trials_and_retries_errors(self):
+        def fake():
+            return Scripted(*[r for _ in range(4) for r in
+                              (reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))])
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "t.jsonl")
+            args = ["--models", "anthropic", "--scenarios", "pool_etl_cron", "--forced", "--out", out]
+            with mock.patch.object(rca, "jev_scorer", return_value=FakeJev()):
+                with mock.patch.object(rca, "model_client", return_value=fake()):
+                    self.run_main(*args, "--trials", "1")
+                with open(out) as f:
+                    first = [json.loads(l) for l in f]
+                first[1]["status"] = "model_error"  # pretend the jev trial hit a rate limit
+                with open(out, "w") as f:
+                    f.writelines(json.dumps(t) + "\n" for t in first)
+                with mock.patch.object(rca, "model_client", return_value=fake()):
+                    _, text = self.run_main(*args, "--trials", "2", "--resume")
+            self.assertIn("3 of 4 trials to run", text)  # trial 1 alone was done; its jev errored
+            with open(out) as f:
+                self.assertEqual(len(f.readlines()), 5)  # append-only: the errored attempt stays on record
+            traces = rca.read_traces(out)
+            self.assertEqual(len(traces), 4)  # but only the latest attempt of each trial counts
+            self.assertTrue(all(t["status"] == "ok" for t in traces))
+
+    def test_local_server_needs_no_key(self):
+        rca.model_client("openai", "m", env={"OPENAI_BASE_URL": "http://localhost:11434/v1"})
+        with self.assertRaises(rca.ModelError):
+            rca.model_client("openai", "m", env={})
+        with mock.patch.object(rca, "post_json", return_value={"choices": [{"message": {"content": "x"}}]}) as post:
+            rca.call_openai("m", "s", [], None, "http://localhost:11434/v1")
+        self.assertEqual(post.call_args[0][2], {})  # no Authorization header
 
     def test_openai_url(self):
         self.assertEqual(rca.openai_url(None), "https://api.openai.com/v1/chat/completions")
@@ -462,7 +494,7 @@ class GroundTruthLeak(unittest.TestCase):
             if str(path).endswith(".truth.json"):
                 raise AssertionError(f"the trial read {path}")
             return real_open(path, *a, **k)
-        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), final=RIGHT))
+        model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         with mock.patch("builtins.open", guarded):
             rca.run_trial(rca.load_scenario(), "jev", model, FakeJev(), forced=True)
 
@@ -516,8 +548,8 @@ class Scenarios(unittest.TestCase):
 class HtmlReport(unittest.TestCase):
     def traces(self):
         stuck = Scripted(reply(dist("deploy"), VCHECK), reply(dist("deploy"), final=DECOY))
-        switched = Scripted(reply(dist("deploy"), VCHECK), reply(dist("etl-cron"), "cron-history"),
-                            reply(dist("etl-cron"), final=RIGHT))
+        switched = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), "cron-history"),
+                            reply(dist("batch-job"), final=RIGHT))
         return [dict(rca.run_trial(SCENARIO, "alone", stuck), model="test:m", scenario="pool_etl_cron", trial=1),
                 dict(rca.run_trial(SCENARIO, "jev", switched, FakeJev()), model="test:m",
                      scenario="pool_etl_cron", trial=1)]
