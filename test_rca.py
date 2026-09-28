@@ -203,8 +203,9 @@ class TrialFlow(unittest.TestCase):
         self.assertIn("Jev's scores", model.seen[0][1][0]["content"])  # starting scores
         self.assertIn("Jev's scores", model.seen[1][1][-1]["content"])
         s = rca.score_trial(t, TRUTH)
-        # Jev's belief is measured, not the model's, which stayed on the deploy.
-        self.assertTrue(s["changed_direction"])
+        # The model stayed on the deploy even though Jev moved off it.
+        self.assertFalse(s["changed_direction"])
+        self.assertTrue(s["jev_changed_direction"])
         self.assertTrue(s["blamed_decoy"])
 
     def test_a_failing_jev_is_recorded_and_the_trial_goes_on(self):
@@ -213,8 +214,10 @@ class TrialFlow(unittest.TestCase):
         model = Scripted(reply(dist("deploy"), VCHECK), reply(dist("batch-job"), final=RIGHT))
         t = rca.run_trial(SCENARIO, "jev", model, broken)
         self.assertEqual(t["status"], "ok")
-        self.assertEqual(rca.score_trial(t, TRUTH)["jev_errors"], 2)
-        self.assertIsNone(rca.score_trial(t, TRUTH)["changed_direction"])
+        s = rca.score_trial(t, TRUTH)
+        self.assertEqual(s["jev_errors"], 2)
+        self.assertTrue(s["changed_direction"])  # the model's own belief still counts
+        self.assertIsNone(s["jev_changed_direction"])
 
     def test_jev_setup_needs_a_scorer(self):
         with self.assertRaises(ValueError):
@@ -310,12 +313,34 @@ class Scoring(unittest.TestCase):
         self.assertFalse(s["finished"])
         self.assertIsNone(s["correct_hypothesis"])
 
-    def test_jev_setup_measures_jev_not_the_model(self):
-        t = self.trace(setup="jev", beliefs=[dist("deploy"), dist("deploy")],
+    def test_both_setups_measure_the_model_and_jev_is_reported_apart(self):
+        # The model stays on the deploy; Jev moves off it. The headline metrics are the
+        # model's in both setups, so alone and + Jev compare the same believer.
+        t = self.trace(setup="jev", beliefs=[dist("deploy", 0.7), dist("deploy", 0.6)],
                        jev=[dist("deploy", 0.8), dist("batch-job", 0.6)], observed=[VCHECK], final=RIGHT)
         s = rca.score_trial(t, TRUTH)
+        self.assertFalse(s["changed_direction"])
+        self.assertAlmostEqual(s["p_decoy_drop"], 0.1, places=3)
+        self.assertTrue(s["jev_changed_direction"])
+        self.assertAlmostEqual(s["jev_p_decoy_start"], 0.8)
+        self.assertAlmostEqual(s["jev_p_decoy_drop"], 0.8 - 0.08, places=3)
+
+    def test_jev_can_stay_anchored_while_the_model_moves(self):
+        # The pilot's case: Jev starts sure of the deploy and still ranks it first after
+        # the version check, while the model drops it.
+        jev_after = {**dist("deploy", 0.51)}
+        t = self.trace(setup="jev", beliefs=[dist("deploy", 0.45), dist("batch-job", 0.5)],
+                       jev=[dist("deploy", 1.0), jev_after], observed=[VCHECK], final=RIGHT)
+        s = rca.score_trial(t, TRUTH)
         self.assertTrue(s["changed_direction"])
-        self.assertAlmostEqual(s["p_decoy_drop"], 0.8 - 0.08, places=3)
+        self.assertFalse(s["jev_changed_direction"])
+        self.assertAlmostEqual(s["jev_p_decoy_drop"], 0.49, places=3)
+
+    def test_alone_has_no_jev_metrics(self):
+        s = rca.score_trial(self.trace(beliefs=[dist("deploy"), dist("batch-job")], observed=[VCHECK],
+                                       final=RIGHT), TRUTH)
+        for key in ("jev_changed_direction", "jev_p_decoy_drop", "jev_decoy_led_initially", "jev_p_decoy_start"):
+            self.assertIsNone(s[key], key)
 
 
 class Report(unittest.TestCase):
@@ -568,6 +593,11 @@ class HtmlReport(unittest.TestCase):
         self.assertIn("0/1 · CI 0–79", page)
         self.assertIn('role="tab"', page)
         self.assertIn("Does Jev help?", page)
+        # The model's belief and Jev's are shown apart, never mixed in one column.
+        self.assertIn("Belief in the deploy", page)
+        self.assertIn("<td>Jev&#x27;s scores</td>", page)
+        self.assertEqual(page.count('<td>model</td>'), 2)  # alone and + Jev
+        self.assertIn('class="jevline"', page)
 
     def test_wilson_interval(self):
         import rca_report
