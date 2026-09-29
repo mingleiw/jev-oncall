@@ -41,15 +41,19 @@ free choice of checks, at most 6 per trial, 25 trials per system:
 | DeepSeek + Jev | 24/24 | 24/24 | 3.9 | 88 | ≥4.9 |
 | GLM-5.3 alone | 25/25 | 25/25 | 4.2 | 84 | ≥5.2 |
 | GLM-5.3 + Jev | 25/25 | 25/25 | 3.8 | 137 | ≥4.8 |
-| **Jev investigates (no LLM)** | **24/25** | **24/25** | **4.4** | **1.2** | **0** |
+| **Jev investigates (no general-purpose LLM)** | **25/25** | **25/25** | **4.2** | **2.8** | **0** |
 
-- **Jev alone** matches the LLMs within one trial, about 70–110× faster, at about
-  $0.0006 per trial in Jev calls. It cited no failed or empty query as evidence.
-- **Every answer it marked verified was right**: 24 of 24 across the hard and
-  held-out sets. Verified means every alternative that ever looked plausible was ruled
-  out by a specific result.
-- **Held out**: 15/15 correct on three hand-written scenarios not used to set its
-  thresholds (though a trace there exposed the flaw v3 fixed).
+The Jev row is policy v5, the current default (`rca_results/2026-09-29-jev-agent-v5/`).
+
+- **Jev alone** matched the LLMs: 25/25. It was about 30× faster than the LLMs alone
+  (0.27 s per decision against 15–16 s) and cost about $0.0008 per trial in Jev calls.
+  It cited no failed or empty query as evidence.
+- **Every answer it marked verified was right**: 23 of 23 across the hard set and the
+  three hand-written scenarios. Verified means every alternative that ever looked
+  plausible was ruled out by a specific result. Unverified doesn't mean wrong: all 17
+  unverified answers were also right. In host_patch_routes, for example, the network
+  plugin can't be fully ruled out from the checks available.
+- **Hand-written scenarios**: 15/15 correct (6 verified).
 - **Helping an LLM**, Jev cut checks by 10–19% at the same accuracy.
 
 "Supported diagnosis" is scored on check IDs, the same way for every setup: the right
@@ -57,10 +61,17 @@ cause, citing only checks actually run, no failed query, and at least one check 
 shows the mechanism. LLM calls are lower bounds: those runs predate call counting.
 
 **Limits.** The telemetry is written, not recorded, and each scenario has one cause.
-Two LLM baselines so far, both on free tiers. Jev's decision rule was revised twice
-after seeing results (v1 abstained too often; v2's "verified" was too loose); v3 only
-made verification stricter. Traces for every run, including the failed versions, are in
-[rca_results/](rca_results).
+There are two LLM baselines so far, both on free tiers. Jev's decision rule was revised
+after seeing results:
+
+- **v2:** v1 abstained too often.
+- **v3:** v2's "verified" was too loose.
+- **v4:** added a check that challenges the leading suspect.
+- **v5:** fixed a v4 bug that had weakened verification.
+
+Because of those revisions, none of the eight scenarios is held out any more. The next
+real test is incidents Jev hasn't seen. Traces for every version, including the failed
+ones, are in [rca_results/](rca_results).
 
 ### Run it
 
