@@ -543,6 +543,13 @@ purpose, and a test enforces this.
 Run v5 like v4, with `--agent-policy v5`. Compare it with both v3 and the v4 run. The
 same caveat applies: nothing here is held out.
 
+### Policy v6: show what failed
+
+v6 adds a what-failed phase to v5, plus a plain-text evidence report built by code.
+Recorded incidents showed that v5 names the right service but often never checks what
+failed inside it. [rca-recorded.md](rca-recorded.md) ("Run 2") has the design and its
+preregistered evaluation. v5 stays the default until that has run.
+
 Limits specific to this mode:
 
 - The thresholds are judgment calls, not fitted values. v2's early-stop bar was

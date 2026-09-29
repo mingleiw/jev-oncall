@@ -139,6 +139,63 @@ The traces and comparison are in `rca_results/2026-09-29-recorded-test/`.
   (1 timeout, and 5 OpenRouter credit-cap errors that never reached the model).
 - **Deviation:** the 5-case dev sanity check finished after the test trials began.
 
+## Run 2 (preregistered): v6, showing what failed
+
+**Why.** Run 1 left one clear gap. In 22 of Jev's right answers, the cited evidence
+didn't include a check for the injected fault type, so Jev said *where* but not
+*what*. In 21 of those 22, it never ran such a check:
+
+- in 17, it spent the whole budget finding the service;
+- in 5, it stopped early.
+
+**v6** (`--agent-policy v6`) keeps v5 for finding the service, but holds back 2 of the
+8 checks for the next step:
+
+1. **What-failed phase.** After the where phase answers, Jev is asked which unrun check
+   would best show what failed inside that service: which resource, connection or
+   process. Up to 2 such checks are run.
+2. **Final re-rank and re-verify** on everything observed. Verification gets one more
+   question per check: does it show *what* failed inside the service, not only that
+   the service is affected? Checks judged to show it come first in the evidence.
+3. **Evidence report.** Code builds a plain-text summary from the frozen diagnosis and
+   the measured results:
+   - the cause, and whether it's verified;
+   - what failed, with the numbers;
+   - where it showed;
+   - what was ruled out, and what wasn't;
+   - which checks returned nothing.
+
+   No model writes it.
+
+v5 stays the default until v6 is evaluated.
+
+**Preregistration.** Run 1's test cases are spent: v6 was designed from their traces.
+Run 2 uses cases no version has seen:
+
+1. **Test split:** RE2-SS and RE2-TT, **instances 2 and 3** (120 cases). Build them
+   into `rca_recorded/re2-test2` and commit them before any trial.
+2. **Investigators:** `jev-agent` **v5 and v6**, both frozen, at most 8 checks, 1 trial
+   per case. LLM baselines are optional; the question is v6 against v5.
+3. **Primary metric: supported diagnosis.** That means the right service, citing a
+   check that shows the injected fault type.
+4. **Also reported:** right service (v6's where phase has 2 fewer checks, so watch for
+   a drop), verified and verified-but-wrong, checks, seconds and cost.
+5. **Adapter tuning:** only on the dev split (RE2-OB instance 1), as before.
+
+```
+python3 rca_recorded.py build --data data --out rca_recorded/re2-test2 --cases 're2ss_*_[23]'
+python3 rca_recorded.py build --data data --out rca_recorded/re2-test2 --cases 're2tt_*_[23]'
+git add rca_recorded/re2-test2 && git commit -m "Freeze the run-2 test split"
+for v in v5 v6; do
+  python3 rca_experiment.py --scenario-dir rca_recorded/re2-test2 --setup jev-agent --agent-policy $v \
+      --max-checks 8 --out rca_results/<date>-recorded-test2/jev-$v.jsonl
+done
+python3 rca_experiment.py --scenario-dir rca_recorded/re2-test2 --compare rca_results/<date>-recorded-test2/jev-v5.jsonl rca_results/<date>-recorded-test2/jev-v6.jsonl
+```
+
+Each v6 trace carries its `evidence_report`. Include a few in the write-up, the
+wrong ones among them.
+
 ## Limits
 
 - **Staged faults.** These are injected faults in demo systems, not production

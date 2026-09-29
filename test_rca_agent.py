@@ -47,12 +47,14 @@ class FakeJev:
     def __init__(self, picks=(VCHECK, "cron-history", "active-queries"), lead_after=VCHECK,
                  supported_after="cron-history", enough_after="cron-history",
                  support_yes=("cron-history", "active-queries"), ruled_out="all", enough_p=0.85, lead_p=0.8,
-                 challenge=None):
+                 challenge=None, mechanism=None, mech_yes=()):
         self.picks, self.lead_after = list(picks), lead_after
         self.supported_after, self.enough_after = supported_after, enough_after
         self.support_yes, self.ruled_out, self.enough_p = set(support_yes), ruled_out, enough_p
         self.lead_p = lead_p
         self.challenge = challenge  # v4: checks the challenge question picks; None = same as picks
+        self.mechanism = mechanism  # v6: checks the what-failed question picks; None = same as picks
+        self.mech_yes = set(mech_yes)  # v6: observed checks judged to show what failed
         self.payloads = []
 
     def observed(self, payload):
@@ -74,6 +76,11 @@ class FakeJev:
                 offered = list(q["next_check"]["criteria"])
                 pick = next((c for c in self.picks if c in offered), triage.NONE)
                 answers["next_check"] = choice(peaked(offered, pick))
+        elif "mechanism_check" in q:
+            offered = list(q["mechanism_check"]["criteria"])
+            order = self.picks if self.mechanism is None else self.mechanism
+            pick = next((c for c in order if c in offered), triage.NONE)
+            answers = {"mechanism_check": choice(peaked(offered, pick))}
         elif "challenge_check" in q:
             offered = list(q["challenge_check"]["criteria"])
             order = self.picks if self.challenge is None else self.challenge
@@ -85,6 +92,8 @@ class FakeJev:
                 text = question["instructions"]
                 if key.startswith("support_"):
                     yes = any(f"`{c}`" in text for c in self.support_yes)
+                elif key.startswith("mech_"):
+                    yes = any(f"`{c}`" in text for c in self.mech_yes)
                 else:
                     yes = self.ruled_out == "all" or any(f"`{h}`" in text for h in self.ruled_out)
                 answers[key] = {"type": "noul", "noul": 0.9 if yes else 0.1}
@@ -458,6 +467,99 @@ class V4(unittest.TestCase):
         t = agent.run_agent_trial(SCENARIO, down, policy="v4")
         self.assertEqual(t["status"], "jev_error")
         self.assertTrue(rca.score_trial(t, TRUTH)["infra_failure"])
+
+
+class V6(unittest.TestCase):
+    """Policy v6: find where, then spend up to MECH_CHECKS finding what failed inside it."""
+
+    def v6(self, jev, **kw):
+        return agent.run_agent_trial(SCENARIO, jev, policy="v6", **kw)
+
+    def test_default_stays_v5_and_v6_is_recorded(self):
+        self.assertEqual(agent.DEFAULT_POLICY, "v5")
+        t = self.v6(FakeJev())
+        self.assertEqual((t["policy"], t["agent_version"], t["verify_rule"], t["challenge"]),
+                         ("v6", 6, "ever_plausible", True))
+
+    def test_where_budget_leaves_room_for_what_failed(self):
+        # Never verified in the where phase: it stops at max_checks - MECH_CHECKS, then
+        # runs what-failed checks up to the full budget.
+        menu = list(SCENARIO["checks"])
+        inside = menu[-2:]  # never reached by the where phase, which runs the menu in order
+        jev = FakeJev(picks=menu, supported_after="never", mechanism=inside, mech_yes=(inside[0],),
+                      support_yes=(inside[0],))
+        t = self.v6(jev, max_checks=6)
+        d = t["diagnosis"]
+        self.assertEqual(d["where_phase"]["checks_used"], 6 - agent.MECH_CHECKS)
+        self.assertEqual(t["observed"], menu[:4] + inside)
+        self.assertEqual(d["mechanism_checks_run"], inside)
+        self.assertEqual(d["mechanism_evidence"], [inside[0]])
+        self.assertEqual(t["final"]["evidence"][0], inside[0])  # what failed comes first
+        self.assertEqual([r["phase"] for r in t["rounds"]][-3:], ["mechanism", "mechanism", "final"])
+
+    def test_an_early_verified_answer_still_looks_inside(self):
+        jev = FakeJev(lead_p=0.95, mechanism=["active-queries"], mech_yes=("active-queries",))
+        sure = V3.sure(self, jev)
+        t = self.v6(sure)
+        d = t["diagnosis"]
+        self.assertTrue(d["where_phase"]["verified"])
+        self.assertIn("active-queries", d["mechanism_checks_run"])
+        self.assertEqual(d["hypothesis"], CAUSE)
+        self.assertIn("active-queries", d["mechanism_evidence"])
+
+    def test_none_stops_the_phase_but_the_answer_is_still_rechecked(self):
+        t = self.v6(FakeJev(mechanism=[], supported_after="never"))
+        d = t["diagnosis"]
+        self.assertEqual(d["mechanism_checks_run"], [])
+        self.assertEqual(t["rounds"][-1]["phase"], "final")
+        self.assertEqual(t["rounds"][-1]["calls"][-1]["kind"], "verify")
+
+    def test_the_final_verification_asks_what_failed(self):
+        p, keys = agent.verify_payload(SCENARIO, [VCHECK, "cron-history"], CAUSE, mechanism=True)
+        mech = [k for k, (kind, _) in keys.items() if kind == "mechanism"]
+        self.assertEqual(len(mech), 2)
+        self.assertIn("what failed inside", p["questions"][mech[0]]["instructions"])
+        p, keys = agent.verify_payload(SCENARIO, [VCHECK], CAUSE)
+        self.assertFalse(any(kind == "mechanism" for kind, _ in keys.values()))  # only in v6
+
+    def test_evidence_report_is_built_from_observed_results(self):
+        jev = FakeJev(picks=list(SCENARIO["checks"]), supported_after="never",
+                      mechanism=["active-queries"], mech_yes=("active-queries",))
+        t = self.v6(jev, max_checks=6)
+        report = t["evidence_report"]
+        self.assertTrue(report.startswith(f"Root cause: {t['final']['hypothesis']}"))
+        self.assertIn("What failed:", report)
+        first_line = SCENARIO["checks"]["active-queries"]["result"].strip().splitlines()[0].strip()
+        self.assertIn(first_line, report)
+        for c in SCENARIO["checks"]:
+            if c not in t["observed"]:
+                self.assertNotIn(f"- {c}:", report)  # nothing it did not run
+        self.assertNotIn("evidence_report", agent.run_agent_trial(SCENARIO, FakeJev(), policy="v5"))
+        overview = {"checks": {"x_by_service": {"result": "X by service:\n- a: 1 -> 2\n- b: 3 -> 3"}}}
+        self.assertEqual(agent._result_line(overview, "x_by_service", "a"), "a: 1 -> 2")
+        self.assertEqual(agent._result_line(overview, "x_by_service", "c"), "no c series in this overview")
+
+    def test_a_failed_mechanism_call_is_infrastructure(self):
+        good = FakeJev(supported_after="never")
+
+        def down(payload):
+            if "mechanism_check" in payload["questions"]:
+                raise triage.JevError("HTTP 503")
+            return good(payload)
+        t = self.v6(down)
+        self.assertEqual(t["status"], "jev_error")
+
+    def test_no_truth_in_mechanism_payloads(self):
+        for name in rca.scenario_names():
+            scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+            checks = list(scenario["checks"])
+            for h in scenario["hypotheses"]:
+                blob = json.dumps(agent.mechanism_payload(scenario, checks[:2], h))
+                self.assertNotIn(truth["mechanism"], blob)
+                for word in ("version_check", "decoy", '"traps"'):
+                    self.assertNotIn(word, blob)
+                for c in checks[2:]:
+                    self.assertNotIn(json.dumps(scenario["checks"][c]["result"])[1:-1], blob)
 
 
 class Budgets(unittest.TestCase):
