@@ -1,0 +1,38 @@
+{
+  "_source": "RCAEval case re2tt_ts-train-service_loss_1",
+  "case": "re2tt_ts-train-service_loss_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "loss",
+  "hypothesis": "ts-train-service",
+  "component": "ts-train-service",
+  "component_aliases": [
+    "ts-train-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into ts-train-service",
+  "mechanism_checks": [
+    "ts-train-service_latency",
+    "latency_by_service",
+    "ts-train-service_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "ts-admin-travel-service",
+  "version_check": null,
+  "traps": [
+    "ts-order-service_errors",
+    "ts-train-service_errors",
+    "ts-user-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

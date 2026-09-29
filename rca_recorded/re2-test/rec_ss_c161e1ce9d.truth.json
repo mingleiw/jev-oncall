@@ -1,0 +1,36 @@
+{
+  "_source": "RCAEval case re2ss_payment_loss_1",
+  "case": "re2ss_payment_loss_1",
+  "benchmark": "re2ss",
+  "instance": "1",
+  "fault": "loss",
+  "hypothesis": "payment",
+  "component": "payment",
+  "component_aliases": [
+    "payment"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into payment",
+  "mechanism_checks": [
+    "payment_latency",
+    "latency_by_service",
+    "payment_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [
+    "payment_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

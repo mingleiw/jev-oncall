@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-order-service_disk_1",
+  "case": "re2tt_ts-order-service_disk_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "disk",
+  "hypothesis": "ts-order-service",
+  "component": "ts-order-service",
+  "component_aliases": [
+    "ts-order-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "disk fault injected into ts-order-service",
+  "mechanism_checks": [
+    "ts-order-service_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "ts-food-map-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

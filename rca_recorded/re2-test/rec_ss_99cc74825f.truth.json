@@ -1,0 +1,35 @@
+{
+  "_source": "RCAEval case re2ss_payment_mem_1",
+  "case": "re2ss_payment_mem_1",
+  "benchmark": "re2ss",
+  "instance": "1",
+  "fault": "mem",
+  "hypothesis": "payment",
+  "component": "payment",
+  "component_aliases": [
+    "payment"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "mem fault injected into payment",
+  "mechanism_checks": [
+    "payment_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [
+    "orders_disk"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2tt_ts-train-service_cpu_1",
+  "case": "re2tt_ts-train-service_cpu_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "cpu",
+  "hypothesis": "ts-train-service",
+  "component": "ts-train-service",
+  "component_aliases": [
+    "ts-train-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "cpu fault injected into ts-train-service",
+  "mechanism_checks": [
+    "ts-train-service_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "ts-preserve-other-service",
+  "version_check": null,
+  "traps": [
+    "ts-config-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

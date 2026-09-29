@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2ss_payment_disk_1",
+  "case": "re2ss_payment_disk_1",
+  "benchmark": "re2ss",
+  "instance": "1",
+  "fault": "disk",
+  "hypothesis": "payment",
+  "component": "payment",
+  "component_aliases": [
+    "payment"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "disk fault injected into payment",
+  "mechanism_checks": [
+    "payment_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "rabbitmq-exporter",
+  "version_check": null,
+  "traps": [
+    "payment_disk"
+  ],
+  "noise": [],
+  "check_notes": {}
+}
