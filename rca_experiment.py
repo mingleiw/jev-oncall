@@ -757,12 +757,26 @@ def check_access(models, want_jev, jev_model, env=None):
 
 
 def main(argv=None):
+    """The CLI. --scenario-dir changes the module's scenario directory for this call only."""
+    global SCENARIO_DIR
+    saved = SCENARIO_DIR
+    try:
+        return _main(argv)
+    finally:
+        SCENARIO_DIR = saved
+
+
+def _main(argv=None):
     ap = argparse.ArgumentParser(
         description="RCA experiment: does the agent change direction, alone vs with Jev?")
     ap.add_argument("--models", default="anthropic",
                     help="comma-separated provider:model, e.g. anthropic:claude-opus-5,openai:gpt-5 "
                          f"(provider alone uses its default: {DEFAULT_MODELS})")
-    ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in rca_scenarios/)")
+    ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in the scenario directory)")
+    ap.add_argument("--scenario-dir", metavar="DIR",
+                    help="read scenarios and truth files from DIR instead of rca_scenarios/, e.g. ones "
+                         "built from recorded incidents by rca_recorded.py; pass it to --report and "
+                         "--compare too")
     ap.add_argument("--setup", default="all",
                     help="comma-separated setups from alone, jev (Jev's ranking and contradiction "
                          "scores), jev-contra (only the hypothesis Jev judges most contradicted), "
@@ -804,6 +818,11 @@ def main(argv=None):
                     help="also write the leaderboard as an HTML page (with --report or after a run)")
     ap.add_argument("--note", help="a notice shown at the top of the HTML page")
     args = ap.parse_args(argv)
+    global SCENARIO_DIR
+    if args.scenario_dir:
+        if not os.path.isdir(args.scenario_dir):
+            ap.error(f"--scenario-dir {args.scenario_dir!r} is not a directory")
+        SCENARIO_DIR = os.path.abspath(args.scenario_dir)
 
     if args.compare:
         import rca_jev_agent
@@ -824,6 +843,9 @@ def main(argv=None):
     if unknown:
         ap.error(f"unknown scenario(s) {', '.join(unknown)}; available: {', '.join(available)}")
     scenarios = {n: load_scenario(n) for n in names}
+    if args.forced and [n for n, sc in scenarios.items() if not sc.get("version_check")]:
+        ap.error("--forced needs a designated key check, and these scenarios have none: "
+                 + ", ".join(n for n, sc in scenarios.items() if not sc.get("version_check")))
     try:
         models = [parse_model_spec(s) for s in args.models.split(",") if s.strip()]
     except ValueError as e:
@@ -856,12 +878,12 @@ def main(argv=None):
                   + build_initial_prompt(scenario, args.max_checks))
             if set(setups) & set(JEV_SETUPS):
                 print(f"\n=== {n}: Jev payload after the version check ===")
-                print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
+                print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]] if scenario.get("version_check") else [],
                                                    args.jev_model), indent=2))
             if agent:
                 import rca_jev_agent
                 print(f"\n=== {n}: jev-agent round request after the version check ===")
-                print(json.dumps(rca_jev_agent.round_payload(scenario, [scenario["version_check"]],
+                print(json.dumps(rca_jev_agent.round_payload(scenario, [scenario["version_check"]] if scenario.get("version_check") else [],
                                                              args.jev_model, args.agent_policy), indent=2))
         print(f"\n=== plan: {len(plan)} trials, {'forced' if args.forced else 'free'} mode ===")
         for i, n, p, m, s in plan:
@@ -915,6 +937,8 @@ def main(argv=None):
             trace = run_trial(scenarios[name], setup, clients[(provider, model)],
                               jev if setup in JEV_SETUPS else None, args.forced, args.max_checks)
         trace.update({"run_id": run_id, "trial": i, "scenario": name,
+                      "scenario_dir": (os.path.relpath(SCENARIO_DIR, BASE)
+                                       if SCENARIO_DIR != os.path.join(BASE, "rca_scenarios") else None),
                       "scenario_digest": digests[name],
                       "model": f"{provider}:{model}",
                       "jev_model": args.jev_model if setup in (*JEV_SETUPS, AGENT_SETUP) else None,
