@@ -225,6 +225,23 @@ class Harness(unittest.TestCase):
         self.assertIn("cpu_by_service", out)
         self.assertEqual(rca.SCENARIO_DIR, before)
 
+    def test_scenario_dir_works_when_run_as_a_script(self):
+        # Regression: run as `python3 rca_experiment.py`, --compare scored against
+        # rca_scenarios/ because rca_jev_agent read a second copy of the module.
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as d:
+            traces = os.path.join(d, "t.jsonl")
+            with mock.patch.object(agent, "jev_asker", return_value=generic_jev):
+                self.run_main("--scenario-dir", self.out, "--setup", "jev-agent", "--max-checks", "8",
+                              "--out", traces, env={"TYPESAFE_API_KEY": "t"})
+            proc = subprocess.run([sys.executable, os.path.join(rca.BASE, "rca_experiment.py"),
+                                   "--scenario-dir", self.out, "--compare", traces,
+                                   "--html", os.path.join(d, "c.html")],
+                                  capture_output=True, text=True, cwd=d)
+            self.assertEqual(proc.returncode, 0, proc.stderr[-500:])
+            self.assertIn("Investigator comparison", proc.stdout)
+
     def test_forced_mode_needs_a_key_check(self):
         with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
             self.run_main("--scenario-dir", self.out, "--dry-run", "--forced")
