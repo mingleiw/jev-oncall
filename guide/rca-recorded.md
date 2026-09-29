@@ -115,6 +115,30 @@ python3 rca_experiment.py --scenario-dir rca_recorded/re2-test --compare rca_res
 `build` prints how many cases keep the cause among the suspects. Report it next to the
 accuracy.
 
+## Results: test split, run 1
+
+The traces and comparison are in `rca_results/2026-09-29-recorded-test/`.
+
+- **Setup held:** 60 scenarios, and the cause was among the suspects in 60/60. No
+  converter fixes were needed.
+- **Right service:**
+  - Jev v5: 57/60 (29/30 Sock Shop, 28/30 Train Ticket);
+  - DeepSeek V4.1 Flash alone: 53/58;
+  - GLM-5.3 alone: 52/54.
+- **Fair comparison:** on the 52 cases all three completed, Jev got 51, DeepSeek 48 and
+  GLM 50.
+- **Supported diagnosis:** Jev 35/60, DeepSeek 39/58, GLM 41/54. In 22 of Jev's right
+  answers, the cited checks were not ones that show the injected fault type.
+- **Verification:** Jev verified 9, and none of them was wrong. All three of its misses
+  were unverified:
+  - rabbitmq instead of orders;
+  - ts-auth-mongo instead of ts-auth-service;
+  - ts-basic-service instead of ts-auth-service.
+- **Speed and cost:** Jev 5.3 s per case, about $0.004; DeepSeek 32 s; GLM 119 s.
+- **Infrastructure failures, excluded from every rate:** DeepSeek 2 (timeouts); GLM 6
+  (1 timeout, and 5 OpenRouter credit-cap errors that never reached the model).
+- **Deviation:** the 5-case dev sanity check finished after the test trials began.
+
 ## Limits
 
 - **Staged faults.** These are injected faults in demo systems, not production
