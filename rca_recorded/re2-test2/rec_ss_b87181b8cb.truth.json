@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_carts_cpu_3",
+  "case": "re2ss_carts_cpu_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "cpu",
+  "hypothesis": "carts",
+  "component": "carts",
+  "component_aliases": [
+    "carts"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "cpu fault injected into carts",
+  "mechanism_checks": [
+    "carts_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "rabbitmq-exporter",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

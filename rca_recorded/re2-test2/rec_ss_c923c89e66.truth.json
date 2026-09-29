@@ -1,0 +1,31 @@
+{
+  "_source": "RCAEval case re2ss_payment_socket_2",
+  "case": "re2ss_payment_socket_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "socket",
+  "hypothesis": "payment",
+  "component": "payment",
+  "component_aliases": [
+    "payment"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "socket fault injected into payment",
+  "mechanism_checks": [
+    "payment_sockets",
+    "sockets_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "socket",
+      "connection"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

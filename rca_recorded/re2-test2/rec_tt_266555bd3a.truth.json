@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2tt_ts-route-service_loss_3",
+  "case": "re2tt_ts-route-service_loss_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "loss",
+  "hypothesis": "ts-route-service",
+  "component": "ts-route-service",
+  "component_aliases": [
+    "ts-route-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "loss fault injected into ts-route-service",
+  "mechanism_checks": [
+    "ts-route-service_latency",
+    "latency_by_service",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "ts-admin-travel-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

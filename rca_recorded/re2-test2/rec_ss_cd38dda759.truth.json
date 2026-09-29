@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_catalogue_delay_2",
+  "case": "re2ss_catalogue_delay_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "delay",
+  "hypothesis": "catalogue",
+  "component": "catalogue",
+  "component_aliases": [
+    "catalogue"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "delay fault injected into catalogue",
+  "mechanism_checks": [
+    "catalogue_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "front-end",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

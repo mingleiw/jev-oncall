@@ -1,0 +1,31 @@
+{
+  "_source": "RCAEval case re2ss_user_socket_3",
+  "case": "re2ss_user_socket_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "socket",
+  "hypothesis": "user",
+  "component": "user",
+  "component_aliases": [
+    "user"
+  ],
+  "root_in_suspects": true,
+  "n_services": 16,
+  "n_suspects": 12,
+  "mechanism": "socket fault injected into user",
+  "mechanism_checks": [
+    "user_sockets",
+    "sockets_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "socket",
+      "connection"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

@@ -1,0 +1,31 @@
+{
+  "_source": "RCAEval case re2ss_orders_socket_2",
+  "case": "re2ss_orders_socket_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "socket",
+  "hypothesis": "orders",
+  "component": "orders",
+  "component_aliases": [
+    "orders"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "socket fault injected into orders",
+  "mechanism_checks": [
+    "orders_sockets",
+    "sockets_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "socket",
+      "connection"
+    ]
+  ],
+  "decoy": "shipping",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

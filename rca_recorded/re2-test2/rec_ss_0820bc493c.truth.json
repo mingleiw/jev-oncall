@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2ss_orders_loss_3",
+  "case": "re2ss_orders_loss_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "loss",
+  "hypothesis": "orders",
+  "component": "orders",
+  "component_aliases": [
+    "orders"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into orders",
+  "mechanism_checks": [
+    "orders_latency",
+    "latency_by_service",
+    "orders_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "shipping",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

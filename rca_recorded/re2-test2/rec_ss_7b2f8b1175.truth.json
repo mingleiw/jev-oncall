@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2ss_user_loss_3",
+  "case": "re2ss_user_loss_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "loss",
+  "hypothesis": "user",
+  "component": "user",
+  "component_aliases": [
+    "user"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into user",
+  "mechanism_checks": [
+    "user_latency",
+    "latency_by_service",
+    "user_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_carts_loss_2",
+  "case": "re2ss_carts_loss_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "loss",
+  "hypothesis": "carts",
+  "component": "carts",
+  "component_aliases": [
+    "carts"
+  ],
+  "root_in_suspects": true,
+  "n_services": 16,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into carts",
+  "mechanism_checks": [
+    "carts_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

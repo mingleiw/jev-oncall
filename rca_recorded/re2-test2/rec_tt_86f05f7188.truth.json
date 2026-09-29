@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2tt_ts-order-service_mem_2",
+  "case": "re2tt_ts-order-service_mem_2",
+  "benchmark": "re2tt",
+  "instance": "2",
+  "fault": "mem",
+  "hypothesis": "ts-order-service",
+  "component": "ts-order-service",
+  "component_aliases": [
+    "ts-order-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "mem fault injected into ts-order-service",
+  "mechanism_checks": [
+    "ts-order-service_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "ts-security-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

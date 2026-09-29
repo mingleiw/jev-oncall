@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-order-service_delay_3",
+  "case": "re2tt_ts-order-service_delay_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "delay",
+  "hypothesis": "ts-order-service",
+  "component": "ts-order-service",
+  "component_aliases": [
+    "ts-order-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "delay fault injected into ts-order-service",
+  "mechanism_checks": [
+    "ts-order-service_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "ts-inside-payment-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

@@ -1,0 +1,26 @@
+
+Investigator comparison (infrastructure failures excluded from every rate)
+                                            Jev investigates (jev-1.13.0) [free, 8 checks, 9 rounds, agent v5]  Jev investigates (jev-1.13.0) [free, 8 checks, 9 rounds, agent v6]
+  trials                                                                                                   120                                                                 120
+  infrastructure failures                                                                                    0                                                                   0
+  correct cause                                                                                        110/120                                                             108/120
+  incorrect conclusion                                                                                  10/120                                                              12/120
+  abstained                                                                                              0/120                                                               0/120
+  abstained at budget, tentative pick right                                                               0/120                                                               0/120
+  answer verified before stopping (Jev)                                                                 10/120                                                              11/120
+  unfinished (no answer, no abstention)                                                                  0/120                                                               0/120
+  supported diagnosis (ID rubric)                                                                       68/120                                                              90/120
+  cited only checks it ran                                                                             119/120                                                             119/120
+  failed/empty queries run                                                                                0.06                                                                0.05
+  failed/empty queries cited                                                                             0/120                                                               0/120
+  mean checks used                                                                                        7.67                                                                7.90
+  mean LLM calls                                                                                           0.0                                                                 0.0
+  mean Jev calls                                                                                          18.8                                                                18.5
+  mean seconds per trial                                                                                   5.0                                                                 3.5
+  mean LLM tokens in/out                                                                                   0/0                                                                 0/0
+  mean Jev tokens in/out                                                                          100216/16583                                                         96944/16108
+  mean $ per trial                                                                                     0.00421                                                             0.00407
+  explained mechanism (text)                                                                                 -                                                                   -
+  explanation: s / $ / disagreed                                                                             -                                                                   -
+
+  Same scenarios, scenario digests, mode, check budget and harness version in every column.

@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2ss_catalogue_mem_3",
+  "case": "re2ss_catalogue_mem_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "mem",
+  "hypothesis": "catalogue",
+  "component": "catalogue",
+  "component_aliases": [
+    "catalogue"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "mem fault injected into catalogue",
+  "mechanism_checks": [
+    "catalogue_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "queue-master",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}
