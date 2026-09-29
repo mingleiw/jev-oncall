@@ -367,10 +367,34 @@ class V3(unittest.TestCase):
 class V4(unittest.TestCase):
     """Policy v4: once a hypothesis leads, run the check that could overturn it."""
 
-    def test_default_policy_is_v4(self):
-        self.assertEqual(agent.DEFAULT_POLICY, "v4")
+    def test_default_policy_is_v5(self):
+        self.assertEqual(agent.DEFAULT_POLICY, "v5")
         t = agent.run_agent_trial(SCENARIO, FakeJev())
-        self.assertEqual((t["policy"], t["agent_version"]), ("v4", 4))
+        self.assertEqual((t["policy"], t["agent_version"], t["verify_rule"], t["challenge"]),
+                         ("v5", 5, "ever_plausible", True))
+
+    def test_v5_verifies_under_v3s_rule_and_v4_as_it_ran_did_not(self):
+        # Regression: v4's code tested `policy == "v3"`, so it verified under v2's rule.
+        # Same answers as V3's outranking test: after one check the cause takes ~all the
+        # ranking and nothing is ruled out, while the deploy led before any evidence.
+        def trial(policy):
+            jev = V3.jev(self, ruled_out=(), challenge=[])  # challenge 'none' keeps the path
+            return agent.run_agent_trial(SCENARIO, V3.sure(self, jev), policy=policy)
+        v4, v5 = trial("v4"), trial("v5")
+        self.assertEqual(v4["verify_rule"], "current")
+        self.assertEqual(v4["observed"], ["cron-history"])
+        self.assertTrue(v4["diagnosis"]["verified"])  # the weak rule, as it ran
+        self.assertEqual(v5["verify_rule"], "ever_plausible")
+        self.assertIn("deploy", v5["rounds"][1]["verification"]["unresolved"])
+        self.assertFalse(v5["diagnosis"]["verified"])  # the suspect was never ruled out
+
+    def test_only_listed_policies_use_the_weak_rule(self):
+        # A new policy gets the strict rule unless it is added to the list on purpose.
+        self.assertEqual(set(agent.OUTRANKED_IS_RULED_OUT), {"v1", "v2", "v4"})
+        for policy in agent.POLICIES:
+            t = agent.run_agent_trial(SCENARIO, FakeJev(), policy=policy)
+            self.assertEqual(t["verify_rule"],
+                             "current" if policy in agent.OUTRANKED_IS_RULED_OUT else "ever_plausible", policy)
 
     def test_a_leader_gets_challenged_and_the_challenge_pick_is_run(self):
         # next_check keeps pointing at the leader's confirmations; the challenge question

@@ -477,8 +477,7 @@ The v3 run showed two weaknesses:
 - **Wasted checks.** In 12 of 40 trials it spent a check on a search that came back
   empty or timed out.
 
-v4 (`--agent-policy v4`, the default; v1–v3 stay available) adds two things and
-changes nothing else:
+v4 (`--agent-policy v4`) was meant to add two things and change nothing else:
 
 1. **A challenge check.** Once a hypothesis leads with `best_explanation` ≥ 0.5, a
    separate request, sent after the round because it names the leader, asks:
@@ -511,6 +510,38 @@ python3 rca_experiment.py --setup jev-agent --agent-policy v4 --scenarios $H --t
 python3 rca_experiment.py --compare rca_results/2026-09-28-jev-agent-v3/hard.jsonl $R/hard.jsonl
 python3 rca_experiment.py --compare rca_results/2026-09-28-jev-agent-v3/heldout.jsonl $R/heldout.jsonl
 ```
+
+### Policy v5: v4 as intended
+
+**The v4 run (`rca_results/2026-09-28-jev-agent-v4/`) found a bug in v4 itself.**
+v4's code kept v3's `policy == "v3"` test for the verification rule. So v4 verified
+under v2's weaker rule, where an alternative counts as ruled out once the ranking
+pushes it under 0.1. That contradicts "changes nothing else" above.
+
+**What the recorded v4 run shows:**
+- **Correct cause:** hard 25/25, held-out 15/15, including host_patch_routes 5/5.
+- **Dead-end checks:** 0, against 12 of 40 trials in v3.
+- **Fewer checks:** 3.9 on the hard set and 3.3 held out, against v3's 4.4 and 5.4.
+
+**Its "verified" labels are inflated.** Recomputed under v3's rule, hard falls from
+25/25 to 12/25 and held-out from 12/15 to 0/15. And because weaker verification lets
+an investigation stop sooner, the lower check counts may partly come from the bug,
+not the challenge check. So these results say nothing about the challenge check under
+strict verification.
+
+**v5** (`--agent-policy v5`, the default) is v4 as intended: the challenge check and
+the informative-checks sentence, with v3's strict verification. **v4** stays
+selectable exactly as it ran, so its traces reproduce.
+
+**Each trace now records:**
+- `verify_rule`: `ever_plausible` for the strict rule, `current` for the weak one;
+- `challenge`: whether the challenge check was on.
+
+A new policy gets the strict rule unless it is added to `OUTRANKED_IS_RULED_OUT` on
+purpose, and a test enforces this.
+
+Run v5 like v4, with `--agent-policy v5`. Compare it with both v3 and the v4 run. The
+same caveat applies: nothing here is held out.
 
 Limits specific to this mode:
 
