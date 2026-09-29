@@ -784,9 +784,9 @@ def _main(argv=None):
                          "trial, not per model), or all (the three LLM setups)")
     ap.add_argument("--max-rounds", type=int,
                     help="jev-agent: decision rounds allowed (default: --max-checks + 1)")
-    ap.add_argument("--agent-policy", default="v5", choices=("v1", "v2", "v3", "v4", "v5", "v6"),
-                    help="jev-agent decision rule: v6 adds to v5 a what-failed phase (up to 2 checks "
-                         "inside the answer) and a plain-text evidence report; v5 (default) is v3 "
+    ap.add_argument("--agent-policy", default="v6", choices=("v1", "v2", "v3", "v4", "v5", "v6"),
+                    help="jev-agent decision rule: v6 (default) adds to v5 a what-failed phase (up to 2 "
+                         "checks inside the answer) and a plain-text evidence report; v5 is v3 "
                          "plus a check that challenges the "
                          "leading hypothesis once one leads; v4 is v5 as first run, which by mistake "
                          "verified under v2's rule; v3 always answers, like the LLM setups, and "

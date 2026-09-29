@@ -33,7 +33,7 @@ Three ways to investigate the same incidents:
 
 ### Results on recorded incidents
 
-The main test. It uses 60 faults recorded in two microservice systems: Sock Shop and
+The main test. Run 1 uses 60 faults recorded in two microservice systems: Sock Shop and
 Train Ticket, from [RCAEval](https://github.com/phamquiluan/RCAEval), RE2 instance 1.
 
 - **Generated, not written.** Code built each incident's suspects and checks from the
@@ -59,9 +59,31 @@ Train Ticket, from [RCAEval](https://github.com/phamquiluan/RCAEval), RE2 instan
 - **Infrastructure failures are excluded from every rate:** 2 for DeepSeek (timeouts),
   and 6 for GLM (1 timeout and 5 hits on the provider's credit cap).
 
+**Run 2: fixing the evidence gap.** v6 keeps v5's search for the service but holds back
+2 of the 8 checks to find what failed inside it, and code writes a plain-text evidence
+report. It was tested against v5 on 120 cases neither version had seen (Sock Shop and
+Train Ticket, RE2 instances 2–3), preregistered and frozen before the first trial:
+
+| | Right service | Supported diagnosis | Verified (wrong) | Seconds per case |
+| --- | --- | --- | --- | --- |
+| Jev v5 | 110/120 | 68/120 | 10 (0) | 5.0 |
+| **Jev v6** | **108/120** | **90/120** | **11 (0)** | **3.5** |
+
+- **Supported diagnoses rose by a third:** 25 gained and 3 lost (p < 0.001). Accuracy
+  held: 5 lost and 3 gained is noise.
+- **Still no wrong answer marked verified:** 30 verified answers across both runs, all
+  right.
+- **What's left:** 10 of v6's 12 wrong answers are network faults where it blamed a
+  neighbouring service; 15 of its 18 right-but-unsupported answers are disk faults. v6
+  is now the default.
+
+The traces are in
+[rca_results/2026-09-29-recorded-test2/](rca_results/2026-09-29-recorded-test2). Run 2
+compared Jev's versions only; the LLM comparison is run 1.
+
 Limits: these are staged faults in demo systems, one cause each, and the suspects are
 services. [guide/rca-recorded.md](guide/rca-recorded.md) has the design, the
-preregistration and the commands. The traces are in
+preregistration and the commands. Run 1's traces are in
 [rca_results/2026-09-29-recorded-test/](rca_results/2026-09-29-recorded-test).
 
 ### Results on hand-written scenarios
@@ -77,7 +99,8 @@ free choice of checks, at most 6 per trial, 25 trials per system:
 | GLM-5.3 + Jev | 25/25 | 25/25 | 3.8 | 137 | ≥4.8 |
 | **Jev investigates (no general-purpose LLM)** | **25/25** | **25/25** | **4.2** | **2.8** | **0** |
 
-The Jev row is policy v5, the current default (`rca_results/2026-09-29-jev-agent-v5/`).
+The Jev row is policy v5, the default when it ran (`rca_results/2026-09-29-jev-agent-v5/`).
+v6 has not been run on these scenarios.
 
 - **Jev alone** matched the LLMs: 25/25. It was about 30× faster than the LLMs alone
   (0.27 s per decision against 15–16 s) and cost about $0.0008 per trial in Jev calls.

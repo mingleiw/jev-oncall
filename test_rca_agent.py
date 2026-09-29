@@ -376,9 +376,8 @@ class V3(unittest.TestCase):
 class V4(unittest.TestCase):
     """Policy v4: once a hypothesis leads, run the check that could overturn it."""
 
-    def test_default_policy_is_v5(self):
-        self.assertEqual(agent.DEFAULT_POLICY, "v5")
-        t = agent.run_agent_trial(SCENARIO, FakeJev())
+    def test_v5_records_its_rule(self):
+        t = agent.run_agent_trial(SCENARIO, FakeJev(), policy="v5")
         self.assertEqual((t["policy"], t["agent_version"], t["verify_rule"], t["challenge"]),
                          ("v5", 5, "ever_plausible", True))
 
@@ -475,9 +474,9 @@ class V6(unittest.TestCase):
     def v6(self, jev, **kw):
         return agent.run_agent_trial(SCENARIO, jev, policy="v6", **kw)
 
-    def test_default_stays_v5_and_v6_is_recorded(self):
-        self.assertEqual(agent.DEFAULT_POLICY, "v5")
-        t = self.v6(FakeJev())
+    def test_default_is_v6_and_is_recorded(self):
+        self.assertEqual(agent.DEFAULT_POLICY, "v6")
+        t = agent.run_agent_trial(SCENARIO, FakeJev())
         self.assertEqual((t["policy"], t["agent_version"], t["verify_rule"], t["challenge"]),
                          ("v6", 6, "ever_plausible", True))
 
