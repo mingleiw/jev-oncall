@@ -9,8 +9,9 @@ typed questions with probabilities; auditable code turns them into actions.
 Two parts:
 
 - **[Root-cause analysis](#root-cause-analysis)** (current focus): can Jev find why an
-  outage happened, with no LLM in the loop? An open benchmark of outages adapted from
-  public postmortems, with every trace committed.
+  outage happened, with no general-purpose LLM in the loop? An open benchmark on
+  recorded incidents and on outages adapted from public postmortems, with every trace
+  committed.
 - **[Alert triage](#alert-triage)**: route each production alert (page, review, ticket
   or drop) and link symptoms to their cause. A working server with a live demo.
 
@@ -30,7 +31,40 @@ Three ways to investigate the same incidents:
 | `jev` | An LLM, shown Jev's scores of every hypothesis after each check |
 | `jev-agent` | **Jev and code, no LLM.** Jev answers bounded questions (which hypothesis the evidence supports, which check next, whether each alternative is ruled out); code picks the action, enforces budgets, and verifies before stopping |
 
-### Results so far
+### Results on recorded incidents
+
+The main test. It uses 60 faults recorded in two microservice systems: Sock Shop and
+Train Ticket, from [RCAEval](https://github.com/phamquiluan/RCAEval), RE2 instance 1.
+
+- **Generated, not written.** Code built each incident's suspects and checks from the
+  recorded telemetry; nothing was written by hand.
+- **Frozen first.** The scenarios were committed before the first trial, and Jev's
+  rules were frozen at v5.
+- **Conditions:** free choice of checks, at most 8, one trial per case.
+
+| | Right service | Supported diagnosis | Checks | Seconds per case | LLM calls |
+| --- | --- | --- | --- | --- | --- |
+| DeepSeek V4.1 Flash alone | 53/58 | 39/58 | 6.5 | 32 | yes |
+| GLM-5.3 alone | 52/54 | 41/54 | 6.6 | 119 | yes |
+| **Jev investigates (no general-purpose LLM)** | **57/60** | **35/60** | **7.6** | **5.3** | **0** |
+
+- **Jev found the right service as often as the LLMs.** On the 52 cases all three
+  completed: Jev 51, DeepSeek 48, GLM 50. It was 6–22× faster, at about $0.004 per
+  case in Jev calls.
+- **Every answer it marked verified was right:** 9 of 9. Its 3 wrong answers were all
+  marked unverified.
+- **Its weak spot is evidence.** In 22 of its right answers, it cited checks, but none
+  for the injected fault type (for example, the CPU check for a CPU fault). The LLMs
+  cited the right kind of evidence more often.
+- **Infrastructure failures are excluded from every rate:** 2 for DeepSeek (timeouts),
+  and 6 for GLM (1 timeout and 5 hits on the provider's credit cap).
+
+Limits: these are staged faults in demo systems, one cause each, and the suspects are
+services. [guide/rca-recorded.md](guide/rca-recorded.md) has the design, the
+preregistration and the commands. The traces are in
+[rca_results/2026-09-29-recorded-test/](rca_results/2026-09-29-recorded-test).
+
+### Results on hand-written scenarios
 
 Five outages adapted from public postmortems (Cloudflare ×2, Roblox, Datadog, Slack),
 free choice of checks, at most 6 per trial, 25 trials per system:
@@ -90,10 +124,9 @@ calls, latency, tokens and cost side by side, and never pools different run
 conditions. [guide/rca.md](guide/rca.md) covers the scenarios, the three setups, the
 Jev agent's questions and decision rule, the metrics, and every command.
 
-**Next: recorded incidents.** [guide/rca-recorded.md](guide/rca-recorded.md) runs
-the same setups on faults recorded in RCAEval's microservice systems. There, code
-generates the suspects and checks from telemetry, nothing is written by hand, and the
-test split is preregistered. Results will be added when it has run.
+To run on recorded incidents, build scenarios with `rca_recorded.py` and add
+`--scenario-dir` to every command; [guide/rca-recorded.md](guide/rca-recorded.md) has
+the steps.
 
 ## Alert triage
 
