@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_orders_delay_1",
+  "case": "re2ss_orders_delay_1",
+  "benchmark": "re2ss",
+  "instance": "1",
+  "fault": "delay",
+  "hypothesis": "orders",
+  "component": "orders",
+  "component_aliases": [
+    "orders"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "delay fault injected into orders",
+  "mechanism_checks": [
+    "orders_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "shipping",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

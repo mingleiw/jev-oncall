@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2tt_ts-route-service_cpu_1",
+  "case": "re2tt_ts-route-service_cpu_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "cpu",
+  "hypothesis": "ts-route-service",
+  "component": "ts-route-service",
+  "component_aliases": [
+    "ts-route-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "cpu fault injected into ts-route-service",
+  "mechanism_checks": [
+    "ts-route-service_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "ts-admin-travel-service",
+  "version_check": null,
+  "traps": [
+    "ts-route-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

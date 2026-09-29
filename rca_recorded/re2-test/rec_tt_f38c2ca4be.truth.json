@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2tt_ts-auth-service_mem_1",
+  "case": "re2tt_ts-auth-service_mem_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "mem",
+  "hypothesis": "ts-auth-service",
+  "component": "ts-auth-service",
+  "component_aliases": [
+    "ts-auth-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "mem fault injected into ts-auth-service",
+  "mechanism_checks": [
+    "ts-auth-service_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "ts-ui-dashboard",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

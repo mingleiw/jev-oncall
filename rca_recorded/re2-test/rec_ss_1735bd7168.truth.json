@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2ss_carts_mem_1",
+  "case": "re2ss_carts_mem_1",
+  "benchmark": "re2ss",
+  "instance": "1",
+  "fault": "mem",
+  "hypothesis": "carts",
+  "component": "carts",
+  "component_aliases": [
+    "carts"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "mem fault injected into carts",
+  "mechanism_checks": [
+    "carts_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

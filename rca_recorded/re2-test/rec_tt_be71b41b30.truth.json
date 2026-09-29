@@ -1,0 +1,31 @@
+{
+  "_source": "RCAEval case re2tt_ts-route-service_socket_1",
+  "case": "re2tt_ts-route-service_socket_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "socket",
+  "hypothesis": "ts-route-service",
+  "component": "ts-route-service",
+  "component_aliases": [
+    "ts-route-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "socket fault injected into ts-route-service",
+  "mechanism_checks": [
+    "ts-route-service_sockets",
+    "sockets_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "socket",
+      "connection"
+    ]
+  ],
+  "decoy": "ts-basic-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

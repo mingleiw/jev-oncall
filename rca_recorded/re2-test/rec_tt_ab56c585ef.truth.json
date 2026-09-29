@@ -1,0 +1,36 @@
+{
+  "_source": "RCAEval case re2tt_ts-auth-service_loss_1",
+  "case": "re2tt_ts-auth-service_loss_1",
+  "benchmark": "re2tt",
+  "instance": "1",
+  "fault": "loss",
+  "hypothesis": "ts-auth-service",
+  "component": "ts-auth-service",
+  "component_aliases": [
+    "ts-auth-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into ts-auth-service",
+  "mechanism_checks": [
+    "ts-auth-service_latency",
+    "latency_by_service",
+    "ts-auth-service_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "ts-travel2-service",
+  "version_check": null,
+  "traps": [
+    "ts-basic-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}
