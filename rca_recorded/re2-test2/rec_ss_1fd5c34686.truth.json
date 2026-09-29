@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_payment_delay_3",
+  "case": "re2ss_payment_delay_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "delay",
+  "hypothesis": "payment",
+  "component": "payment",
+  "component_aliases": [
+    "payment"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "delay fault injected into payment",
+  "mechanism_checks": [
+    "payment_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

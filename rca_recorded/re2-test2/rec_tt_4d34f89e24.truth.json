@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2tt_ts-travel-service_loss_2",
+  "case": "re2tt_ts-travel-service_loss_2",
+  "benchmark": "re2tt",
+  "instance": "2",
+  "fault": "loss",
+  "hypothesis": "ts-travel-service",
+  "component": "ts-travel-service",
+  "component_aliases": [
+    "ts-travel-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "loss fault injected into ts-travel-service",
+  "mechanism_checks": [
+    "ts-travel-service_latency",
+    "latency_by_service",
+    "ts-travel-service_errors",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "ts-ui-dashboard",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

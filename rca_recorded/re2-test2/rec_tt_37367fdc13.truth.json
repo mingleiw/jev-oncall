@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-auth-service_loss_3",
+  "case": "re2tt_ts-auth-service_loss_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "loss",
+  "hypothesis": "ts-auth-service",
+  "component": "ts-auth-service",
+  "component_aliases": [
+    "ts-auth-service"
+  ],
+  "root_in_suspects": false,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "loss fault injected into ts-auth-service",
+  "mechanism_checks": [
+    "latency_by_service",
+    "errors_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "loss",
+      "packet",
+      "drop"
+    ]
+  ],
+  "decoy": "ts-food-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

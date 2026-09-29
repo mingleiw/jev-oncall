@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_user_cpu_2",
+  "case": "re2ss_user_cpu_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "cpu",
+  "hypothesis": "user",
+  "component": "user",
+  "component_aliases": [
+    "user"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "cpu fault injected into user",
+  "mechanism_checks": [
+    "user_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

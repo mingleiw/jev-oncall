@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_carts_disk_2",
+  "case": "re2ss_carts_disk_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "disk",
+  "hypothesis": "carts",
+  "component": "carts",
+  "component_aliases": [
+    "carts"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "disk fault injected into carts",
+  "mechanism_checks": [
+    "carts_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "orders",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

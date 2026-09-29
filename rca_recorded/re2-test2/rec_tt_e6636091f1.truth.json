@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-train-service_delay_3",
+  "case": "re2tt_ts-train-service_delay_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "delay",
+  "hypothesis": "ts-train-service",
+  "component": "ts-train-service",
+  "component_aliases": [
+    "ts-train-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "delay fault injected into ts-train-service",
+  "mechanism_checks": [
+    "ts-train-service_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "ts-admin-travel-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

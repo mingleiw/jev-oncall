@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-travel-service_disk_3",
+  "case": "re2tt_ts-travel-service_disk_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "disk",
+  "hypothesis": "ts-travel-service",
+  "component": "ts-travel-service",
+  "component_aliases": [
+    "ts-travel-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "disk fault injected into ts-travel-service",
+  "mechanism_checks": [
+    "ts-travel-service_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "ts-ui-dashboard",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

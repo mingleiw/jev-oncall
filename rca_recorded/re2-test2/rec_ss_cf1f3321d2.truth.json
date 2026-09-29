@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2ss_orders_mem_2",
+  "case": "re2ss_orders_mem_2",
+  "benchmark": "re2ss",
+  "instance": "2",
+  "fault": "mem",
+  "hypothesis": "orders",
+  "component": "orders",
+  "component_aliases": [
+    "orders"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "mem fault injected into orders",
+  "mechanism_checks": [
+    "orders_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "carts",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

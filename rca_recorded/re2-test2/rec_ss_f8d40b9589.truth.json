@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2ss_catalogue_cpu_3",
+  "case": "re2ss_catalogue_cpu_3",
+  "benchmark": "re2ss",
+  "instance": "3",
+  "fault": "cpu",
+  "hypothesis": "catalogue",
+  "component": "catalogue",
+  "component_aliases": [
+    "catalogue"
+  ],
+  "root_in_suspects": true,
+  "n_services": 15,
+  "n_suspects": 12,
+  "mechanism": "cpu fault injected into catalogue",
+  "mechanism_checks": [
+    "catalogue_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "carts",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

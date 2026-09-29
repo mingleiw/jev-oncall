@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-route-service_disk_2",
+  "case": "re2tt_ts-route-service_disk_2",
+  "benchmark": "re2tt",
+  "instance": "2",
+  "fault": "disk",
+  "hypothesis": "ts-route-service",
+  "component": "ts-route-service",
+  "component_aliases": [
+    "ts-route-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "disk fault injected into ts-route-service",
+  "mechanism_checks": [
+    "ts-route-service_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "ts-food-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

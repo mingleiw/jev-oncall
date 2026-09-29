@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-auth-service_disk_3",
+  "case": "re2tt_ts-auth-service_disk_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "disk",
+  "hypothesis": "ts-auth-service",
+  "component": "ts-auth-service",
+  "component_aliases": [
+    "ts-auth-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "disk fault injected into ts-auth-service",
+  "mechanism_checks": [
+    "ts-auth-service_disk",
+    "disk_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "disk",
+      "i/o",
+      "io "
+    ]
+  ],
+  "decoy": "ts-inside-payment-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

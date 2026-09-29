@@ -1,0 +1,32 @@
+{
+  "_source": "RCAEval case re2tt_ts-travel-service_cpu_3",
+  "case": "re2tt_ts-travel-service_cpu_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "cpu",
+  "hypothesis": "ts-travel-service",
+  "component": "ts-travel-service",
+  "component_aliases": [
+    "ts-travel-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "cpu fault injected into ts-travel-service",
+  "mechanism_checks": [
+    "ts-travel-service_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "ts-food-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

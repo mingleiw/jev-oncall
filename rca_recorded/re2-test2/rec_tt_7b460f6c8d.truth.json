@@ -1,0 +1,35 @@
+{
+  "_source": "RCAEval case re2tt_ts-travel-service_delay_2",
+  "case": "re2tt_ts-travel-service_delay_2",
+  "benchmark": "re2tt",
+  "instance": "2",
+  "fault": "delay",
+  "hypothesis": "ts-travel-service",
+  "component": "ts-travel-service",
+  "component_aliases": [
+    "ts-travel-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 12,
+  "mechanism": "delay fault injected into ts-travel-service",
+  "mechanism_checks": [
+    "ts-travel-service_latency",
+    "latency_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "delay",
+      "latency",
+      "slow"
+    ]
+  ],
+  "decoy": "ts-seat-service",
+  "version_check": null,
+  "traps": [
+    "ts-route-service_errors",
+    "ts-travel-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

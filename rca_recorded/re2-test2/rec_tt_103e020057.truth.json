@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2tt_ts-route-service_mem_3",
+  "case": "re2tt_ts-route-service_mem_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "mem",
+  "hypothesis": "ts-route-service",
+  "component": "ts-route-service",
+  "component_aliases": [
+    "ts-route-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "mem fault injected into ts-route-service",
+  "mechanism_checks": [
+    "ts-route-service_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "ts-food-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}

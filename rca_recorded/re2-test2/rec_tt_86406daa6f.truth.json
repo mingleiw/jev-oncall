@@ -1,0 +1,34 @@
+{
+  "_source": "RCAEval case re2tt_ts-auth-service_cpu_2",
+  "case": "re2tt_ts-auth-service_cpu_2",
+  "benchmark": "re2tt",
+  "instance": "2",
+  "fault": "cpu",
+  "hypothesis": "ts-auth-service",
+  "component": "ts-auth-service",
+  "component_aliases": [
+    "ts-auth-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "cpu fault injected into ts-auth-service",
+  "mechanism_checks": [
+    "ts-auth-service_cpu",
+    "cpu_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "cpu",
+      "processor",
+      "compute"
+    ]
+  ],
+  "decoy": "ts-ui-dashboard",
+  "version_check": null,
+  "traps": [
+    "ts-basic-service_errors"
+  ],
+  "noise": [],
+  "check_notes": {}
+}

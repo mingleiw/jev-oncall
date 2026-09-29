@@ -1,0 +1,33 @@
+{
+  "_source": "RCAEval case re2tt_ts-train-service_mem_3",
+  "case": "re2tt_ts-train-service_mem_3",
+  "benchmark": "re2tt",
+  "instance": "3",
+  "fault": "mem",
+  "hypothesis": "ts-train-service",
+  "component": "ts-train-service",
+  "component_aliases": [
+    "ts-train-service"
+  ],
+  "root_in_suspects": true,
+  "n_services": 68,
+  "n_suspects": 13,
+  "mechanism": "mem fault injected into ts-train-service",
+  "mechanism_checks": [
+    "ts-train-service_memory",
+    "memory_by_service"
+  ],
+  "mechanism_keywords": [
+    [
+      "memory",
+      "mem",
+      "oom",
+      "heap"
+    ]
+  ],
+  "decoy": "ts-price-service",
+  "version_check": null,
+  "traps": [],
+  "noise": [],
+  "check_notes": {}
+}
