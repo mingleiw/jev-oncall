@@ -46,10 +46,13 @@ The decision rule (all in code, thresholds fixed before any live run):
     or decision rounds without a verified candidate.
 
 That is policy v1. Policy v2 (the default) keeps the questions and verification
+(and v3, the default)
 but answers the way the LLM setups must: it stops early only on a verified
 candidate (best_explanation and supported both >= STOP_MIN, no enough_evidence
 gate), and otherwise answers with best_explanation's top pick when the checks or
 rounds run out or no check is judged useful, verifies that answer and labels it.
+v3 tightens verification: an alternative that was ever plausible must be ruled
+out by a specific result, not merely outranked.
 
 Failed and empty queries are recognized by code from the visible result text and
 are never used as supporting evidence.
@@ -75,8 +78,9 @@ import triage
 AGENT_SETUP = "jev-agent"
 # A policy is a decision rule; its version goes in every trace, and --compare never
 # pools versions. v1 is kept so its results stay reproducible; v2 is the default.
-POLICIES = {"v1": 1, "v2": 2}
-DEFAULT_POLICY = "v2"
+POLICIES = {"v1": 1, "v2": 2, "v3": 3}
+DEFAULT_POLICY = "v3"
+ANSWERING = ("v2", "v3")  # policies that always answer, like the LLM setups
 AGENT_VERSION = POLICIES[DEFAULT_POLICY]
 
 # Decision thresholds. Chosen before any live run and not tuned on the scenarios.
@@ -275,7 +279,7 @@ def candidate_from(answers, n_observed, policy="v1"):
         return None, "no hypothesis adequately supported", conflicts
     if h_sup != h_best:
         return None, "best explanation and supported hypothesis disagree", conflicts
-    if policy == "v2":
+    if policy in ANSWERING:
         if min(best[h_best], sup[h_sup]) < STOP_MIN:
             return None, f"{h_best} below {STOP_MIN} on best_explanation or supported", conflicts
     else:
@@ -288,12 +292,22 @@ def candidate_from(answers, n_observed, policy="v1"):
     return h_best, "candidate", conflicts
 
 
-def verdict(candidate, support, ruled_out, best):
+def verdict(candidate, support, ruled_out, best, peak=None):
     """(conclude?, supporting evidence, unresolved plausible alternatives, reason).
     The same test whatever budget is left: running out of checks never turns
-    unverified evidence into a verified diagnosis."""
+    unverified evidence into a verified diagnosis.
+
+    Which alternatives must be ruled out: v1 and v2 pass `best` (the current
+    best_explanation), so an alternative the ranking has pushed under PLAUSIBLE_MIN
+    is exempt, and being outranked counts as being ruled out. In the v2 run every
+    verified answer left some alternative not ruled out. v3 passes `peak`, each
+    hypothesis's highest best_explanation at any point in the investigation,
+    starting before any evidence: once plausible, it must be ruled out by a
+    specific result, not only outranked."""
+    plausibility = peak if peak is not None else best
     supporting = [c for c, p in support.items() if p >= EVIDENCE_MIN]
-    unresolved = [h for h, p in ruled_out.items() if p < RULED_OUT_MIN and best.get(h, 0) >= PLAUSIBLE_MIN]
+    unresolved = [h for h, p in ruled_out.items()
+                  if p < RULED_OUT_MIN and plausibility.get(h, 0) >= PLAUSIBLE_MIN]
     if not supporting:
         return False, supporting, unresolved, f"no observed result directly supports {candidate}"
     if unresolved:
@@ -327,6 +341,10 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     cannot abstain either, so the headline "correct cause" compares like with like,
     and "verified" is reported beside it.
 
+    policy "v3": v2, except that verification must rule out every alternative that
+    was plausible at any point (its peak best_explanation >= PLAUSIBLE_MIN, from
+    before the first check on), not only those still plausible now.
+
     ask_jev(payload) -> (response, ms). explainer, optional, is an LLM ask callable
     (system, messages) -> (text, msg, usage) used only after the diagnosis is frozen.
 
@@ -338,7 +356,8 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         raise ValueError(f"unknown policy {policy!r}")
     max_rounds = max_rounds or max_checks + 1
     checks = scenario["checks"]
-    warnings = [] if policy == "v2" else None
+    warnings = [] if policy in ANSWERING else None
+    peak = {}  # v3: each hypothesis's highest best_explanation so far
     trace = {"setup": AGENT_SETUP, "agent_version": POLICIES[policy], "policy": policy,
              "warnings": warnings if warnings is not None else [], "forced": forced, "status": "ok",
              "states": [], "observed": [], "rounds": [], "final": None, "abstained": False,
@@ -392,7 +411,8 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         resp, meta = call("verify", payload)
         rnd["calls"].append(meta)
         support, ruled_out = parse_verify(resp, keys)
-        ok, supporting, unresolved, why = verdict(candidate, support, ruled_out, answers["best_explanation"])
+        ok, supporting, unresolved, why = verdict(candidate, support, ruled_out, answers["best_explanation"],
+                                                  dict(peak) if policy == "v3" else None)
         rnd["verification"] = {"candidate": candidate, "support": support, "ruled_out": ruled_out,
                                "supporting": supporting, "unresolved": unresolved, "result": why}
         return ok, supporting, unresolved, why, support, ruled_out
@@ -412,7 +432,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     answers = None
     while True:
         if len(trace["rounds"]) >= max_rounds:
-            if policy == "v2" and answers is not None:
+            if policy in ANSWERING and answers is not None:
                 last = trace["rounds"][-1]
                 try:
                     answer_anyway("round_budget_exhausted", answers, last,
@@ -434,6 +454,8 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
             break
         rnd["answers"] = answers
+        for h, p in answers["best_explanation"].items():
+            peak[h] = max(peak.get(h, 0.0), p)
         trace["states"].append({"check": observed[-1] if observed else None,
                                 "model_beliefs": answers["best_explanation"],
                                 "jev": {"beliefs": answers["best_explanation"],
@@ -459,7 +481,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                           "ruled_out": ruled_out, "unresolved": unresolved}
 
             if checks_left <= 0:
-                if policy == "v2":
+                if policy in ANSWERING:
                     answer_anyway("check_budget_exhausted", answers, rnd, observed)
                     break
                 rnd["action"] = {"type": "abstain"}
@@ -472,7 +494,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             else:
                 pick = rca._top(answers["next_check"])
             if pick == triage.NONE:
-                if policy == "v2":
+                if policy in ANSWERING:
                     answer_anyway("no_useful_check", answers, rnd, observed)
                     break
                 rnd["action"] = {"type": "abstain"}

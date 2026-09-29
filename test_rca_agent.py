@@ -213,8 +213,8 @@ class V2(unittest.TestCase):
     def v2(self, jev=None, **kw):
         return agent.run_agent_trial(SCENARIO, jev or FakeJev(), policy="v2", **kw)
 
-    def test_default_policy_is_v2_and_recorded(self):
-        t = agent.run_agent_trial(SCENARIO, FakeJev(lead_p=0.95))
+    def test_policy_is_recorded(self):
+        t = self.v2(FakeJev(lead_p=0.95))
         self.assertEqual((t["policy"], t["agent_version"]), ("v2", 2))
         self.assertEqual(agent.run_agent_trial(SCENARIO, FakeJev(), policy="v1")["agent_version"], 1)
         with self.assertRaises(ValueError):
@@ -307,6 +307,54 @@ class V2(unittest.TestCase):
         traces = [dict(run(), **base), dict(self.v2(), **base)]
         table, _, _ = agent.compare(traces, {})
         self.assertEqual(sorted(k.split("agent ")[-1] for k in table), ["v1]", "v2]"])
+
+
+class V3(unittest.TestCase):
+    """Policy v3: an alternative that was ever plausible must be ruled out, not outranked."""
+
+    def jev(self, **kw):
+        # Before any check the deploy leads (0.8); after the first check the cause
+        # takes everything, so the deploy's current best_explanation is ~0.
+        kw.setdefault("picks", ["cron-history", VCHECK, "active-queries"])
+        return FakeJev(lead_after="cron-history", supported_after="cron-history", lead_p=0.95, **kw)
+
+    def sure(self, jev):
+        def ask(payload):
+            resp, ms = jev(payload)
+            if "supported" in resp["answers"] and "cron-history" in jev.observed(payload):
+                resp["answers"]["supported"] = choice(peaked([*HYPS, triage.NONE], CAUSE, 0.95))
+            return resp, ms
+        return ask
+
+    def test_default_policy_is_v3(self):
+        t = agent.run_agent_trial(SCENARIO, FakeJev())
+        self.assertEqual((t["policy"], t["agent_version"]), ("v3", 3))
+        self.assertEqual(agent.DEFAULT_POLICY, "v3")
+
+    def test_outranking_the_initial_suspect_is_not_ruling_it_out(self):
+        # Regression for the v2 run: after one check the ranking put ~1.0 on the cause,
+        # nothing was ruled out, and v2 still called the answer verified.
+        v2 = agent.run_agent_trial(SCENARIO, self.sure(self.jev(ruled_out=())), policy="v2")
+        self.assertEqual(v2["observed"], ["cron-history"])
+        self.assertTrue(v2["diagnosis"]["verified"])
+        v3 = agent.run_agent_trial(SCENARIO, self.sure(self.jev(ruled_out=())), policy="v3")
+        self.assertNotEqual(v3["observed"], ["cron-history"])  # it kept investigating
+        first = v3["rounds"][1]["verification"]
+        self.assertIn("deploy", first["unresolved"])  # the suspect before any evidence
+        self.assertFalse(v3["diagnosis"]["verified"])  # never ruled out, so never verified
+        self.assertEqual(v3["diagnosis"]["hypothesis"], CAUSE)  # but it still answers, like an LLM
+
+    def test_ruling_out_the_once_plausible_alternatives_verifies(self):
+        t = agent.run_agent_trial(SCENARIO, self.sure(self.jev(ruled_out=("deploy",))), policy="v3")
+        d = t["diagnosis"]
+        self.assertEqual((d["verified"], d["stop_reason"], t["observed"]), (True, "verified", ["cron-history"]))
+        # Alternatives never plausible (peak under PLAUSIBLE_MIN) need no ruling out.
+        self.assertEqual(d["unresolved_alternatives"], [])
+
+    def test_verdict_uses_the_peak_when_given(self):
+        args = (CAUSE, {"cron-history": 0.9}, {"deploy": 0.2}, {CAUSE: 0.99, "deploy": 0.01})
+        self.assertTrue(agent.verdict(*args)[0])  # v1/v2: outranked, so exempt
+        self.assertFalse(agent.verdict(*args, peak={CAUSE: 0.99, "deploy": 0.8})[0])
 
 
 class Budgets(unittest.TestCase):

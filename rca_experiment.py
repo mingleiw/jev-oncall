@@ -770,9 +770,11 @@ def main(argv=None):
                          "trial, not per model), or all (the three LLM setups)")
     ap.add_argument("--max-rounds", type=int,
                     help="jev-agent: decision rounds allowed (default: --max-checks + 1)")
-    ap.add_argument("--agent-policy", default="v2", choices=("v1", "v2"),
-                    help="jev-agent decision rule: v2 (default) always answers, like the LLM setups, "
-                         "and labels the answer verified or not; v1 abstains without a verified candidate")
+    ap.add_argument("--agent-policy", default="v3", choices=("v1", "v2", "v3"),
+                    help="jev-agent decision rule: v3 (default) always answers, like the LLM setups, and "
+                         "counts an answer verified only if every alternative that was ever plausible is "
+                         "ruled out; v2 is the same but exempts alternatives the ranking has outranked; "
+                         "v1 abstains without a verified candidate")
     ap.add_argument("--explain-model", metavar="PROVIDER:MODEL",
                     help="jev-agent: after the diagnosis is frozen, have this LLM write an explanation "
                          "(recorded apart; it cannot change the diagnosis)")

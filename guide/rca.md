@@ -388,7 +388,7 @@ in 17. In 15 of those 17, Jev's top pick was the true cause at 0.98 or more, and
 which can't abstain: an LLM out of checks is told to finish, and it always names a
 cause.
 
-v2 (`--agent-policy v2`, the default; v1 stays available) changes only the decision
+v2 (`--agent-policy v2`; v1 stays available) changes only the decision
 rule. The questions, thresholds for evidence and ruling out, budgets and what Jev
 sees are unchanged:
 
@@ -427,6 +427,43 @@ python3 rca_experiment.py --setup jev-agent --scenarios $A --trials 5 --out $R/h
 python3 rca_experiment.py --setup jev-agent --scenarios $H --trials 5 --out $R/heldout.jsonl --html $R/heldout.html
 python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free.jsonl \
     rca_results/2026-09-28-v4-glm-hard/free.jsonl $R/hard.jsonl --html $R/compare.html
+```
+
+### Policy v3: ruled out means ruled out
+
+The v2 run (2026-09-28, `rca_results/2026-09-28-jev-agent-v2/`):
+
+- **Hard set:** 23/25 correct and 23/25 on supported diagnosis, in about 1.3 s and
+  $0.0005 per trial. The LLM runs got 24–25/25 in 84–137 s.
+- **Held-out set:** 15/15 correct.
+
+But in every one of the 33 answers v2 called verified, some alternative had not been
+ruled out. In 10 held-out trials that alternative was the initial suspect. The cause
+was in v1 and v2's verification rule. It only required ruling out alternatives
+whose *current* `best_explanation` was at least 0.1. Once Jev put about 1.0 on its
+top pick, every alternative fell under that floor and was exempt, so being
+outranked counted as being ruled out. pool_etl_cron was "verified" after a single
+check.
+
+v3 (`--agent-policy v3`, the default; v1 and v2 stay available) changes only that
+rule. An alternative must be ruled out (P ≥ 0.5) if it was plausible at *any* point
+in the investigation: its highest `best_explanation` so far, starting before the
+first check, is 0.1 or more. The suspect everyone starts with must therefore be
+ruled out by a specific result. An alternative that never looked plausible still
+needs nothing. Everything else is v2: it always answers, and labels the answer
+`verified: true/false`.
+
+Expect more checks, more unverified answers, or both. Correct cause and supported
+diagnosis should stay comparable with v2 if Jev's accuracy doesn't depend on
+stopping early. Run it exactly like v2: both scenario sets, reported apart.
+
+```
+R=rca_results/<date>-jev-agent-v3 && mkdir -p $R
+python3 rca_experiment.py --setup jev-agent --agent-policy v3 --scenarios $A --trials 5 --out $R/hard.jsonl --html $R/hard.html
+python3 rca_experiment.py --setup jev-agent --agent-policy v3 --scenarios $H --trials 5 --out $R/heldout.jsonl --html $R/heldout.html
+python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free.jsonl \
+    rca_results/2026-09-28-v4-glm-hard/free.jsonl rca_results/2026-09-28-jev-agent-v2/hard.jsonl \
+    $R/hard.jsonl --html $R/compare.html
 ```
 
 Limits specific to this mode:
