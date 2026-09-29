@@ -78,10 +78,16 @@ import triage
 AGENT_SETUP = "jev-agent"
 # A policy is a decision rule; its version goes in every trace, and --compare never
 # pools versions. v1 is kept so its results stay reproducible; v2 is the default.
-POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4, "v5": 5}
+POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4, "v5": 5, "v6": 6}
 DEFAULT_POLICY = "v5"
-ANSWERING = ("v2", "v3", "v4", "v5")  # policies that always answer, like the LLM setups
-CHALLENGE = ("v4", "v5")  # policies that challenge the leading hypothesis
+ANSWERING = ("v2", "v3", "v4", "v5", "v6")  # policies that always answer, like the LLM setups
+CHALLENGE = ("v4", "v5", "v6")  # policies that challenge the leading hypothesis
+# v6: after finding where the fault is, spend up to MECH_CHECKS checks finding what
+# failed inside it. On recorded incidents v5 named the right service but, in 21 of 22
+# unsupported answers, never ran a check for the fault's kind (17 of them had used the
+# whole budget on where). The where phase gets max_checks - MECH_CHECKS.
+MECHANISM = ("v6",)
+MECH_CHECKS = 2
 CHALLENGE_MIN = 0.5  # a leader at least this strong gets a challenge check
 # Policies whose verification lets an alternative count as ruled out once the current
 # ranking pushes it under PLAUSIBLE_MIN. v1 and v2 by design; v4 by mistake (its code
@@ -129,6 +135,14 @@ CHALLENGE_Q = ("Hypothesis `{h}` currently leads: {desc}\nWhich of these checks,
                "description says it measures; its result is not known." + INFORMATIVE +
                " Pick 'none' only if no remaining check could do either.")
 NO_CHALLENGE = "No remaining check could show the leading hypothesis wrong or show a competitor directly"
+MECH_Q = ("`{h}` currently looks like the root cause: {desc}\nWhich of these checks, none of which has "
+          "been run yet, would best show what failed inside `{h}`: which resource, connection, "
+          "dependency or process went wrong? Judge each check only by what its description says it "
+          "measures; its result is not known. Pick 'none' only if no remaining check could show that.")
+NO_MECH = "No remaining check could show what failed inside it"
+MECH_EVIDENCE_Q = ("Proposed root cause: `{h}`: {desc}\nDoes the observed result of the check `{c}` show "
+                   "what failed inside `{h}`: a specific resource, connection, dependency or process going "
+                   "wrong, rather than only that `{h}` or its users are affected?")
 SUPPORT_Q = ("Proposed root cause: `{h}`: {desc}\nDoes the observed result of the check `{c}` directly "
              "support this root cause? Yes only if that result shows the change, failure or mechanism "
              "that this hypothesis names. No if it is only consistent with it, only rules out another "
@@ -217,9 +231,20 @@ def usable_evidence(scenario, observed):
     return usable, excluded
 
 
-def verify_payload(scenario, observed, candidate, model=None):
+def mechanism_payload(scenario, observed, leader, model=None):
+    """v6's what-failed request: which unrun check could show what failed inside the leader."""
+    unrun = unrun_checks(scenario, observed)
+    return {"model": model or triage.MODEL, "state": visible_state(scenario, observed),
+            "questions": {"mechanism_check": {
+                "type": "choice",
+                "instructions": MECH_Q.format(h=leader, desc=scenario["hypotheses"][leader]),
+                "criteria": {**unrun, triage.NONE: NO_MECH}}}}
+
+
+def verify_payload(scenario, observed, candidate, model=None, mechanism=False):
     """The dependent request: which observed results support the candidate, and which
-    alternatives the evidence rules out. Returns (payload, {question key: (kind, id)})."""
+    alternatives the evidence rules out; with mechanism (v6's final check), also which
+    results show what failed inside the candidate. Returns (payload, {key: (kind, id)})."""
     hyps = scenario["hypotheses"]
     usable, _ = usable_evidence(scenario, observed)
     questions, keys = {}, {}
@@ -231,6 +256,12 @@ def verify_payload(scenario, observed, candidate, model=None):
         key = f"ruled_out_{i}"
         questions[key] = {"type": "noul", "instructions": RULED_OUT_Q.format(h=h, desc=hyps[h])}
         keys[key] = ("ruled_out", h)
+    if mechanism:
+        for i, c in enumerate(usable):
+            key = f"mech_{i}"
+            questions[key] = {"type": "noul",
+                              "instructions": MECH_EVIDENCE_Q.format(h=candidate, desc=hyps[candidate], c=c)}
+            keys[key] = ("mechanism", c)
     return ({"model": model or triage.MODEL, "state": visible_state(scenario, observed),
              "questions": questions}, keys)
 
@@ -277,14 +308,16 @@ def parse_round(resp, scenario, observed, warnings=None):
 
 
 def parse_verify(resp, keys):
-    support, ruled_out = {}, {}
+    """(support, ruled_out, mechanism): P(yes) per observed check, per alternative, and
+    per observed check again for v6's what-failed question (empty otherwise)."""
+    out = {"support": {}, "ruled_out": {}, "mechanism": {}}
     try:
         a = resp["answers"]
         for key, (kind, ident) in keys.items():
-            (support if kind == "support" else ruled_out)[ident] = _noul(a, key)
+            out[kind][ident] = _noul(a, key)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
-    return support, ruled_out
+    return out["support"], out["ruled_out"], out["mechanism"]
 
 
 # --------------------------------------------------------------------------
@@ -448,17 +481,18 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         else:
             trace["abstained"] = True
 
-    def verify(candidate, observed, answers, rnd):
+    def verify(candidate, observed, answers, rnd, mechanism=False):
         """Ask the dependent verification request; (ok, supporting, unresolved, why,
         support, ruled_out). Raises on an infrastructure failure."""
-        payload, keys = verify_payload(scenario, observed, candidate, jev_model)
+        payload, keys = verify_payload(scenario, observed, candidate, jev_model, mechanism)
         resp, meta = call("verify", payload)
         rnd["calls"].append(meta)
-        support, ruled_out = parse_verify(resp, keys)
+        support, ruled_out, mech = parse_verify(resp, keys)
         ok, supporting, unresolved, why = verdict(candidate, support, ruled_out, answers["best_explanation"],
                                                   None if policy in OUTRANKED_IS_RULED_OUT else dict(peak))
         rnd["verification"] = {"candidate": candidate, "support": support, "ruled_out": ruled_out,
-                               "supporting": supporting, "unresolved": unresolved, "result": why}
+                               "supporting": supporting, "unresolved": unresolved, "result": why,
+                               "mechanism": mech}
         return ok, supporting, unresolved, why, support, ruled_out
 
     def answer_anyway(stop_reason, answers, rnd, observed):
@@ -472,6 +506,76 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             ok, supporting, unresolved, _, support, ruled_out = verify(h, observed, answers, rnd)
         rnd["action"] = {"type": "answer", "hypothesis": h, "verified": ok}
         finish("diagnosis", h, stop_reason, answers, supporting, support, ruled_out, unresolved, verified=ok)
+
+    # v6 keeps MECH_CHECKS of the budget for finding what failed; the rest finds where.
+    where_budget = max(1, max_checks - MECH_CHECKS) if policy in MECHANISM else max_checks
+
+    def new_round(phase):
+        observed = list(trace["observed"])
+        rnd = {"round": len(trace["rounds"]) + 1, "checks_observed": len(observed), "calls": [],
+               "conflicts": [], "candidate": None, "verification": None, "action": None,
+               "reason": None, "phase": phase}
+        trace["rounds"].append(rnd)
+        return observed, rnd
+
+    def what_failed_phase():
+        """v6: after the where phase answers, look inside the answer for what failed, then
+        re-rank and re-verify on everything observed. Mechanism rounds do not count
+        against max_rounds; they are bounded by MECH_CHECKS + 1."""
+        where = dict(trace["diagnosis"])
+        leader, run = where["hypothesis"], []
+        try:
+            for _ in range(MECH_CHECKS):
+                observed, rnd = new_round("mechanism")
+                unrun = unrun_checks(scenario, observed)
+                if len(observed) >= max_checks or not unrun:
+                    rnd["action"] = {"type": "stop_mechanism", "reason": "no checks left"}
+                    break
+                resp, meta = call("mechanism", mechanism_payload(scenario, observed, leader, jev_model))
+                rnd["calls"].append(meta)
+                try:
+                    dist = _choice(resp["answers"], "mechanism_check", [*unrun, triage.NONE], warnings)
+                except (KeyError, TypeError, ValueError, AttributeError) as e:
+                    raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
+                pick = rca._top(dist)
+                rnd["mechanism"] = {"leader": leader, "answers": dist}
+                if pick == triage.NONE:
+                    rnd["action"] = {"type": "stop_mechanism", "reason": "no check could show it"}
+                    break
+                if pick not in checks or pick in observed:
+                    trace["status"], trace["error"] = "invalid_action", f"invalid check {pick!r}"
+                    return
+                rnd["action"] = {"type": "check", "check": pick, "phase": "mechanism"}
+                trace["observed"].append(pick)
+                run.append(pick)
+            # Re-rank and re-verify on everything seen, what-failed evidence included.
+            observed, rnd = new_round("final")
+            resp, meta = call("round", round_payload(scenario, observed, jev_model, policy))
+            rnd["calls"].append(meta)
+            final = parse_round(resp, scenario, observed, warnings)
+            rnd["answers"] = final
+            for h, p in final["best_explanation"].items():
+                peak[h] = max(peak.get(h, 0.0), p)
+            trace["states"].append({"check": observed[-1] if observed else None,
+                                    "model_beliefs": final["best_explanation"],
+                                    "jev": {"beliefs": final["best_explanation"],
+                                            "contradicted": final["most_contradicted"]},
+                                    "jev_error": None})
+            h = rca._top(final["best_explanation"])
+            ok, supporting, unresolved, _, support, ruled_out = verify(h, observed, final, rnd, mechanism=True)
+            mech = rnd["verification"]["mechanism"]
+            mech_ev = [c for c, p in mech.items() if p >= EVIDENCE_MIN]
+            evidence = mech_ev + [c for c in supporting if c not in mech_ev]
+            rnd["action"] = {"type": "answer", "hypothesis": h, "verified": ok}
+            finish("diagnosis", h, where["stop_reason"], final, evidence, support, ruled_out, unresolved,
+                   verified=ok)
+            trace["diagnosis"].update({
+                "mechanism_evidence": mech_ev, "mechanism_support": mech, "mechanism_checks_run": run,
+                "where_phase": {"hypothesis": leader, "verified": where["verified"],
+                                "checks_used": where["checks_used"]}})
+            trace["diagnosis_digest"] = _digest(trace["diagnosis"])
+        except Exception as e:  # an infrastructure failure, not a diagnosis
+            trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
 
     answers = None
     while True:
@@ -488,7 +592,8 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             break
         observed = list(trace["observed"])
         rnd = {"round": len(trace["rounds"]) + 1, "checks_observed": len(observed), "calls": [],
-               "conflicts": [], "candidate": None, "verification": None, "action": None, "reason": None}
+               "conflicts": [], "candidate": None, "verification": None, "action": None, "reason": None,
+               "phase": "where"}
         trace["rounds"].append(rnd)
         try:
             resp, meta = call("round", round_payload(scenario, observed, jev_model, policy))
@@ -505,7 +610,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                                 "jev": {"beliefs": answers["best_explanation"],
                                         "contradicted": answers["most_contradicted"]},
                                 "jev_error": None})
-        checks_left = min(max_checks - len(observed), len(unrun_checks(scenario, observed)))
+        checks_left = min(where_budget - len(observed), len(unrun_checks(scenario, observed)))
         candidate, reason, conflicts = candidate_from(answers, len(observed), policy)
         failed = None  # a candidate that failed verification this round
         if forced and not observed:
@@ -568,10 +673,55 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         rnd["action"] = {"type": "check", "check": pick, "forced": bool(forced and not observed)}
         trace["observed"].append(pick)
 
+    if policy in MECHANISM and trace["status"] == "ok" and trace["final"]:
+        what_failed_phase()
+
+    if policy in MECHANISM and trace["status"] == "ok" and trace["diagnosis"]:
+        trace["evidence_report"] = evidence_report(scenario, trace)
     trace["seconds"] = round(time.monotonic() - t0, 1)
     if explainer and trace["diagnosis"]:
         trace["explanation"] = explain(scenario, trace, explainer)
     return trace
+
+
+def _result_line(scenario, check, hypothesis):
+    """The line of a check's result that concerns the hypothesis, or its first line."""
+    lines = [l.strip() for l in scenario["checks"][check]["result"].strip().splitlines() if l.strip()]
+    for l in lines:
+        if l.startswith(f"- {hypothesis}:"):
+            return l[2:]
+    if len(lines) > 1 and all(l.startswith("- ") for l in lines[1:]):
+        return f"no {hypothesis} series in this overview"  # a per-service list without it
+    return lines[0] if lines else ""
+
+
+def evidence_report(scenario, trace):
+    """A plain-text summary an engineer can check in seconds, built by code from the
+    frozen diagnosis and the observed results: no model writes it."""
+    d = trace["diagnosis"]
+    if not d or d.get("decision") != "diagnosis":
+        return "No diagnosis."
+    h = d["hypothesis"]
+    lines = [f"Root cause: {h} ({'verified' if d.get('verified') else 'not verified'})"]
+    mech = d.get("mechanism_evidence") or []
+    if mech:
+        lines.append("What failed:")
+        lines += [f"  - {c}: {_result_line(scenario, c, h)}" for c in mech]
+    where = [c for c in d["evidence"] if c not in mech]
+    if where:
+        lines.append("Where it showed:")
+        lines += [f"  - {c}: {_result_line(scenario, c, h)}" for c in where]
+    if not mech and not where:
+        lines.append("No observed result was judged to support it.")
+    ruled = sorted(x for x, p in d.get("ruled_out", {}).items() if p >= RULED_OUT_MIN)
+    if ruled:
+        lines.append("Ruled out: " + ", ".join(ruled))
+    if d.get("unresolved_alternatives"):
+        lines.append("Not ruled out: " + ", ".join(d["unresolved_alternatives"]))
+    if d.get("excluded_evidence"):
+        lines.append("Not used as evidence (failed or empty): " + ", ".join(d["excluded_evidence"]))
+    lines.append(f"Checks run: {len(trace['observed'])}: " + ", ".join(trace["observed"]))
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
