@@ -38,9 +38,9 @@ The decision rule (all in code, thresholds fixed before any live run):
     A high ranking alone never ends it.
   - Verification: at least one usable observed result must directly support the
     candidate (P >= EVIDENCE_MIN), and every alternative still plausible
-    (best_explanation >= PLAUSIBLE_MIN) must be ruled out (P >= RULED_OUT_MIN)
-    while checks remain. With no checks left, unresolved alternatives no longer
-    block the conclusion but are reported.
+    (best_explanation >= PLAUSIBLE_MIN) must be ruled out (P >= RULED_OUT_MIN).
+    The test does not loosen when checks run out: a candidate that fails it at the
+    budget ends in an abstention that names it as tentative, never a diagnosis.
   - Otherwise run next_check's top pick. If Jev's top pick is none (no remaining
     check would help) the investigation abstains. So does running out of checks
     or decision rounds without a verified candidate.
@@ -116,12 +116,18 @@ def query_status(result):
 
 def visible_state(scenario, observed):
     """The agent-visible evidence state: the same fields the LLM setups see, and the
-    results of the checks in observed only."""
+    results of the checks in observed only.
+
+    The hypotheses are part of the state, not only of some questions' criteria: Jev
+    judges each question on its own against the shared state, so enough_evidence,
+    next_check and the verification questions could not otherwise see what the
+    candidate causes are. (The LLM setups get the hypotheses in their first message.)"""
     incident = scenario["incident"]
     return {"incident": {"title": incident["title"], "description": incident["description"],
                          "started_at": incident["started_at"]},
             "initial_context": scenario["initial_context"],
             "guidance": scenario["guidance"],
+            "hypotheses": dict(scenario["hypotheses"]),
             "observations": rca.evidence_text(scenario, observed)}
 
 
@@ -252,15 +258,17 @@ def candidate_from(answers, n_observed):
     return h_best, "candidate", conflicts
 
 
-def verdict(candidate, support, ruled_out, best, checks_left):
-    """(conclude?, supporting evidence, unresolved plausible alternatives, reason)."""
+def verdict(candidate, support, ruled_out, best):
+    """(conclude?, supporting evidence, unresolved plausible alternatives, reason).
+    The same test whatever budget is left: running out of checks never turns
+    unverified evidence into a verified diagnosis."""
     supporting = [c for c, p in support.items() if p >= EVIDENCE_MIN]
     unresolved = [h for h, p in ruled_out.items() if p < RULED_OUT_MIN and best.get(h, 0) >= PLAUSIBLE_MIN]
     if not supporting:
         return False, supporting, unresolved, f"no observed result directly supports {candidate}"
-    if unresolved and checks_left > 0:
+    if unresolved:
         return False, supporting, unresolved, "plausible alternatives not ruled out: " + ", ".join(unresolved)
-    return True, supporting, unresolved, "verified" if not unresolved else "verified at the check budget"
+    return True, supporting, unresolved, "verified"
 
 
 def _digest(obj):
@@ -316,9 +324,12 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                       "model": str(resp.get("model")) if isinstance(resp, dict) else None}
 
     def finish(decision, hypothesis, stop_reason, answers, supporting=(), support=None,
-               ruled_out=None, unresolved=()):
+               ruled_out=None, unresolved=(), tentative=None):
         _, excluded = usable_evidence(scenario, trace["observed"])
         diagnosis = {"decision": decision, "hypothesis": hypothesis, "evidence": list(supporting),
+                     # An abstention that ran out of room with an unverified candidate says
+                     # which one, apart: never scored as a diagnosis.
+                     "tentative_hypothesis": tentative,
                      "evidence_support": support or {}, "excluded_evidence": excluded,
                      "ruled_out": ruled_out or {}, "unresolved_alternatives": list(unresolved),
                      "stop_reason": stop_reason,
@@ -356,6 +367,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                                 "jev_error": None})
         checks_left = min(max_checks - len(observed), len(unrun_checks(scenario, observed)))
         candidate, reason, conflicts = candidate_from(answers, len(observed))
+        failed = None  # a candidate that failed verification this round
         if forced and not observed:
             candidate, reason = None, "forced first check"
         rnd["candidate"], rnd["reason"], rnd["conflicts"] = candidate, reason, conflicts
@@ -370,19 +382,21 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                 trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
                 break
             ok, supporting, unresolved, why = verdict(candidate, support, ruled_out,
-                                                      answers["best_explanation"], checks_left)
+                                                      answers["best_explanation"])
             rnd["verification"] = {"support": support, "ruled_out": ruled_out, "supporting": supporting,
                                    "unresolved": unresolved, "result": why}
             rnd["reason"] = why
             if ok:
                 rnd["action"] = {"type": "conclude", "hypothesis": candidate}
-                finish("diagnosis", candidate, "concluded" if not unresolved else "concluded_at_check_budget",
-                       answers, supporting, support, ruled_out, unresolved)
+                finish("diagnosis", candidate, "concluded", answers, supporting, support, ruled_out)
                 break
+            failed = {"tentative": candidate, "supporting": supporting, "support": support,
+                      "ruled_out": ruled_out, "unresolved": unresolved}
 
         if checks_left <= 0:
             rnd["action"] = {"type": "abstain"}
-            finish("abstain", None, "check_budget_exhausted", answers)
+            finish("abstain", None, "check_budget_exhausted_unverified" if failed else "check_budget_exhausted",
+                   answers, **(failed or {}))
             break
         if forced and not observed:
             pick = scenario["version_check"]  # harness-fixed, as in the LLM setups' forced mode
@@ -390,7 +404,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             pick = rca._top(answers["next_check"])
         if pick == triage.NONE:
             rnd["action"] = {"type": "abstain"}
-            finish("abstain", None, "no_useful_check", answers)
+            finish("abstain", None, "no_useful_check", answers, **(failed or {}))
             break
         # Validate: a real check on the menu, not run before. Code, not Jev, enforces this.
         if pick not in checks or pick in observed:
@@ -524,12 +538,41 @@ def system_label(trace):
     return name + suffix.get(trace["setup"], " " + trace["setup"])
 
 
+def run_conditions(trace):
+    """The conditions a trial ran under. Trials under different conditions are never
+    pooled. LLM traces written before budgets were recorded are assumed to have run
+    with the current default, which the trace cannot confirm; the value is marked
+    as assumed wherever it is shown."""
+    budgets = trace.get("budgets") or {}
+    return {"mode": "forced" if trace.get("forced") else "free",
+            "max_checks": budgets.get("max_checks", rca.MAX_CHECKS),
+            "assumed": "max_checks" not in budgets,
+            "max_rounds": budgets.get("max_rounds"),
+            "harness": trace.get("harness_version"),
+            "agent_version": trace.get("agent_version")}
+
+
+def condition_label(c):
+    parts = [c["mode"], f"{c['max_checks']}{'*' if c['assumed'] else ''} checks"]
+    if c["max_rounds"]:
+        parts.append(f"{c['max_rounds']} rounds")
+    if c["agent_version"]:
+        parts.append(f"agent v{c['agent_version']}")
+    return "[" + ", ".join(parts) + "]"
+
+
+def comparable(c):
+    """What must match between columns for a like-for-like comparison."""
+    return (c["mode"], c["max_checks"], c["harness"])
+
+
 COMPARE_ROWS = [
     ("trials", "trials"),
     ("infra", "infrastructure failures"),
     ("correct", "correct cause"),
     ("incorrect", "incorrect conclusion"),
     ("abstained", "abstained"),
+    ("tentative", "abstained at budget, tentative pick right"),
     ("unfinished", "unfinished (no answer, no abstention)"),
     ("evidence_valid", "supported diagnosis (ID rubric)"),
     ("evidence_all_observed", "cited only checks it ran"),
@@ -548,15 +591,21 @@ COMPARE_ROWS = [
 
 
 def compare(traces, pricing):
-    """{system: {row key: cell text}} and per-system scenario digests. Infrastructure
-    failures are counted apart and left out of every diagnostic rate."""
-    systems, digests, truths = {}, {}, {}
+    """({column: {row key: cell text}}, {column: scenario digests}, {column: conditions}).
+
+    A column is one system under one set of run conditions (mode, check budget,
+    round budget, harness and agent version): forced and free trials, or different
+    budgets, are never merged. Infrastructure failures are counted apart and left
+    out of every diagnostic rate."""
+    systems, digests, conds, truths = {}, {}, {}, {}
     for t in traces:
         name = t.get("scenario", rca.DEFAULT_SCENARIO)
         truths.setdefault(name, rca.load_ground_truth(name))
-        key = system_label(t)
+        c = run_conditions(t)
+        key = f"{system_label(t)} {condition_label(c)}"
         systems.setdefault(key, []).append((t, rca.score_trial(t, truths[name]), trial_costs(t, pricing)))
         digests.setdefault(key, set()).add((name, t.get("scenario_digest")))
+        conds[key] = c
     table = {}
     for key, rows in systems.items():
         infra = [r for r in rows if r[0].get("status") in rca.INFRA_STATUSES]
@@ -580,6 +629,7 @@ def compare(traces, pricing):
             "correct": count(lambda r: r[1]["correct_hypothesis"]),
             "incorrect": count(lambda r: r[1]["finished"] and not r[1]["correct_hypothesis"]),
             "abstained": count(lambda r: r[1]["abstained"]),
+            "tentative": count(lambda r: r[1].get("tentative_correct")),
             "unfinished": count(lambda r: not r[1]["finished"] and not r[1]["abstained"]),
             "evidence_valid": count(lambda r: r[1]["evidence_valid"]),
             "evidence_all_observed": count(lambda r: r[1]["evidence_all_observed"]),
@@ -601,25 +651,42 @@ def compare(traces, pricing):
                         + f"{sum(1 for r in exp if (r[0].get('explanation') or {}).get('agrees') is False)}"
                         f"/{len(exp)}") if exp else "-",
         }
-    return table, digests
+    return table, digests, conds
+
+
+def mismatches(digests, conds):
+    """Warnings for columns that are not like-for-like: different scenario sets or
+    versions, or different mode, check budget or harness version."""
+    out = []
+    if len({frozenset(d) for d in digests.values()}) > 1:
+        out.append("the columns ran different scenario sets or scenario versions (digests differ)")
+    if len({comparable(c) for c in conds.values()}) > 1:
+        out.append("the columns ran under different conditions (mode, check budget or harness version): "
+                   + "; ".join(sorted({f"{c['mode']}, {c['max_checks']} checks, harness v{c['harness']}"
+                                       for c in conds.values()})))
+    if any(c["assumed"] for c in conds.values()):
+        out.append("* check budget not recorded in those traces; assumed the current default "
+                   f"({rca.MAX_CHECKS}), which the traces cannot confirm")
+    return out
 
 
 def print_compare(traces, pricing, out=None):
     import sys
     out = out or sys.stdout
-    table, digests = compare(traces, pricing)
+    table, digests, conds = compare(traces, pricing)
     systems = sorted(table, key=lambda s: (s.startswith("Jev investigates"), s))
     width = max(18, *(len(s) for s in systems))
     print("\nInvestigator comparison (infrastructure failures excluded from every rate)", file=out)
     print(f"  {'':<40}" + "".join(f"{s:>{width + 2}}" for s in systems), file=out)
     for key, label in COMPARE_ROWS:
         print(f"  {label:<40}" + "".join(f"{table[s][key]:>{width + 2}}" for s in systems), file=out)
-    sets = {s: frozenset(d) for s, d in digests.items()}
-    if len(set(sets.values())) > 1:
-        print("\n  WARNING: the systems ran different scenario sets or scenario versions (digests differ):",
-              file=out)
+    warnings = mismatches(digests, conds)
+    for w in warnings:
+        print(f"\n  {'NOTE' if w.startswith('*') else 'WARNING'}: {w}", file=out)
+    if len({frozenset(d) for d in digests.values()}) > 1:
         for s in systems:
-            print(f"    {s}: " + ", ".join(f"{n}@{d}" for n, d in sorted(sets[s], key=str)), file=out)
-    else:
-        print("\n  Same scenarios and scenario digests for every system.", file=out)
+            print(f"    {s}: " + ", ".join(f"{n}@{d}" for n, d in sorted(digests[s], key=str)), file=out)
+    if not [w for w in warnings if not w.startswith("*")]:
+        print("\n  Same scenarios, scenario digests, mode, check budget and harness version in every column.",
+              file=out)
     return table

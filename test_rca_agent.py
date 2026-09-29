@@ -160,27 +160,36 @@ class Investigation(unittest.TestCase):
         self.assertEqual(t["diagnosis"]["decision"], "abstain")
         reasons = [r["reason"] for r in t["rounds"] if r["verification"]]
         self.assertTrue(reasons and all("directly supports" in r for r in reasons))
-        # A plausible alternative not ruled out blocks while checks remain, then is
-        # reported, not hidden, when the budget runs out.
+        # A plausible alternative not ruled out blocks the conclusion.
         verdict = agent.verdict(CAUSE, {"cron-history": 0.9}, {"deploy": 0.2, "dns": 0.9},
-                                {CAUSE: 0.6, "deploy": 0.3, "dns": 0.1}, checks_left=2)
+                                {CAUSE: 0.6, "deploy": 0.3, "dns": 0.1})
         self.assertFalse(verdict[0])
         self.assertEqual(verdict[2], ["deploy"])
-        verdict = agent.verdict(CAUSE, {"cron-history": 0.9}, {"deploy": 0.2}, {CAUSE: 0.6, "deploy": 0.3}, 0)
-        self.assertTrue(verdict[0])
-        self.assertEqual(verdict[3], "verified at the check budget")
         # An implausible alternative (best_explanation under PLAUSIBLE_MIN) does not block.
         self.assertTrue(agent.verdict(CAUSE, {"cron-history": 0.9}, {"dns": 0.1},
-                                      {CAUSE: 0.95, "dns": 0.05}, 3)[0])
+                                      {CAUSE: 0.95, "dns": 0.05})[0])
 
-    def test_unresolved_alternatives_at_the_budget_are_reported(self):
-        jev = FakeJev(picks=[VCHECK, "pool-metrics", "cron-history"], supported_after=VCHECK,
-                      enough_after=VCHECK, support_yes=("cron-history",), ruled_out=("dns",),
-                      lead_p=0.45)  # every alternative keeps 0.11: still plausible
-        t = run(jev, max_checks=3)
-        d = t["diagnosis"]
-        self.assertEqual((d["decision"], d["stop_reason"]), ("diagnosis", "concluded_at_check_budget"))
-        self.assertIn("deploy", d["unresolved_alternatives"])
+    def test_running_out_of_checks_never_verifies_a_diagnosis(self):
+        # Regression: the same answers used to fail with checks left and pass with none.
+        # Now the budget runs out into an abstention that names the candidate as tentative.
+        def trial(max_checks):
+            jev = FakeJev(picks=[VCHECK, "pool-metrics", "cron-history", "active-queries"],
+                          supported_after=VCHECK, enough_after=VCHECK, support_yes=("cron-history",),
+                          ruled_out=("dns",), lead_p=0.45)  # every alternative keeps 0.11: plausible
+            return run(jev, max_checks=max_checks)
+        for max_checks in (3, 4):
+            t = trial(max_checks)
+            d = t["diagnosis"]
+            self.assertEqual((d["decision"], d["hypothesis"]), ("abstain", None), max_checks)
+            self.assertEqual(d["stop_reason"], "check_budget_exhausted_unverified")
+            self.assertEqual(d["tentative_hypothesis"], CAUSE)
+            self.assertIn("deploy", d["unresolved_alternatives"])
+            self.assertEqual(d["evidence"], ["cron-history"])
+            self.assertIsNone(t["final"])
+            s = rca.score_trial(t, TRUTH)
+            self.assertTrue(s["abstained"])
+            self.assertIsNone(s["correct_hypothesis"])  # never credited as a diagnosis
+            self.assertTrue(s["tentative_correct"])  # reported apart
 
     def test_no_useful_check_means_abstain(self):
         t = run(FakeJev(picks=[VCHECK], supported_after="never"))
@@ -317,7 +326,8 @@ class GroundTruthLeak(unittest.TestCase):
                 for word in ("version_check", "decoy", "TRAP", "NOISE", "ground truth", "mechanism_keywords",
                              "_origin", '"_source"', '"traps"'):
                     self.assertNotIn(word, blob, f"{name}: {word}")
-                self.assertEqual(set(p["state"]), {"incident", "initial_context", "guidance", "observations"})
+                self.assertEqual(set(p["state"]),
+                                 {"incident", "initial_context", "guidance", "hypotheses", "observations"})
 
     def test_a_trial_never_reads_a_truth_file(self):
         real_open = open
@@ -340,8 +350,24 @@ class GroundTruthLeak(unittest.TestCase):
         self.assertEqual(q["enough_evidence"]["type"], "noul")
         self.assertNotIn(VCHECK, q["next_check"]["criteria"])
         # Same observations as the jev setup's payload: comparable evidence.
-        self.assertEqual(agent.round_payload(SCENARIO, [VCHECK])["state"],
-                         rca.build_jev_payload(SCENARIO, [VCHECK])["state"])
+        self.assertEqual(agent.round_payload(SCENARIO, [VCHECK])["state"]["observations"],
+                         rca.build_jev_payload(SCENARIO, [VCHECK])["state"]["observations"])
+
+    def test_every_question_can_see_the_hypotheses(self):
+        # Regression: Jev judges each question alone against the shared state, and the
+        # hypotheses used to live only in some questions' criteria. Replacing them left
+        # enough_evidence's and next_check's inputs unchanged.
+        other = dict(SCENARIO, hypotheses={f"h{i}": f"Something else entirely, number {i}." for i in range(6)})
+        cand = {"real": list(SCENARIO["hypotheses"])[1], "other": "h1"}
+        for build in (lambda sc, k: agent.round_payload(sc, [VCHECK]),
+                      lambda sc, k: agent.verify_payload(sc, [VCHECK, "cron-history"], cand[k])[0]):
+            real, fake = build(SCENARIO, "real"), build(other, "other")
+            for key in real["questions"]:
+                if key not in fake["questions"]:
+                    continue
+                seen = lambda p: json.dumps([p["state"], p["questions"][key]], sort_keys=True)
+                self.assertNotEqual(seen(real), seen(fake), key)
+            self.assertEqual(real["state"]["hypotheses"], SCENARIO["hypotheses"])
 
 
 class ExplanationWriter(unittest.TestCase):
@@ -419,9 +445,10 @@ class Comparison(unittest.TestCase):
                    "openai:x/y": {"input_per_m": 1.0, "output_per_m": 2.0}}
         traces = [self.llm_trace(), self.llm_trace(status="model_error"), self.llm_trace("jev", correct=False),
                   self.agent_trace()]
-        table, digests = agent.compare(traces, pricing)
-        alone, withjev = table["x/y"], table["x/y + Jev"]
-        jev = table[f"Jev investigates ({triage.MODEL})"]
+        table, digests, _ = agent.compare(traces, pricing)
+        col = lambda prefix: next(v for k, v in table.items() if k.startswith(prefix + " ["))
+        alone, withjev = col("x/y"), col("x/y + Jev")
+        jev = col(f"Jev investigates ({triage.MODEL})")
         self.assertEqual((alone["trials"], alone["infra"], alone["correct"]), ("2", "1", "1/1"))
         self.assertEqual(withjev["incorrect"], "1/1")
         self.assertEqual(alone["cost"], f"{(8000 * 1 + 2000 * 2) / 1e6:.5f}")
@@ -432,13 +459,38 @@ class Comparison(unittest.TestCase):
         self.assertEqual(jev["correct"], "1/1")
         self.assertEqual(jev["mechanism"], "-")  # no text, nothing to score
         self.assertEqual(len({frozenset(d) for d in digests.values()}), 1)
-        table, _ = agent.compare(traces, {})
-        self.assertEqual(table["x/y"]["cost"], "unpriced")  # a missing price is never zero
+        table, _, _ = agent.compare(traces, {})
+        self.assertEqual(next(v for k, v in table.items() if k.startswith("x/y ["))["cost"],
+                         "unpriced")  # a missing price is never zero
 
     def test_the_pricing_file_prices_jev_and_leaves_unknowns_unpriced(self):
         pricing = agent.load_pricing()
         self.assertEqual(pricing[f"jev:{triage.MODEL}"]["input_per_m"], triage.USD_PER_M_INPUT_TOKENS)
         self.assertTrue(all("source" in v for v in pricing.values()))
+
+    def test_different_run_conditions_are_never_pooled(self):
+        # Regression: forced and free trials with different budgets used to merge into
+        # one column with no warning.
+        free = self.llm_trace()
+        forced = dict(self.llm_trace(), forced=True, budgets={"max_checks": 4})
+        table, digests, conds = agent.compare([free, forced], {})
+        self.assertEqual(len(table), 2)
+        self.assertIn("x/y [free, 6* checks]", table)  # an older trace: budget assumed, marked
+        self.assertIn("x/y [forced, 4 checks]", table)
+        warnings = agent.mismatches(digests, conds)
+        self.assertTrue(any("different conditions" in w for w in warnings))
+        buf = io.StringIO()
+        agent.print_compare([free, forced], {}, out=buf)
+        self.assertIn("WARNING: the columns ran under different conditions", buf.getvalue())
+        agent_trace = self.agent_trace()
+        _, digests, conds = agent.compare([dict(free, budgets={"max_checks": 6}), agent_trace], {})
+        self.assertFalse([w for w in agent.mismatches(digests, conds) if not w.startswith("*")])
+        page = __import__("rca_report").render([free, forced, agent_trace])
+        self.assertIn("Mismatch", page)
+
+    def test_llm_traces_record_their_budget(self):
+        model = lambda system, messages: ("DONE {}", {"role": "assistant", "content": ""}, {})
+        self.assertEqual(rca.run_trial(SCENARIO, "alone", model, max_checks=4)["budgets"], {"max_checks": 4})
 
     def test_digest_mismatch_is_flagged(self):
         other = dict(self.llm_trace(), scenario_digest="old")

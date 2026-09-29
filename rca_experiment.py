@@ -440,6 +440,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
     hyps = list(scenario["hypotheses"])
     version_check = scenario["version_check"]
     trace = {"setup": setup, "forced": forced, "status": "ok", "states": [],
+             "budgets": {"max_checks": max_checks},
              "observed": [], "final": None, "error": None,
              "usage": {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0, "jev_calls": 0},
              "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -609,6 +610,8 @@ def score_trial(trace, truth):
     out["abstained"] = bool(trace.get("abstained"))
     out["infra_failure"] = trace.get("status") in INFRA_STATUSES
     out["traps_run"] = len(set(observed) & set(truth["traps"]))
+    tentative = (trace.get("diagnosis") or {}).get("tentative_hypothesis")
+    out["tentative_correct"] = (tentative == truth["hypothesis"]) if tentative else None
     out["explanation_mechanism"] = None
     if trace["setup"] == AGENT_SETUP:
         # Jev writes no text: the text metrics do not apply, and are never earned by

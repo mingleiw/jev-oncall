@@ -463,15 +463,14 @@ def compare_section(traces):
         pricing = rca_jev_agent.load_pricing()
     except OSError:
         pricing = {}
-    table, digests = rca_jev_agent.compare(traces, pricing)
+    table, digests, conds = rca_jev_agent.compare(traces, pricing)
     systems = sorted(table, key=lambda s: (s.startswith("Jev investigates"), s))
     head = "".join(f'<th scope="col" class="num">{_e(s)}</th>' for s in systems)
     body = "".join(f'<tr><th scope="row">{_e(label)}</th>'
                    + "".join(f'<td class="num">{_e(table[s][key])}</td>' for s in systems) + "</tr>"
                    for key, label in rca_jev_agent.COMPARE_ROWS)
-    same = len({frozenset(d) for d in digests.values()}) == 1
-    warn = ("" if same else '<div class="notice" role="note"><b>Mismatch</b><p>These systems ran different '
-            "scenarios or scenario versions; compare only matching digests.</p></div>")
+    warn = "".join(f'<div class="notice" role="note"><b>{"Note" if w.startswith("*") else "Mismatch"}</b>'
+                   f'<p>{_e(w)}</p></div>' for w in rca_jev_agent.mismatches(digests, conds))
     return (f'<section aria-labelledby="agent-h"><h2 id="agent-h">Jev as the investigator</h2>'
             '<p class="muted">In the jev-agent rows no LLM chooses checks or writes the diagnosis: Jev answers '
             'bounded questions and code decides. Infrastructure failures are counted apart and left out of every '

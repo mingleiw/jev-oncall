@@ -236,7 +236,10 @@ generated. It asks three questions, and doesn't assume the answer to any of them
 **What Jev sees.** Exactly what the LLM setups see: the incident, the initial
 context, the guidance about failed queries, the hypotheses, the check descriptions,
 and the results of the checks already run. The observation list is identical to the
-`jev` setup's payload. Jev never sees an unrun check's result, the truth file, the
+`jev` setup's payload. The hypotheses are part of the shared state, not only of some
+questions' options. Jev judges each question on its own against the state, so
+without this `enough_evidence`, `next_check` and the verification questions couldn't
+see what the candidate causes are. Jev never sees an unrun check's result, the truth file, the
 scoring keywords, or which check is the key check. `test_rca_agent.py` checks all
 four on every scenario, including that no truth file is opened during a trial.
 
@@ -276,10 +279,12 @@ thresholds fixed before any live run:
    If the answers disagree, the conflict is recorded and the investigation goes
    on. A high ranking alone never ends it.
 3. To conclude, at least one usable observed result must directly support the
-   candidate (P ≥ 0.5). While checks remain, every alternative that is still
-   plausible (`best_explanation` ≥ 0.1) must also be ruled out (P ≥ 0.5). When no
-   checks remain, alternatives that aren't ruled out no longer block the
-   conclusion, but they are listed and the stop reason says so.
+   candidate (P ≥ 0.5), and every alternative that is still plausible
+   (`best_explanation` ≥ 0.1) must be ruled out (P ≥ 0.5). The test doesn't loosen
+   when checks run out. A candidate that fails it at the budget ends in an
+   abstention (`check_budget_exhausted_unverified`) that names the candidate as
+   `tentative_hypothesis`. It is never scored as a diagnosis; whether the tentative
+   pick was right is reported on its own row.
 4. Otherwise it runs `next_check`'s top pick. If that pick is none, it abstains. It
    also abstains when it runs out of checks (the same budget as the other setups,
    6) or decision rounds (`--max-rounds`, default checks + 1) without a verified
@@ -314,10 +319,18 @@ tokens and cost are reported on their own.
 the same mode and the same check budget as the LLM runs it is compared with.
 Traces are credited to `jev:<jev model>`, never to the LLM of another run.
 `--compare` reads several trace files and puts the three setups side by side (LLM
-alone, LLM + Jev, Jev investigates). It warns if scenario digests differ, and it
+alone, LLM + Jev, Jev investigates). Each column is one system under one set of run
+conditions: mode, check budget, round budget, harness and agent version. Forced and
+free trials, or different budgets, are never merged. It warns when columns differ in
+scenario digests, mode, check budget or harness version. Every trace now records its
+check budget. Older LLM traces didn't, so the current default of 6 is assumed for
+them and marked `*`. The trace can't confirm that assumption. The 2026-09-28 DeepSeek
+and GLM hard runs never exceed 6 checks, which fits it. An older pilot in
+`2026-09-27-free-models` has a 7-check trial, so don't compare with that one. It
 reports:
 
-- correct cause, incorrect conclusions, abstentions and unfinished trials;
+- correct cause, incorrect conclusions, abstentions (and whether a tentative pick
+  at the budget was right) and unfinished trials;
 - infrastructure failures, counted apart and excluded from every rate;
 - **supported diagnosis**, a rubric on check IDs that applies to every setup alike:
   the right cause, every cited check actually run, no failed or empty query cited,
