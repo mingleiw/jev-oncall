@@ -189,7 +189,8 @@ Every run covers all scenarios unless `--scenarios pool_etl_cron` (a comma-separ
 list) narrows it. If a run stops (a rate limit, a network error), rerun the same command with
 `--resume`: it skips finished trials and retries the ones that errored. The same
 command without `--resume` adds a new set of trials after the ones already in the file. Options: `--setup` (`all`, the default, or a comma-separated list of `alone`, `jev`,
-`jev-contra`), `--max-checks` (default 6),
+`jev-contra`, `jev-agent`; `all` means the three LLM setups, see
+[Jev as the investigator](#jev-as-the-investigator-jev-agent)), `--max-checks` (default 6),
 `--max-tokens` (caps each model reply; use it for models that ramble), `--jev-model`
 (default the pinned triage model), `--out`. A model is `provider:model`; a bare
 provider uses its default (`anthropic` → `claude-opus-5`, `openai` → `gpt-5`).
@@ -218,6 +219,172 @@ python3 rca_experiment.py --models openai:qwen3 --setup alone --trials 1 --force
   the model runs.
 - Small models often break the reply format; those trials count as invalid replies.
   Use these runs to test the pipeline, not as headline results.
+
+## Jev as the investigator (`jev-agent`)
+
+In the `jev` and `jev-contra` setups, an LLM still picks every check and writes the
+diagnosis; Jev only scores. The `jev-agent` setup (`rca_jev_agent.py`) removes the
+LLM from the loop. Jev answers bounded questions about the evidence, and plain code
+turns the answers into one action per round, validates it, runs the check, and
+repeats. The hypotheses and the check menu are the benchmark's own, so nothing is
+generated. It asks three questions, and doesn't assume the answer to any of them:
+
+- Can Jev find the cause and collect evidence that supports it?
+- Does replacing LLM calls cut latency and cost?
+- Does it skip verification or stop too early?
+
+**What Jev sees.** Exactly what the LLM setups see: the incident, the initial
+context, the guidance about failed queries, the hypotheses, the check descriptions,
+and the results of the checks already run. The observation list is identical to the
+`jev` setup's payload. The hypotheses are part of the shared state, not only of some
+questions' options. Jev judges each question on its own against the state, so
+without this `enough_evidence`, `next_check` and the verification questions couldn't
+see what the candidate causes are. Jev never sees an unrun check's result, the truth file, the
+scoring keywords, or which check is the key check. `test_rca_agent.py` checks all
+four on every scenario, including that no truth file is opened during a trial.
+
+**One round.** It asks a single batched request about the current evidence. The
+questions in it can't see each other's answers:
+
+| Question | Type | Status |
+| --- | --- | --- |
+| `best_explanation` | Choice over the hypotheses | unchanged from the `jev` setup |
+| `most_contradicted` | Choice over the hypotheses and none | unchanged |
+| `supported` | Choice over the hypotheses and "none adequately supported" | new |
+| `enough_evidence` | yes/no: would an SRE accept a diagnosis now | new |
+| `next_check` | Choice over the checks not yet run, and none | new |
+
+`best_explanation` keeps its tested wording and criteria. It has no "none" option;
+the new `supported` question carries that instead, so the tested question isn't
+changed. A second request follows only when code finds a candidate, because its
+questions name the candidate:
+
+- For each usable observed result: does it directly support the candidate? (yes/no)
+- For each other hypothesis: has the evidence ruled it out? (yes/no)
+
+These are independent judgments about one fixed proposal, so they are per-item
+yes/no questions. Comparing hypotheses stays a Choice. Harness v4 moved
+`most_contradicted` to a Choice after per-item questions went wrong there.
+
+**The decision rule.** It lives in code (`candidate_from`, `verdict`), with
+thresholds fixed before any live run:
+
+1. With no evidence yet, it never concludes.
+2. A candidate needs all of these:
+   - `best_explanation` and `supported` pick the same hypothesis;
+   - `supported` gives it at least 0.5;
+   - `enough_evidence` is at least 0.7;
+   - the candidate isn't also `most_contradicted`.
+
+   If the answers disagree, the conflict is recorded and the investigation goes
+   on. A high ranking alone never ends it.
+3. To conclude, at least one usable observed result must directly support the
+   candidate (P ≥ 0.5), and every alternative that is still plausible
+   (`best_explanation` ≥ 0.1) must be ruled out (P ≥ 0.5). The test doesn't loosen
+   when checks run out. A candidate that fails it at the budget ends in an
+   abstention (`check_budget_exhausted_unverified`) that names the candidate as
+   `tentative_hypothesis`. It is never scored as a diagnosis; whether the tentative
+   pick was right is reported on its own row.
+4. Otherwise it runs `next_check`'s top pick. If that pick is none, it abstains. It
+   also abstains when it runs out of checks (the same budget as the other setups,
+   6) or decision rounds (`--max-rounds`, default checks + 1) without a verified
+   candidate.
+
+Code recognizes failed and empty queries from the visible result text (`QUERY FAILED`,
+`ERROR`, `0 matching log lines`, `No service found`), and never uses them as
+evidence. A test checks that this matches every scenario's traps and nothing else.
+Code also enforces the rest: a check must be on the menu and not already run, and
+timestamps and budgets are kept by code. A failed or malformed Jev reply ends the
+trial as `jev_error`, an infrastructure failure, with no LLM fallback.
+
+**The result.** Each trace keeps the shape of the LLM traces, so the shared scoring
+applies. It adds `diagnosis`:
+
+- the decision (`diagnosis` or `abstain`) and the hypothesis;
+- the supporting evidence IDs, with P for each;
+- the evidence excluded as failed or empty;
+- the alternatives ruled out, and those left unresolved;
+- the stop reason and Jev's probabilities.
+
+It also adds `diagnosis_digest` and `rounds`, a full trace of every call, its
+timestamps and tokens, conflicts, verification and action.
+
+**Optional explanation.** `--explain-model provider:model` has an LLM write the
+component and mechanism, but only after the diagnosis is frozen. The writer gets a
+copy, and the diagnosis digest is checked afterwards. If the writer names another
+cause, that is recorded as a disagreement and nothing is changed. Its latency,
+tokens and cost are reported on their own.
+
+**Fair comparison.** Run `jev-agent` on the same scenarios, with the same digests,
+the same mode and the same check budget as the LLM runs it is compared with.
+Traces are credited to `jev:<jev model>`, never to the LLM of another run.
+`--compare` reads several trace files and puts the three setups side by side (LLM
+alone, LLM + Jev, Jev investigates). Each column is one system under one set of run
+conditions: mode, check budget, round budget, harness and agent version. Forced and
+free trials, or different budgets, are never merged. It warns when columns differ in
+scenario digests, mode, check budget or harness version. Every trace now records its
+check budget. Older LLM traces didn't, so the current default of 6 is assumed for
+them and marked `*`. The trace can't confirm that assumption. The 2026-09-28 DeepSeek
+and GLM hard runs never exceed 6 checks, which fits it. An older pilot in
+`2026-09-27-free-models` has a 7-check trial, so don't compare with that one. It
+reports:
+
+- correct cause, incorrect conclusions, abstentions (and whether a tentative pick
+  at the budget was right) and unfinished trials;
+- infrastructure failures, counted apart and excluded from every rate;
+- **supported diagnosis**, a rubric on check IDs that applies to every setup alike:
+  the right cause, every cited check actually run, no failed or empty query cited,
+  and at least one cited check that shows the mechanism;
+- failed and empty queries run and cited;
+- checks, LLM calls and Jev calls;
+- end-to-end seconds, and input/output tokens by model;
+- dollar cost from `rca_pricing.json`.
+
+Two metrics need care:
+
+- **Resolved** and the text mechanism score read generated text, and Jev writes
+  none. So for `jev-agent` those metrics show "–". They are never earned by pasting
+  a hypothesis description or evidence. The explanation's mechanism, if one was
+  written, gets its own row.
+- **LLM calls** for traces written before this change are estimated from the number
+  of states, a lower bound, and are marked "≥".
+
+`rca_pricing.json` prices Jev at the rate in `triage.py`: $0.042 per million input
+tokens, with output free. LLM prices are null until someone fills them in with a
+source, and a missing price prints as "unpriced", never as zero. The 2026-09-28
+DeepSeek and GLM runs used OpenRouter's free tier.
+
+A one-trial-per-scenario pilot on the five hard scenarios costs about 5 to 8 Jev
+calls of 1-2k input tokens per trial, well under a cent in total:
+
+```
+S=edge_rule_regex,feature_file_flap,gateway_holiday_surge,host_patch_routes,registry_contention
+export TYPESAFE_API_KEY=...
+python3 rca_experiment.py --dry-run --setup jev-agent --scenarios $S
+python3 rca_experiment.py --check   --setup jev-agent
+python3 rca_experiment.py --setup jev-agent --scenarios $S --trials 1 \
+    --out rca_results/<date>-jev-agent/pilot.jsonl --html rca_results/<date>-jev-agent/pilot.html
+```
+
+For the full free-mode comparison, run 5 trials per scenario, the same 25 as the
+DeepSeek and GLM runs. Add `--explain-model` to also measure the explanation step,
+for example `--explain-model openai:z-ai/glm-5.3` with `OPENAI_BASE_URL` set.
+
+```
+python3 rca_experiment.py --setup jev-agent --scenarios $S --trials 5 \
+    --out rca_results/<date>-jev-agent/free.jsonl
+python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free.jsonl \
+    rca_results/2026-09-28-v4-glm-hard/free.jsonl rca_results/<date>-jev-agent/free.jsonl \
+    --html rca_results/<date>-jev-agent/compare.html
+```
+
+Limits specific to this mode:
+
+- The thresholds are judgment calls, not fitted values.
+- A frozen menu favours a picker. Jev can't write a query the menu lacks, and
+  neither can the LLMs here.
+- The `next_check` answer is judged from check descriptions, and the check names
+  can be suggestive for any investigator.
 
 ## What would count as a result
 

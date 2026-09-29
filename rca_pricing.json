@@ -1,0 +1,20 @@
+{
+  "_note": "USD per million tokens, used by `rca_experiment.py --compare`. A null price means unknown: that system's cost prints as 'unpriced', never as zero. Fill in list prices with their source and date before quoting a cost. The DeepSeek and GLM runs of 2026-09-28 used OpenRouter's free tier, so their actual spend was $0; list prices answer what the same run would cost on a paid endpoint.",
+  "models": {
+    "jev:jev-1.13.0": {
+      "input_per_m": 0.042,
+      "output_per_m": 0.0,
+      "source": "triage.py USD_PER_M_INPUT_TOKENS (TypeSafe pricing: output tokens are free)"
+    },
+    "openai:deepseek/deepseek-v4.1-flash": {
+      "input_per_m": null,
+      "output_per_m": null,
+      "source": "unknown: fill in from https://openrouter.ai/deepseek/deepseek-v4.1-flash (not reachable from the sandbox this was written in)"
+    },
+    "openai:z-ai/glm-5.3": {
+      "input_per_m": null,
+      "output_per_m": null,
+      "source": "unknown: fill in from https://openrouter.ai/z-ai/glm-5.3 (not reachable from the sandbox this was written in)"
+    }
+  }
+}

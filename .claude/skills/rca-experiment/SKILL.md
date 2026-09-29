@@ -33,13 +33,16 @@ agent change course, and does Jev re-scoring every hypothesis after each check h
 ## Procedure
 
 1. `git pull origin main`, then run the tests:
-   `python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca`
+   `python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca test_rca_agent`
 2. Pick the models with the user. A model is `provider:model`: `anthropic:<id>`, or
    `openai:<id>` for OpenAI or any OpenAI-compatible server (`OPENAI_BASE_URL`; see
    the guide's "Run it without paid keys" table). Without `TYPESAFE_API_KEY`, add
    `--setup alone` and say the Jev rows are missing. By default every run covers all
    three setups: `alone`, `jev` (the model sees Jev's ranking and contradiction scores)
    and `jev-contra` (the model sees only the hypothesis Jev judges most contradicted).
+   A fourth setup, `jev-agent` (Jev investigates, no LLM in the loop), runs only when
+   named in `--setup`, once per scenario and trial rather than per model; compare it with
+   LLM runs through `--compare` (the guide's "Jev as the investigator" section).
    Include at least one strong model and one weaker one: Jev can only show value where
    the agent fails alone.
 3. Make a results folder: `R=rca_results/$(date +%F)-<short label>` and `mkdir -p $R`.
