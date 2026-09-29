@@ -513,7 +513,7 @@ python3 rca_experiment.py --compare rca_results/2026-09-28-jev-agent-v3/heldout.
 
 ### Policy v5: v4 as intended
 
-**The v4 run (`rca_results/2026-09-28-jev-agent-v4/`) found a bug in v4 itself.**
+**The v4 run found a bug in v4 itself.**
 v4's code kept v3's `policy == "v3"` test for the verification rule. So v4 verified
 under v2's weaker rule, where an alternative counts as ruled out once the ranking
 pushes it under 0.1. That contradicts "changes nothing else" above.
@@ -531,7 +531,7 @@ strict verification.
 
 **v5** (`--agent-policy v5`) is v4 as intended: the challenge check and
 the informative-checks sentence, with v3's strict verification. **v4** stays
-selectable exactly as it ran, so its traces reproduce.
+selectable exactly as it ran, so that run can be reproduced.
 
 **Each trace now records:**
 - `verify_rule`: `ever_plausible` for the strict rule, `current` for the weak one;
