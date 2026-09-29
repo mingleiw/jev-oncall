@@ -45,6 +45,12 @@ The decision rule (all in code, thresholds fixed before any live run):
     check would help) the investigation abstains. So does running out of checks
     or decision rounds without a verified candidate.
 
+That is policy v1. Policy v2 (the default) keeps the questions and verification
+but answers the way the LLM setups must: it stops early only on a verified
+candidate (best_explanation and supported both >= STOP_MIN, no enough_evidence
+gate), and otherwise answers with best_explanation's top pick when the checks or
+rounds run out or no check is judged useful, verifies that answer and labels it.
+
 Failed and empty queries are recognized by code from the visible result text and
 are never used as supporting evidence.
 
@@ -67,7 +73,11 @@ import rca_experiment as rca
 import triage
 
 AGENT_SETUP = "jev-agent"
-AGENT_VERSION = 1  # bump when the questions, thresholds or decision rule change
+# A policy is a decision rule; its version goes in every trace, and --compare never
+# pools versions. v1 is kept so its results stay reproducible; v2 is the default.
+POLICIES = {"v1": 1, "v2": 2}
+DEFAULT_POLICY = "v2"
+AGENT_VERSION = POLICIES[DEFAULT_POLICY]
 
 # Decision thresholds. Chosen before any live run and not tuned on the scenarios.
 ENOUGH_MIN = 0.7     # P(yes) that the evidence is enough to name one cause
@@ -75,6 +85,10 @@ SUPPORT_MIN = 0.5    # P that the candidate is the adequately supported hypothes
 EVIDENCE_MIN = 0.5   # P(yes) that an observed result directly supports the candidate
 RULED_OUT_MIN = 0.5  # P(yes) that an alternative is ruled out
 PLAUSIBLE_MIN = 0.1  # best_explanation mass that keeps an alternative plausible
+# v2 only. Set after reading the v1 results on the five hard scenarios (where the
+# true cause reached 0.98-1.0 on both questions by the end), so those five are not
+# a clean test of it: the three hand-written scenarios are the held-out check.
+STOP_MIN = 0.9       # best_explanation and supported both at least this to stop early
 
 SUPPORTED_Q = ("Which hypothesis, if any, is directly supported by specific observed results: a "
                "result that shows the change, failure or mechanism the hypothesis names, not one that "
@@ -188,9 +202,17 @@ def verify_payload(scenario, observed, candidate, model=None):
 # --------------------------------------------------------------------------
 # Parsing Jev's answers
 
-def _choice(answers, key, options):
+def _choice(answers, key, options, warnings=None):
+    """A Choice answer's distribution. With a warnings list (v2), a 'choice' field that
+    disagrees with the probabilities is recorded instead of failing the trial: code
+    acts on the probabilities either way. Without one (v1), it is an error."""
     dist = triage._distribution(answers[key]["probabilities"], options, key)
-    triage._validate_choice_max(answers[key], dist, key)
+    try:
+        triage._validate_choice_max(answers[key], dist, key)
+    except triage.JevError as e:
+        if warnings is None:
+            raise
+        warnings.append(str(e))
     return dist
 
 
@@ -201,18 +223,18 @@ def _noul(answers, key):
     return p
 
 
-def parse_round(resp, scenario, observed):
+def parse_round(resp, scenario, observed, warnings=None):
     hyps = list(scenario["hypotheses"])
     try:
         a = resp["answers"]
-        out = {"best_explanation": _choice(a, "best_explanation", hyps),
-               "most_contradicted": _choice(a, "most_contradicted", [*hyps, triage.NONE]),
-               "supported": _choice(a, "supported", [*hyps, triage.NONE]),
+        out = {"best_explanation": _choice(a, "best_explanation", hyps, warnings),
+               "most_contradicted": _choice(a, "most_contradicted", [*hyps, triage.NONE], warnings),
+               "supported": _choice(a, "supported", [*hyps, triage.NONE], warnings),
                "enough_evidence": _noul(a, "enough_evidence"),
                "next_check": None}
         unrun = unrun_checks(scenario, observed)
         if unrun:
-            out["next_check"] = _choice(a, "next_check", [*unrun, triage.NONE])
+            out["next_check"] = _choice(a, "next_check", [*unrun, triage.NONE], warnings)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
     return out
@@ -232,8 +254,12 @@ def parse_verify(resp, keys):
 # --------------------------------------------------------------------------
 # The decision rule
 
-def candidate_from(answers, n_observed):
-    """(candidate or None, reason, conflicts). A ranking alone never makes a candidate."""
+def candidate_from(answers, n_observed, policy="v1"):
+    """(candidate or None, reason, conflicts). A ranking alone never makes a candidate.
+
+    v1 also needs enough_evidence >= ENOUGH_MIN. v2 drops that gate (in v1 it held back
+    15 of 17 abstentions whose top pick was the true cause at 0.98+) and instead needs
+    best_explanation and supported both >= STOP_MIN; verification still decides."""
     best, sup, contra = answers["best_explanation"], answers["supported"], answers["most_contradicted"]
     h_best, h_sup, h_contra = rca._top(best), rca._top(sup), rca._top(contra)
     conflicts = []
@@ -249,10 +275,14 @@ def candidate_from(answers, n_observed):
         return None, "no hypothesis adequately supported", conflicts
     if h_sup != h_best:
         return None, "best explanation and supported hypothesis disagree", conflicts
-    if sup[h_sup] < SUPPORT_MIN:
-        return None, f"support for {h_sup} below {SUPPORT_MIN}", conflicts
-    if answers["enough_evidence"] < ENOUGH_MIN:
-        return None, f"evidence judged insufficient (P = {answers['enough_evidence']:.2f})", conflicts
+    if policy == "v2":
+        if min(best[h_best], sup[h_sup]) < STOP_MIN:
+            return None, f"{h_best} below {STOP_MIN} on best_explanation or supported", conflicts
+    else:
+        if sup[h_sup] < SUPPORT_MIN:
+            return None, f"support for {h_sup} below {SUPPORT_MIN}", conflicts
+        if answers["enough_evidence"] < ENOUGH_MIN:
+            return None, f"evidence judged insufficient (P = {answers['enough_evidence']:.2f})", conflicts
     if h_contra == h_best:
         return None, "the candidate is also the most contradicted hypothesis", conflicts
     return h_best, "candidate", conflicts
@@ -286,8 +316,16 @@ def jev_asker(api_key, timeout_s=15.0):
 
 
 def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, max_rounds=None,
-                    jev_model=None, explainer=None):
+                    jev_model=None, explainer=None, policy=DEFAULT_POLICY):
     """Run one Jev-driven investigation.
+
+    policy "v1": stop only on a verified candidate; otherwise abstain.
+    policy "v2": answer the way the LLM setups must. Stop early only on a verified
+    candidate, as in v1; when the checks run out, Jev judges no remaining check
+    useful, or the rounds run out, answer anyway with best_explanation's top pick,
+    verify that answer, and record whether it passed. No abstentions: the LLMs
+    cannot abstain either, so the headline "correct cause" compares like with like,
+    and "verified" is reported beside it.
 
     ask_jev(payload) -> (response, ms). explainer, optional, is an LLM ask callable
     (system, messages) -> (text, msg, usage) used only after the diagnosis is frozen.
@@ -296,10 +334,13 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     usage, seconds) so the shared scoring applies, plus the rounds and the
     structured diagnosis. states[k] holds Jev's beliefs after k checks, as both
     the investigator's belief (model_beliefs) and Jev's (jev)."""
+    if policy not in POLICIES:
+        raise ValueError(f"unknown policy {policy!r}")
     max_rounds = max_rounds or max_checks + 1
-    hyps = list(scenario["hypotheses"])
     checks = scenario["checks"]
-    trace = {"setup": AGENT_SETUP, "agent_version": AGENT_VERSION, "forced": forced, "status": "ok",
+    warnings = [] if policy == "v2" else None
+    trace = {"setup": AGENT_SETUP, "agent_version": POLICIES[policy], "policy": policy,
+             "warnings": warnings if warnings is not None else [], "forced": forced, "status": "ok",
              "states": [], "observed": [], "rounds": [], "final": None, "abstained": False,
              "diagnosis": None, "diagnosis_digest": None, "explanation": None, "error": None,
              "budgets": {"max_checks": max_checks, "max_rounds": max_rounds},
@@ -324,9 +365,10 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                       "model": str(resp.get("model")) if isinstance(resp, dict) else None}
 
     def finish(decision, hypothesis, stop_reason, answers, supporting=(), support=None,
-               ruled_out=None, unresolved=(), tentative=None):
+               ruled_out=None, unresolved=(), tentative=None, verified=None):
         _, excluded = usable_evidence(scenario, trace["observed"])
         diagnosis = {"decision": decision, "hypothesis": hypothesis, "evidence": list(supporting),
+                     "verified": verified,
                      # An abstention that ran out of room with an unverified candidate says
                      # which one, apart: never scored as a diagnosis.
                      "tentative_hypothesis": tentative,
@@ -343,9 +385,41 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         else:
             trace["abstained"] = True
 
+    def verify(candidate, observed, answers, rnd):
+        """Ask the dependent verification request; (ok, supporting, unresolved, why,
+        support, ruled_out). Raises on an infrastructure failure."""
+        payload, keys = verify_payload(scenario, observed, candidate, jev_model)
+        resp, meta = call("verify", payload)
+        rnd["calls"].append(meta)
+        support, ruled_out = parse_verify(resp, keys)
+        ok, supporting, unresolved, why = verdict(candidate, support, ruled_out, answers["best_explanation"])
+        rnd["verification"] = {"candidate": candidate, "support": support, "ruled_out": ruled_out,
+                               "supporting": supporting, "unresolved": unresolved, "result": why}
+        return ok, supporting, unresolved, why, support, ruled_out
+
+    def answer_anyway(stop_reason, answers, rnd, observed):
+        """v2: the forced final answer, verified and labelled, never an abstention."""
+        h = rca._top(answers["best_explanation"])
+        v = rnd.get("verification") or {}
+        if v.get("candidate") == h:  # already verified this round
+            ok, supporting, unresolved = v["result"] == "verified", v["supporting"], v["unresolved"]
+            support, ruled_out = v["support"], v["ruled_out"]
+        else:
+            ok, supporting, unresolved, _, support, ruled_out = verify(h, observed, answers, rnd)
+        rnd["action"] = {"type": "answer", "hypothesis": h, "verified": ok}
+        finish("diagnosis", h, stop_reason, answers, supporting, support, ruled_out, unresolved, verified=ok)
+
     answers = None
     while True:
         if len(trace["rounds"]) >= max_rounds:
+            if policy == "v2" and answers is not None:
+                last = trace["rounds"][-1]
+                try:
+                    answer_anyway("round_budget_exhausted", answers, last,
+                                  trace["observed"][:last["checks_observed"]])
+                except Exception as e:
+                    trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
+                break
             finish("abstain", None, "round_budget_exhausted", answers)
             break
         observed = list(trace["observed"])
@@ -355,7 +429,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         try:
             resp, meta = call("round", round_payload(scenario, observed, jev_model))
             rnd["calls"].append(meta)
-            answers = parse_round(resp, scenario, observed)
+            answers = parse_round(resp, scenario, observed, warnings)
         except Exception as e:  # an infrastructure failure, not a diagnosis: no LLM fallback
             trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
             break
@@ -366,45 +440,46 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                                         "contradicted": answers["most_contradicted"]},
                                 "jev_error": None})
         checks_left = min(max_checks - len(observed), len(unrun_checks(scenario, observed)))
-        candidate, reason, conflicts = candidate_from(answers, len(observed))
+        candidate, reason, conflicts = candidate_from(answers, len(observed), policy)
         failed = None  # a candidate that failed verification this round
         if forced and not observed:
             candidate, reason = None, "forced first check"
         rnd["candidate"], rnd["reason"], rnd["conflicts"] = candidate, reason, conflicts
 
-        if candidate:
-            try:
-                payload, keys = verify_payload(scenario, observed, candidate, jev_model)
-                resp, meta = call("verify", payload)
-                rnd["calls"].append(meta)
-                support, ruled_out = parse_verify(resp, keys)
-            except Exception as e:
-                trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
-                break
-            ok, supporting, unresolved, why = verdict(candidate, support, ruled_out,
-                                                      answers["best_explanation"])
-            rnd["verification"] = {"support": support, "ruled_out": ruled_out, "supporting": supporting,
-                                   "unresolved": unresolved, "result": why}
-            rnd["reason"] = why
-            if ok:
-                rnd["action"] = {"type": "conclude", "hypothesis": candidate}
-                finish("diagnosis", candidate, "concluded", answers, supporting, support, ruled_out)
-                break
-            failed = {"tentative": candidate, "supporting": supporting, "support": support,
-                      "ruled_out": ruled_out, "unresolved": unresolved}
+        try:
+            if candidate:
+                ok, supporting, unresolved, why, support, ruled_out = verify(candidate, observed, answers, rnd)
+                rnd["reason"] = why
+                if ok:
+                    rnd["action"] = {"type": "conclude", "hypothesis": candidate}
+                    finish("diagnosis", candidate, "concluded" if policy == "v1" else "verified", answers,
+                           supporting, support, ruled_out, verified=True)
+                    break
+                failed = {"tentative": candidate, "supporting": supporting, "support": support,
+                          "ruled_out": ruled_out, "unresolved": unresolved}
 
-        if checks_left <= 0:
-            rnd["action"] = {"type": "abstain"}
-            finish("abstain", None, "check_budget_exhausted_unverified" if failed else "check_budget_exhausted",
-                   answers, **(failed or {}))
-            break
-        if forced and not observed:
-            pick = scenario["version_check"]  # harness-fixed, as in the LLM setups' forced mode
-        else:
-            pick = rca._top(answers["next_check"])
-        if pick == triage.NONE:
-            rnd["action"] = {"type": "abstain"}
-            finish("abstain", None, "no_useful_check", answers, **(failed or {}))
+            if checks_left <= 0:
+                if policy == "v2":
+                    answer_anyway("check_budget_exhausted", answers, rnd, observed)
+                    break
+                rnd["action"] = {"type": "abstain"}
+                finish("abstain", None,
+                       "check_budget_exhausted_unverified" if failed else "check_budget_exhausted",
+                       answers, **(failed or {}))
+                break
+            if forced and not observed:
+                pick = scenario["version_check"]  # harness-fixed, as in the LLM setups' forced mode
+            else:
+                pick = rca._top(answers["next_check"])
+            if pick == triage.NONE:
+                if policy == "v2":
+                    answer_anyway("no_useful_check", answers, rnd, observed)
+                    break
+                rnd["action"] = {"type": "abstain"}
+                finish("abstain", None, "no_useful_check", answers, **(failed or {}))
+                break
+        except Exception as e:  # a failed verification call: infrastructure, not diagnosis
+            trace["status"], trace["error"] = "jev_error", f"{type(e).__name__}: {e}"
             break
         # Validate: a real check on the menu, not run before. Code, not Jev, enforces this.
         if pick not in checks or pick in observed:
@@ -573,6 +648,7 @@ COMPARE_ROWS = [
     ("incorrect", "incorrect conclusion"),
     ("abstained", "abstained"),
     ("tentative", "abstained at budget, tentative pick right"),
+    ("verified", "answer verified before stopping (Jev)"),
     ("unfinished", "unfinished (no answer, no abstention)"),
     ("evidence_valid", "supported diagnosis (ID rubric)"),
     ("evidence_all_observed", "cited only checks it ran"),
@@ -630,6 +706,8 @@ def compare(traces, pricing):
             "incorrect": count(lambda r: r[1]["finished"] and not r[1]["correct_hypothesis"]),
             "abstained": count(lambda r: r[1]["abstained"]),
             "tentative": count(lambda r: r[1].get("tentative_correct")),
+            "verified": (count(lambda r: r[1].get("verified")) if any(r[1].get("verified") is not None for r in ok)
+                         else "-"),
             "unfinished": count(lambda r: not r[1]["finished"] and not r[1]["abstained"]),
             "evidence_valid": count(lambda r: r[1]["evidence_valid"]),
             "evidence_all_observed": count(lambda r: r[1]["evidence_all_observed"]),

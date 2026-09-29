@@ -610,6 +610,7 @@ def score_trial(trace, truth):
     out["abstained"] = bool(trace.get("abstained"))
     out["infra_failure"] = trace.get("status") in INFRA_STATUSES
     out["traps_run"] = len(set(observed) & set(truth["traps"]))
+    out["verified"] = (trace.get("diagnosis") or {}).get("verified") if trace["setup"] == AGENT_SETUP else None
     tentative = (trace.get("diagnosis") or {}).get("tentative_hypothesis")
     out["tentative_correct"] = (tentative == truth["hypothesis"]) if tentative else None
     out["explanation_mechanism"] = None
@@ -769,6 +770,9 @@ def main(argv=None):
                          "trial, not per model), or all (the three LLM setups)")
     ap.add_argument("--max-rounds", type=int,
                     help="jev-agent: decision rounds allowed (default: --max-checks + 1)")
+    ap.add_argument("--agent-policy", default="v2", choices=("v1", "v2"),
+                    help="jev-agent decision rule: v2 (default) always answers, like the LLM setups, "
+                         "and labels the answer verified or not; v1 abstains without a verified candidate")
     ap.add_argument("--explain-model", metavar="PROVIDER:MODEL",
                     help="jev-agent: after the diagnosis is frozen, have this LLM write an explanation "
                          "(recorded apart; it cannot change the diagnosis)")
@@ -901,7 +905,7 @@ def main(argv=None):
         if setup == AGENT_SETUP:
             trace = rca_jev_agent.run_agent_trial(
                 scenarios[name], ask_jev, args.forced, args.max_checks, args.max_rounds, args.jev_model,
-                clients[explain_spec] if explain_spec else None)
+                clients[explain_spec] if explain_spec else None, args.agent_policy)
             trace["explain_model"] = f"{explain_spec[0]}:{explain_spec[1]}" if explain_spec else None
         else:
             trace = run_trial(scenarios[name], setup, clients[(provider, model)],

@@ -90,6 +90,9 @@ def asked(jev):
 
 
 def run(jev=None, **kw):
+    # The tests below pin policy v1 (abstains without a verified candidate); class V2
+    # tests the default, v2, which always answers.
+    kw.setdefault("policy", "v1")
     return agent.run_agent_trial(SCENARIO, jev or FakeJev(), **kw)
 
 
@@ -202,6 +205,108 @@ class Investigation(unittest.TestCase):
         self.assertEqual(t["observed"][0], VCHECK)
         self.assertTrue(t["rounds"][0]["action"]["forced"])
         self.assertEqual(t["states"][0]["check"], None)  # Jev's prior before any check is kept
+
+
+class V2(unittest.TestCase):
+    """Policy v2: answers the way the LLM setups must, and says whether it verified."""
+
+    def v2(self, jev=None, **kw):
+        return agent.run_agent_trial(SCENARIO, jev or FakeJev(), policy="v2", **kw)
+
+    def test_default_policy_is_v2_and_recorded(self):
+        t = agent.run_agent_trial(SCENARIO, FakeJev(lead_p=0.95))
+        self.assertEqual((t["policy"], t["agent_version"]), ("v2", 2))
+        self.assertEqual(agent.run_agent_trial(SCENARIO, FakeJev(), policy="v1")["agent_version"], 1)
+        with self.assertRaises(ValueError):
+            agent.run_agent_trial(SCENARIO, FakeJev(), policy="v9")
+
+    def test_early_stop_needs_high_agreement_and_verification_not_enough_evidence(self):
+        # enough_evidence stays low (the v1 blocker); v2 stops once both rankings pass
+        # STOP_MIN and verification holds.
+        jev = FakeJev(lead_p=0.95, enough_after="never")
+        jev_sup = jev.__call__
+
+        def sure(payload):
+            resp, ms = jev_sup(payload)
+            if "supported" in resp["answers"] and "cron-history" in jev.observed(payload):
+                resp["answers"]["supported"] = choice(peaked([*HYPS, triage.NONE], CAUSE, 0.95))
+            return resp, ms
+        t = self.v2(sure)
+        d = t["diagnosis"]
+        self.assertEqual((d["hypothesis"], d["stop_reason"], d["verified"]), (CAUSE, "verified", True))
+        self.assertEqual(t["observed"], [VCHECK, "cron-history"])
+        # At 0.8 agreement (below STOP_MIN) it does not stop early.
+        answers = {"best_explanation": peaked(HYPS, CAUSE, 0.8), "supported": peaked([*HYPS, "none"], CAUSE, 0.95),
+                   "most_contradicted": peaked([*HYPS, "none"], "deploy"), "enough_evidence": 0.1}
+        self.assertIsNone(agent.candidate_from(answers, 2, "v2")[0])
+        answers["best_explanation"] = peaked(HYPS, CAUSE, 0.95)
+        self.assertEqual(agent.candidate_from(answers, 2, "v2")[0], CAUSE)
+        self.assertIsNone(agent.candidate_from(answers, 2, "v1")[0])  # v1 still wants enough_evidence
+
+    def test_out_of_checks_it_answers_anyway_and_labels_it_unverified(self):
+        jev = FakeJev(picks=list(SCENARIO["checks"]), supported_after="never", support_yes=())
+        t = self.v2(jev, max_checks=3)
+        d = t["diagnosis"]
+        self.assertEqual((d["decision"], d["hypothesis"]), ("diagnosis", CAUSE))
+        self.assertEqual((d["stop_reason"], d["verified"], d["evidence"]), ("check_budget_exhausted", False, []))
+        self.assertFalse(t["abstained"])
+        self.assertEqual(t["rounds"][-1]["calls"][-1]["kind"], "verify")  # the answer was checked
+        s = rca.score_trial(t, TRUTH)
+        self.assertTrue(s["finished"])
+        self.assertTrue(s["correct_hypothesis"])  # comparable with the LLMs' forced answer
+        self.assertFalse(s["verified"])
+        self.assertFalse(s["evidence_valid"])  # but it cited nothing, so no supported diagnosis
+
+    def test_no_useful_check_leads_to_a_verified_or_labelled_answer(self):
+        t = self.v2(FakeJev(picks=[VCHECK, "cron-history"], supported_after="never"))
+        d = t["diagnosis"]
+        self.assertEqual((d["stop_reason"], d["hypothesis"]), ("no_useful_check", CAUSE))
+        self.assertTrue(d["verified"])  # cron-history supports it and every alternative is ruled out
+        self.assertEqual(d["evidence"], ["cron-history"])
+        self.assertTrue(rca.score_trial(t, TRUTH)["evidence_valid"])
+
+    def test_a_wrong_answer_is_an_incorrect_conclusion(self):
+        t = self.v2(FakeJev(picks=[VCHECK], lead_after="never", supported_after="never"))
+        s = rca.score_trial(t, TRUTH)
+        self.assertEqual(t["final"]["hypothesis"], "deploy")
+        self.assertTrue(s["finished"])
+        self.assertFalse(s["correct_hypothesis"])
+
+    def test_a_choice_field_that_disagrees_is_recorded_not_fatal(self):
+        def odd(payload):
+            resp, ms = FakeJev()(payload)
+            nc = resp["answers"].get("next_check")
+            if nc:
+                nc["choice"] = next(k for k in nc["probabilities"] if k != nc["choice"])
+            return resp, ms
+        t = self.v2(odd)
+        self.assertEqual(t["status"], "ok")
+        self.assertTrue(t["warnings"] and "not the most probable" in t["warnings"][0])
+        self.assertEqual(run(odd)["status"], "jev_error")  # v1 unchanged
+
+    def test_round_budget_answers_from_the_last_evaluated_state(self):
+        t = self.v2(FakeJev(supported_after="never"), max_rounds=2)
+        self.assertEqual(t["diagnosis"]["stop_reason"], "round_budget_exhausted")
+        self.assertIsNotNone(t["final"])
+        self.assertEqual(len(t["rounds"]), 2)
+
+    def test_a_failed_final_verification_is_infrastructure(self):
+        good = FakeJev(picks=[VCHECK], supported_after="never")
+
+        def verify_down(payload):
+            if "best_explanation" not in payload["questions"]:
+                raise triage.JevError("timeout")
+            return good(payload)
+        t = self.v2(verify_down)
+        self.assertEqual(t["status"], "jev_error")
+        self.assertTrue(rca.score_trial(t, TRUTH)["infra_failure"])
+
+    def test_v1_and_v2_land_in_separate_columns(self):
+        base = {"model": f"jev:{triage.MODEL}", "scenario": "pool_etl_cron",
+                "scenario_digest": rca.scenario_digest(SCENARIO), "jev_model": triage.MODEL}
+        traces = [dict(run(), **base), dict(self.v2(), **base)]
+        table, _, _ = agent.compare(traces, {})
+        self.assertEqual(sorted(k.split("agent ")[-1] for k in table), ["v1]", "v2]"])
 
 
 class Budgets(unittest.TestCase):
