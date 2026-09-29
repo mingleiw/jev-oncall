@@ -78,10 +78,16 @@ import triage
 AGENT_SETUP = "jev-agent"
 # A policy is a decision rule; its version goes in every trace, and --compare never
 # pools versions. v1 is kept so its results stay reproducible; v2 is the default.
-POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4}
-DEFAULT_POLICY = "v4"
-ANSWERING = ("v2", "v3", "v4")  # policies that always answer, like the LLM setups
-CHALLENGE_MIN = 0.5  # v4: a leader at least this strong gets a challenge check
+POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4, "v5": 5}
+DEFAULT_POLICY = "v5"
+ANSWERING = ("v2", "v3", "v4", "v5")  # policies that always answer, like the LLM setups
+CHALLENGE = ("v4", "v5")  # policies that challenge the leading hypothesis
+CHALLENGE_MIN = 0.5  # a leader at least this strong gets a challenge check
+# Policies whose verification lets an alternative count as ruled out once the current
+# ranking pushes it under PLAUSIBLE_MIN. v1 and v2 by design; v4 by mistake (its code
+# kept a `policy == "v3"` test, so it verified under v2's rule), kept so its recorded
+# run reproduces. Every other policy, including any new one, uses the strict rule.
+OUTRANKED_IS_RULED_OUT = ("v1", "v2", "v4")
 AGENT_VERSION = POLICIES[DEFAULT_POLICY]
 
 # Decision thresholds. Chosen before any live run and not tuned on the scenarios.
@@ -183,7 +189,7 @@ def round_payload(scenario, observed, model=None, policy=None):
     unrun = unrun_checks(scenario, observed)
     if unrun:
         questions["next_check"] = {"type": "choice",
-                                   "instructions": NEXT_Q + (INFORMATIVE if policy == "v4" else ""),
+                                   "instructions": NEXT_Q + (INFORMATIVE if policy in CHALLENGE else ""),
                                    "criteria": {**unrun, triage.NONE: NO_USEFUL_CHECK}}
     return {"model": model or triage.MODEL, "state": visible_state(scenario, observed),
             "questions": questions}
@@ -367,10 +373,13 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     cannot abstain either, so the headline "correct cause" compares like with like,
     and "verified" is reported beside it.
 
-    policy "v4": v3, plus a guard against anchoring: once a hypothesis leads at
+    policy "v5": v3, plus a guard against anchoring: once a hypothesis leads at
     CHALLENGE_MIN or more, a separate request asks which unrun check could show it
     wrong (or show a competitor directly), and that check is run; and one generic
     sentence about informative checks in the check questions.
+
+    policy "v4": what v5 was meant to be, as it actually ran: the same challenge, but
+    by mistake verified under v2's weaker rule (see OUTRANKED_IS_RULED_OUT).
 
     policy "v3": v2, except that verification must rule out every alternative that
     was plausible at any point (its peak best_explanation >= PLAUSIBLE_MIN, from
@@ -390,7 +399,11 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     warnings = [] if policy in ANSWERING else None
     peak = {}  # v3: each hypothesis's highest best_explanation so far
     trace = {"setup": AGENT_SETUP, "agent_version": POLICIES[policy], "policy": policy,
-             "warnings": warnings if warnings is not None else [], "forced": forced, "status": "ok",
+             # Which alternatives verification must rule out: every one that was ever
+             # plausible ("ever_plausible"), or only those still plausible now ("current").
+             "verify_rule": "current" if policy in OUTRANKED_IS_RULED_OUT else "ever_plausible",
+             "challenge": policy in CHALLENGE,
+             "warnings":warnings if warnings is not None else [], "forced": forced, "status": "ok",
              "states": [], "observed": [], "rounds": [], "final": None, "abstained": False,
              "diagnosis": None, "diagnosis_digest": None, "explanation": None, "error": None,
              "budgets": {"max_checks": max_checks, "max_rounds": max_rounds},
@@ -443,7 +456,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
         rnd["calls"].append(meta)
         support, ruled_out = parse_verify(resp, keys)
         ok, supporting, unresolved, why = verdict(candidate, support, ruled_out, answers["best_explanation"],
-                                                  dict(peak) if policy == "v3" else None)
+                                                  None if policy in OUTRANKED_IS_RULED_OUT else dict(peak))
         rnd["verification"] = {"candidate": candidate, "support": support, "ruled_out": ruled_out,
                                "supporting": supporting, "unresolved": unresolved, "result": why}
         return ok, supporting, unresolved, why, support, ruled_out
@@ -525,7 +538,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
             else:
                 pick = rca._top(answers["next_check"])
                 leader = rca._top(answers["best_explanation"])
-                if policy == "v4" and answers["best_explanation"][leader] >= CHALLENGE_MIN:
+                if policy in CHALLENGE and answers["best_explanation"][leader] >= CHALLENGE_MIN:
                     # Guard against anchoring: once something leads, look for the check that
                     # could overturn it, not one that only fits it.
                     resp, meta = call("challenge", challenge_payload(scenario, observed, leader, jev_model))
