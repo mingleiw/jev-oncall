@@ -219,9 +219,10 @@ The traces, comparison and sample evidence reports are in
 | Verified | 5/60 | 5/60 | 8/60 | 3/60 |
 
 **Where v6 still falls short:**
-- **Wrong service, 12 cases.** 10 are network faults (delay or packet loss), where Jev
-  blamed a neighbour: a service's database instead of the service, or a caller
-  instead of the callee. 2 are the cases whose cause was not among the suspects.
+- **Wrong service, 12 cases.** 10 are network faults (delay or packet loss). In 8 of
+  them Jev blamed a neighbour: a service's database instead of the service, or a
+  caller instead of the callee. In the other 2, the cause was not among the suspects.
+  The remaining 2 are a disk fault and a socket fault.
 - **Right service, no supporting evidence, 18 cases.** 15 are disk faults. Jev rarely
   picks a service's disk check.
 - **Rarely verified.** 112 of 120 investigations used the whole budget, mostly with 1
