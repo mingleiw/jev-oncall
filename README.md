@@ -90,6 +90,11 @@ calls, latency, tokens and cost side by side, and never pools different run
 conditions. [guide/rca.md](guide/rca.md) covers the scenarios, the three setups, the
 Jev agent's questions and decision rule, the metrics, and every command.
 
+**Next: recorded incidents.** [guide/rca-recorded.md](guide/rca-recorded.md) runs
+the same setups on faults recorded in RCAEval's microservice systems. There, code
+generates the suspects and checks from telemetry, nothing is written by hand, and the
+test split is preregistered. Results will be added when it has run.
+
 ## Alert triage
 
 Each production alert gets one Jev call with four typed questions. Jev returns
@@ -198,7 +203,7 @@ thresholds, and a measured latency run.
 ## Development
 
 ```
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca test_rca_agent
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca test_rca_agent test_rca_recorded
 ```
 
 Tests use a fake Jev with canned probabilities and scripted models: no API key, no network.
@@ -218,6 +223,7 @@ are a good place to start.
 | [build_demo.py](build_demo.py) | Builds the interactive demo in `docs/demo/` |
 | [rca_experiment.py](rca_experiment.py) | RCA benchmark: LLM setups, scoring, `--compare` and the CLI ([guide](guide/rca.md)) |
 | [rca_jev_agent.py](rca_jev_agent.py) | The `jev-agent` setup: Jev investigates, code decides |
+| [rca_recorded.py](rca_recorded.py) | Builds scenarios from recorded incidents (RCAEval), with generated suspects and checks ([guide](guide/rca-recorded.md)) |
 | [rca_report.py](rca_report.py) | Renders RCA results as a leaderboard page |
 | [rca_scenarios/](rca_scenarios) | The incidents, each with a truth file the investigator never sees |
 | [rca_results/](rca_results) | Raw traces and reports from every run |
