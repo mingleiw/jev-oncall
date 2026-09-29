@@ -959,4 +959,8 @@ def _main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Run the importable module's main, not this __main__ copy: rca_jev_agent and
+    # rca_report import rca_experiment by name, and --scenario-dir must change the
+    # SCENARIO_DIR they read, not a second copy of it.
+    import rca_experiment
+    sys.exit(rca_experiment.main())
