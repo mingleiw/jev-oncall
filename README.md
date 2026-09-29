@@ -2,10 +2,88 @@
 
 [![CI](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml/badge.svg)](https://github.com/mingleiw/jev-oncall/actions/workflows/ci.yml)
 
-Open-source alert triage with [Jev](https://typesafe.ai), TypeSafe's System One decision model.
+On-call tooling built on [Jev](https://typesafe.ai), TypeSafe's System One decision model,
+with one rule throughout: **the model judges, plain code decides.** Jev answers narrow,
+typed questions with probabilities; auditable code turns them into actions.
+
+Two parts:
+
+- **[Root-cause analysis](#root-cause-analysis)** (current focus): can Jev find why an
+  outage happened, with no LLM in the loop? An open benchmark of outages adapted from
+  public postmortems, with every trace committed.
+- **[Alert triage](#alert-triage)**: route each production alert (page, review, ticket
+  or drop) and link symptoms to their cause. A working server with a live demo.
+
+## Root-cause analysis
+
+When something breaks, the first suspect (a recent deploy, an apparent attack, a
+provider outage) is often wrong, and investigators anchor on it. The benchmark gives an
+investigator a frozen incident, a list of hypotheses and a menu of diagnostic checks.
+It runs checks one at a time and names the cause. Answers live in truth files the
+investigator never sees.
+
+Three ways to investigate the same incidents:
+
+| Setup | Who picks checks and names the cause |
+| --- | --- |
+| `alone` | An LLM |
+| `jev` | An LLM, shown Jev's scores of every hypothesis after each check |
+| `jev-agent` | **Jev and code, no LLM.** Jev answers bounded questions (which hypothesis the evidence supports, which check next, whether each alternative is ruled out); code picks the action, enforces budgets, and verifies before stopping |
+
+### Results so far
+
+Five outages adapted from public postmortems (Cloudflare ×2, Roblox, Datadog, Slack),
+free choice of checks, at most 6 per trial, 25 trials per system:
+
+| | Correct cause | Supported diagnosis | Checks | Seconds per trial | LLM calls |
+| --- | --- | --- | --- | --- | --- |
+| DeepSeek V4.1 Flash alone | 25/25 | 23/25 | 4.8 | 89 | ≥5.8 |
+| DeepSeek + Jev | 24/24 | 24/24 | 3.9 | 88 | ≥4.9 |
+| GLM-5.3 alone | 25/25 | 25/25 | 4.2 | 84 | ≥5.2 |
+| GLM-5.3 + Jev | 25/25 | 25/25 | 3.8 | 137 | ≥4.8 |
+| **Jev investigates (no LLM)** | **24/25** | **24/25** | **4.4** | **1.2** | **0** |
+
+- **Jev alone** matches the LLMs within one trial, about 70–110× faster, at about
+  $0.0006 per trial in Jev calls. It cited no failed or empty query as evidence.
+- **Every answer it marked verified was right**: 24 of 24 across the hard and
+  held-out sets. Verified means every alternative that ever looked plausible was ruled
+  out by a specific result.
+- **Held out**: 15/15 correct on three hand-written scenarios not used to set its
+  thresholds (though a trace there exposed the flaw v3 fixed).
+- **Helping an LLM**, Jev cut checks by 10–19% at the same accuracy.
+
+"Supported diagnosis" is scored on check IDs, the same way for every setup: the right
+cause, citing only checks actually run, no failed query, and at least one check that
+shows the mechanism. LLM calls are lower bounds: those runs predate call counting.
+
+**Limits.** The telemetry is written, not recorded, and each scenario has one cause.
+Two LLM baselines so far, both on free tiers. Jev's decision rule was revised twice
+after seeing results (v1 abstained too often; v2's "verified" was too loose); v3 only
+made verification stricter. Traces for every run, including the failed versions, are in
+[rca_results/](rca_results).
+
+### Run it
+
+```
+python3 rca_experiment.py --dry-run --setup alone,jev,jev-agent      # prompts, payloads, plan; no keys
+export TYPESAFE_API_KEY=...                                          # Jev
+python3 rca_experiment.py --setup jev-agent --trials 5 --out jev.jsonl
+python3 rca_experiment.py --models openai:<model> --setup alone,jev --trials 5 --out llm.jsonl
+python3 rca_experiment.py --compare llm.jsonl jev.jsonl --html compare.html
+```
+
+`--setup jev-agent` needs only `TYPESAFE_API_KEY`. LLM setups need a key for each
+model, or `OPENAI_BASE_URL` for any OpenAI-compatible server, including free and local
+ones. `--compare` reports correct cause, verification, supported diagnosis, checks,
+calls, latency, tokens and cost side by side, and never pools different run
+conditions. [guide/rca.md](guide/rca.md) covers the scenarios, the three setups, the
+Jev agent's questions and decision rule, the metrics, and every command.
+
+## Alert triage
+
 Each production alert gets one Jev call with four typed questions. Jev returns
-probabilities, and plain, auditable code turns them into routing decisions. Jev never
-pages anyone. It only judges.
+probabilities, and plain code turns them into routing decisions. Jev never pages
+anyone. It only judges.
 
 **[Live demo](https://mingleiw.github.io/jev-oncall/demo/)** ·
 [Website](https://mingleiw.github.io/jev-oncall/) ·
@@ -17,7 +95,7 @@ The demo replays a real jev-1.13.0 run over 8 staged alerts. Watch alert #5: P(p
 is 1.00, but Jev links it to the checkout incident, which another team owns, so it goes
 to human review instead of paging a second team.
 
-## Try it in five minutes
+### Try it in five minutes
 
 The demo runs Prometheus, Alertmanager and jev-oncall with Docker Compose. Prometheus
 fires a staged incident over the first minute, Alertmanager delivers it to jev-oncall,
@@ -51,7 +129,7 @@ Open <http://localhost:8090/dashboard>. All 8 alerts arrive within a minute:
 Stop with Ctrl+C, then `docker compose down`. What to look for, troubleshooting, and
 running without Docker are in [guide/demo.md](guide/demo.md).
 
-## How it works
+### How it works
 
 ![The jev-oncall server pipeline: alerts pass through seven steps. Only step 4 calls Jev; if it fails, the alert is routed by its configured severity.](docs/architecture.png)
 
@@ -79,7 +157,7 @@ that pages once, but a link can never silence another team: it gets a REVIEW ins
 Details, including the dedup graph and failure handling, are in
 [guide/design.md](guide/design.md).
 
-## Use it with your alerts
+### Use it with your alerts
 
 Python 3.11+, standard library only, or the Docker image.
 
@@ -106,29 +184,13 @@ clock, shadow mode, webhook signing and each provider's mapping.
 [guide/evaluation.md](guide/evaluation.md) covers replaying labeled history, choosing
 thresholds, and a measured latency run.
 
-## RCA experiment
-
-When a deploy looks guilty and the next query clears it, does an agent change course?
-`rca_experiment.py` runs any model on frozen incidents, alone and with Jev re-scoring
-every hypothesis after each check, and writes a ranked leaderboard page.
-
-```
-python3 rca_experiment.py --dry-run                          # the prompts and plan; no keys
-python3 rca_experiment.py --check --models anthropic:claude-opus-5
-python3 rca_experiment.py --models anthropic:claude-opus-5 --trials 5 --forced --html rca_report.html
-```
-
-It needs a key for each model you test (or none, for a model you run yourself) and
-`TYPESAFE_API_KEY` for the "+ Jev" rows. [guide/rca.md](guide/rca.md) covers the
-scenarios, the metrics, and running it on free or local models.
-
 ## Development
 
 ```
-python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca
+python3 -m unittest test_triage test_server test_dashboard test_config test_shadow test_live test_reviews test_rca test_rca_agent
 ```
 
-Tests use a fake Jev with canned probabilities: no API key, no network.
+Tests use a fake Jev with canned probabilities and scripted models: no API key, no network.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the rules that keep paging safe, and
 how to add a provider. The
 [good first issues](https://github.com/mingleiw/jev-oncall/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
@@ -143,7 +205,11 @@ are a good place to start.
 | [generate_dashboard.py](generate_dashboard.py) | Renders decisions as the HTML dashboard |
 | [jev-oncall.example.toml](jev-oncall.example.toml) | Every setting with its default |
 | [build_demo.py](build_demo.py) | Builds the interactive demo in `docs/demo/` |
-| [rca_experiment.py](rca_experiment.py) | RCA experiment: does an agent change direction, alone vs with Jev? ([guide](guide/rca.md)) |
-| [rca_report.py](rca_report.py) | Renders RCA results as a ranked leaderboard page |
+| [rca_experiment.py](rca_experiment.py) | RCA benchmark: LLM setups, scoring, `--compare` and the CLI ([guide](guide/rca.md)) |
+| [rca_jev_agent.py](rca_jev_agent.py) | The `jev-agent` setup: Jev investigates, code decides |
+| [rca_report.py](rca_report.py) | Renders RCA results as a leaderboard page |
+| [rca_scenarios/](rca_scenarios) | The incidents, each with a truth file the investigator never sees |
+| [rca_results/](rca_results) | Raw traces and reports from every run |
+| [rca_pricing.json](rca_pricing.json) | Token prices for `--compare` costs |
 | [demo/](demo) | The Docker Compose demo |
 | [docs/](docs) | The website, served by GitHub Pages |
