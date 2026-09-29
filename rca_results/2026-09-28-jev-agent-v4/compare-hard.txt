@@ -1,0 +1,27 @@
+
+Investigator comparison (infrastructure failures excluded from every rate)
+                                            Jev investigates (jev-1.13.0) [free, 6 checks, 7 rounds, agent v3]  Jev investigates (jev-1.13.0) [free, 6 checks, 7 rounds, agent v4]
+  trials                                                                                                    25                                                                  25
+  infrastructure failures                                                                                    0                                                                   0
+  correct cause                                                                                          24/25                                                               25/25
+  incorrect conclusion                                                                                    1/25                                                                0/25
+  abstained                                                                                               0/25                                                                0/25
+  abstained at budget, tentative pick right                                                                0/25                                                                0/25
+  answer verified before stopping (Jev)                                                                  14/25                                                               25/25
+  unfinished (no answer, no abstention)                                                                   0/25                                                                0/25
+  supported diagnosis (ID rubric)                                                                        24/25                                                               25/25
+  cited only checks it ran                                                                               25/25                                                               25/25
+  failed/empty queries run                                                                                0.28                                                                0.00
+  failed/empty queries cited                                                                              0/25                                                                0/25
+  mean checks used                                                                                        4.40                                                                3.88
+  mean LLM calls                                                                                           0.0                                                                 0.0
+  mean Jev calls                                                                                           7.0                                                                 9.2
+  mean seconds per trial                                                                                   1.2                                                                 2.0
+  mean LLM tokens in/out                                                                                   0/0                                                                 0/0
+  mean Jev tokens in/out                                                                            13988/2033                                                          16445/2197
+  mean $ per trial                                                                                     0.00059                                                             0.00069
+  explained mechanism (text)                                                                                 -                                                                   -
+  explanation: s / $ / disagreed                                                                             -                                                                   -
+
+  Same scenarios, scenario digests, mode, check budget and harness version in every column.
+wrote rca_results/2026-09-28-jev-agent-v4/compare-hard.html

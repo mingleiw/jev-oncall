@@ -1,0 +1,31 @@
+NOTE — v4 verification-rule bug (found 2026-09-28, after this run)
+
+Policy v4 was designed as "v3, plus a challenge check" (guide/rca.md: "adds two
+things and changes nothing else"). But rca_jev_agent.py line 446 reads:
+
+    verdict(candidate, support, ruled_out, answers["best_explanation"],
+            dict(peak) if policy == "v3" else None)
+
+The v4 commit never updated the `policy == "v3"` condition, so under v4 `verdict`
+gets peak=None and falls back to the weaker v2 rule: an alternative counts as
+ruled out once the *current* ranking pushes it under 0.1, instead of v3's rule
+(an alternative plausible at *any* point, by peak best_explanation, must be
+ruled out by a specific result at P >= 0.5).
+
+Impact on THIS run's numbers (main @ ab28747, 2026-09-28):
+
+- Correct cause: unaffected. 25/25 hard, 15/15 heldout stand as measured.
+- Dead-end checks: unaffected (0.00 vs v3's 0.28/0.33). The challenge check and
+  the informative-checks sentence — v4's actual features — work.
+- "Answer verified before stopping (Jev)": INFLATED. Recomputing each trial's
+  verification with the intended v3 rule (peak from the recorded round states):
+    hard:    25/25 as labelled -> 12/25 under the v3 rule
+    heldout: 12/15 as labelled ->  0/15 under the v3 rule
+  (v3 measured 14/25 and 10/15 on the same scenarios.)
+- "Supported diagnosis (ID rubric)": unaffected by the bug (it doesn't use the
+  verified flag), but note heldout dropped 15/15 -> 10/15 because v4 stops
+  earlier and cites thinner evidence (e.g. pool_lock_batch cites only
+  connection_lifecycle, not a mechanism check).
+
+Do not compare this run's "verified" row with v3's. Fix: pass peak for v4 too
+(`policy in ("v3", "v4")`), then rerun.
