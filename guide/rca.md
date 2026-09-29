@@ -378,9 +378,61 @@ python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free
     --html rca_results/<date>-jev-agent/compare.html
 ```
 
+### Policy v2: answer the way the LLMs must
+
+The first full run used policy v1 on the five hard scenarios (2026-09-28, 25
+trials). It was never wrong, but it committed in only 7 of 24 trials and abstained
+in 17. In 15 of those 17, Jev's top pick was the true cause at 0.98 or more, and
+`supported` agreed. The `enough_evidence` answer peaked at 0.45–0.69, under v1's
+0.7 bar, so verification never ran. v1 also isn't comparable with the LLM setups,
+which can't abstain: an LLM out of checks is told to finish, and it always names a
+cause.
+
+v2 (`--agent-policy v2`, the default; v1 stays available) changes only the decision
+rule. The questions, thresholds for evidence and ruling out, budgets and what Jev
+sees are unchanged:
+
+1. **Stop early** only on a verified candidate, as in v1. A candidate now needs
+   `best_explanation` and `supported` to agree with both at 0.9 or more, instead of
+   `enough_evidence` ≥ 0.7. `enough_evidence` is still asked and recorded, but it no
+   longer gates anything.
+2. **Otherwise answer anyway**, like an LLM that runs out of checks. This happens
+   when checks run out, when Jev judges no remaining check useful, or when rounds
+   run out. The answer is `best_explanation`'s top pick. It is verified (one more
+   Jev call if it wasn't verified that round) and labelled `verified: true/false`.
+   Its supporting evidence is whatever verification accepted, which may be none.
+3. **A `choice` field that disagrees with its probabilities** is logged in `warnings`,
+   and code acts on the probabilities. In v1 that ended one trial as `jev_error`.
+
+This makes the comparison with the LLMs like for like:
+
+- **Correct cause:** every setup gives one answer per trial.
+- **Supported diagnosis:** the ID rubric works the same way for every setup. An
+  unverified answer with no accepted evidence fails it.
+- **Verified (Jev only):** how often Jev had checked its answer before giving it.
+  The LLMs have no equivalent.
+- **Effort:** checks, calls, seconds, tokens and cost.
+
+**Honest caveat.** v2 was designed after reading the v1 results on those five
+scenarios, and the 0.9 bar sits below the values Jev reached there. They aren't a
+clean test of v2. Run it on all eight scenarios and report the three hand-written
+ones (`pool_etl_cron`, `pool_lock_batch`, `product_cache_partial`) separately, as the
+held-out check. v1 and v2 traces never share a column in `--compare`.
+
+```
+A=edge_rule_regex,feature_file_flap,gateway_holiday_surge,host_patch_routes,registry_contention
+H=pool_etl_cron,pool_lock_batch,product_cache_partial
+R=rca_results/<date>-jev-agent-v2 && mkdir -p $R
+python3 rca_experiment.py --setup jev-agent --scenarios $A --trials 5 --out $R/hard.jsonl --html $R/hard.html
+python3 rca_experiment.py --setup jev-agent --scenarios $H --trials 5 --out $R/heldout.jsonl --html $R/heldout.html
+python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free.jsonl \
+    rca_results/2026-09-28-v4-glm-hard/free.jsonl $R/hard.jsonl --html $R/compare.html
+```
+
 Limits specific to this mode:
 
-- The thresholds are judgment calls, not fitted values.
+- The thresholds are judgment calls, not fitted values. v2's early-stop bar was
+  set after seeing v1's results; see the caveat above.
 - A frozen menu favours a picker. Jev can't write a query the menu lacks, and
   neither can the LLMs here.
 - The `next_check` answer is judged from check descriptions, and the check names
