@@ -78,9 +78,10 @@ import triage
 AGENT_SETUP = "jev-agent"
 # A policy is a decision rule; its version goes in every trace, and --compare never
 # pools versions. v1 is kept so its results stay reproducible; v2 is the default.
-POLICIES = {"v1": 1, "v2": 2, "v3": 3}
-DEFAULT_POLICY = "v3"
-ANSWERING = ("v2", "v3")  # policies that always answer, like the LLM setups
+POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4}
+DEFAULT_POLICY = "v4"
+ANSWERING = ("v2", "v3", "v4")  # policies that always answer, like the LLM setups
+CHALLENGE_MIN = 0.5  # v4: a leader at least this strong gets a challenge check
 AGENT_VERSION = POLICIES[DEFAULT_POLICY]
 
 # Decision thresholds. Chosen before any live run and not tuned on the scenarios.
@@ -108,6 +109,20 @@ NEXT_Q = ("Which of these checks, none of which has been run yet, would best dis
           "description says it measures; its result is not known. Pick 'none' only if no remaining "
           "check could change which hypothesis is best supported.")
 NO_USEFUL_CHECK = "None of the remaining checks could change which hypothesis is best supported"
+# v4 adds one generic sentence about informativeness to NEXT_Q (v3 wasted a check on a
+# search that came back empty in 12 of 40 trials). It names no check type: code never
+# down-ranks checks by how their description is worded, which would fit how this
+# benchmark's traps happen to be written.
+INFORMATIVE = (" Prefer a check whose likely results would clearly move the ranking either way; a "
+               "broad search that may come back empty or time out usually tells you little.")
+# v4: asked in its own request after the round, because it names the round's leader.
+# v3 anchored on a second wrong suspect for 3+ checks in 3 of 40 trials (1 wrong answer).
+CHALLENGE_Q = ("Hypothesis `{h}` currently leads: {desc}\nWhich of these checks, none of which has been "
+               "run yet, would most likely show that `{h}` is wrong if it is wrong, or directly show the "
+               "change or failure that a competing hypothesis names? Judge each check only by what its "
+               "description says it measures; its result is not known." + INFORMATIVE +
+               " Pick 'none' only if no remaining check could do either.")
+NO_CHALLENGE = "No remaining check could show the leading hypothesis wrong or show a competitor directly"
 SUPPORT_Q = ("Proposed root cause: `{h}`: {desc}\nDoes the observed result of the check `{c}` directly "
              "support this root cause? Yes only if that result shows the change, failure or mechanism "
              "that this hypothesis names. No if it is only consistent with it, only rules out another "
@@ -153,7 +168,7 @@ def unrun_checks(scenario, observed):
     return {c: v["description"] for c, v in scenario["checks"].items() if c not in observed}
 
 
-def round_payload(scenario, observed, model=None):
+def round_payload(scenario, observed, model=None, policy=None):
     """The batched per-round request. Every question is about the same state; none
     depends on another's answer."""
     hyps = dict(scenario["hypotheses"])
@@ -167,10 +182,21 @@ def round_payload(scenario, observed, model=None):
     }
     unrun = unrun_checks(scenario, observed)
     if unrun:
-        questions["next_check"] = {"type": "choice", "instructions": NEXT_Q,
+        questions["next_check"] = {"type": "choice",
+                                   "instructions": NEXT_Q + (INFORMATIVE if policy == "v4" else ""),
                                    "criteria": {**unrun, triage.NONE: NO_USEFUL_CHECK}}
     return {"model": model or triage.MODEL, "state": visible_state(scenario, observed),
             "questions": questions}
+
+
+def challenge_payload(scenario, observed, leader, model=None):
+    """v4's dependent request: which unrun check could overturn the leader."""
+    unrun = unrun_checks(scenario, observed)
+    return {"model": model or triage.MODEL, "state": visible_state(scenario, observed),
+            "questions": {"challenge_check": {
+                "type": "choice",
+                "instructions": CHALLENGE_Q.format(h=leader, desc=scenario["hypotheses"][leader]),
+                "criteria": {**unrun, triage.NONE: NO_CHALLENGE}}}}
 
 
 def usable_evidence(scenario, observed):
@@ -341,6 +367,11 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
     cannot abstain either, so the headline "correct cause" compares like with like,
     and "verified" is reported beside it.
 
+    policy "v4": v3, plus a guard against anchoring: once a hypothesis leads at
+    CHALLENGE_MIN or more, a separate request asks which unrun check could show it
+    wrong (or show a competitor directly), and that check is run; and one generic
+    sentence about informative checks in the check questions.
+
     policy "v3": v2, except that verification must rule out every alternative that
     was plausible at any point (its peak best_explanation >= PLAUSIBLE_MIN, from
     before the first check on), not only those still plausible now.
@@ -447,7 +478,7 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                "conflicts": [], "candidate": None, "verification": None, "action": None, "reason": None}
         trace["rounds"].append(rnd)
         try:
-            resp, meta = call("round", round_payload(scenario, observed, jev_model))
+            resp, meta = call("round", round_payload(scenario, observed, jev_model, policy))
             rnd["calls"].append(meta)
             answers = parse_round(resp, scenario, observed, warnings)
         except Exception as e:  # an infrastructure failure, not a diagnosis: no LLM fallback
@@ -493,6 +524,20 @@ def run_agent_trial(scenario, ask_jev, forced=False, max_checks=rca.MAX_CHECKS, 
                 pick = scenario["version_check"]  # harness-fixed, as in the LLM setups' forced mode
             else:
                 pick = rca._top(answers["next_check"])
+                leader = rca._top(answers["best_explanation"])
+                if policy == "v4" and answers["best_explanation"][leader] >= CHALLENGE_MIN:
+                    # Guard against anchoring: once something leads, look for the check that
+                    # could overturn it, not one that only fits it.
+                    resp, meta = call("challenge", challenge_payload(scenario, observed, leader, jev_model))
+                    rnd["calls"].append(meta)
+                    try:
+                        challenge = _choice(resp["answers"], "challenge_check",
+                                            [*unrun_checks(scenario, observed), triage.NONE], warnings)
+                    except (KeyError, TypeError, ValueError, AttributeError) as e:
+                        raise triage.JevError(f"malformed response ({type(e).__name__}: {e})") from e
+                    rnd["challenge"] = {"leader": leader, "answers": challenge}
+                    if rca._top(challenge) != triage.NONE:
+                        pick = rca._top(challenge)
             if pick == triage.NONE:
                 if policy in ANSWERING:
                     answer_anyway("no_useful_check", answers, rnd, observed)

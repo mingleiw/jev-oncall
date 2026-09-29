@@ -46,11 +46,13 @@ class FakeJev:
 
     def __init__(self, picks=(VCHECK, "cron-history", "active-queries"), lead_after=VCHECK,
                  supported_after="cron-history", enough_after="cron-history",
-                 support_yes=("cron-history", "active-queries"), ruled_out="all", enough_p=0.85, lead_p=0.8):
+                 support_yes=("cron-history", "active-queries"), ruled_out="all", enough_p=0.85, lead_p=0.8,
+                 challenge=None):
         self.picks, self.lead_after = list(picks), lead_after
         self.supported_after, self.enough_after = supported_after, enough_after
         self.support_yes, self.ruled_out, self.enough_p = set(support_yes), ruled_out, enough_p
         self.lead_p = lead_p
+        self.challenge = challenge  # v4: checks the challenge question picks; None = same as picks
         self.payloads = []
 
     def observed(self, payload):
@@ -72,6 +74,11 @@ class FakeJev:
                 offered = list(q["next_check"]["criteria"])
                 pick = next((c for c in self.picks if c in offered), triage.NONE)
                 answers["next_check"] = choice(peaked(offered, pick))
+        elif "challenge_check" in q:
+            offered = list(q["challenge_check"]["criteria"])
+            order = self.picks if self.challenge is None else self.challenge
+            pick = next((c for c in order if c in offered), triage.NONE)
+            answers = {"challenge_check": choice(peaked(offered, pick))}
         else:
             answers = {}
             for key, question in q.items():
@@ -326,10 +333,10 @@ class V3(unittest.TestCase):
             return resp, ms
         return ask
 
-    def test_default_policy_is_v3(self):
-        t = agent.run_agent_trial(SCENARIO, FakeJev())
+    def test_v3_is_recorded(self):
+        t = agent.run_agent_trial(SCENARIO, FakeJev(), policy="v3")
         self.assertEqual((t["policy"], t["agent_version"]), ("v3", 3))
-        self.assertEqual(agent.DEFAULT_POLICY, "v3")
+        self.assertFalse(any(c["kind"] == "challenge" for r in t["rounds"] for c in r["calls"]))
 
     def test_outranking_the_initial_suspect_is_not_ruling_it_out(self):
         # Regression for the v2 run: after one check the ranking put ~1.0 on the cause,
@@ -355,6 +362,78 @@ class V3(unittest.TestCase):
         args = (CAUSE, {"cron-history": 0.9}, {"deploy": 0.2}, {CAUSE: 0.99, "deploy": 0.01})
         self.assertTrue(agent.verdict(*args)[0])  # v1/v2: outranked, so exempt
         self.assertFalse(agent.verdict(*args, peak={CAUSE: 0.99, "deploy": 0.8})[0])
+
+
+class V4(unittest.TestCase):
+    """Policy v4: once a hypothesis leads, run the check that could overturn it."""
+
+    def test_default_policy_is_v4(self):
+        self.assertEqual(agent.DEFAULT_POLICY, "v4")
+        t = agent.run_agent_trial(SCENARIO, FakeJev())
+        self.assertEqual((t["policy"], t["agent_version"]), ("v4", 4))
+
+    def test_a_leader_gets_challenged_and_the_challenge_pick_is_run(self):
+        # next_check keeps pointing at the leader's confirmations; the challenge question
+        # points at the check that could show it wrong. v4 runs the challenge pick.
+        jev = FakeJev(picks=[VCHECK, "pool-metrics", "cron-history"], lead_after=VCHECK,
+                      challenge=["active-queries"], supported_after="never")
+        t = agent.run_agent_trial(SCENARIO, jev, policy="v4")
+        first = t["rounds"][0]
+        # Before any evidence the suspect everyone starts with leads, so it is challenged first.
+        self.assertEqual(first["challenge"]["leader"], "deploy")
+        self.assertEqual(first["action"]["check"], "active-queries")  # the challenge pick, not next_check's
+        self.assertEqual([c["kind"] for c in first["calls"]], ["round", "challenge"])
+        v3 = agent.run_agent_trial(SCENARIO, FakeJev(picks=[VCHECK, "pool-metrics", "cron-history"],
+                                                     lead_after=VCHECK, supported_after="never"), policy="v3")
+        self.assertEqual(v3["observed"][0], VCHECK)  # v3 follows next_check
+
+    def test_no_challenge_without_a_clear_leader(self):
+        jev = FakeJev(lead_p=0.3, supported_after="never")  # top best_explanation 0.3 < CHALLENGE_MIN
+        t = agent.run_agent_trial(SCENARIO, jev, policy="v4")
+        self.assertFalse(any(r.get("challenge") for r in t["rounds"]))
+
+    def test_a_none_challenge_falls_back_to_next_check(self):
+        jev = FakeJev(picks=[VCHECK, "cron-history"], challenge=[], supported_after="never")
+        t = agent.run_agent_trial(SCENARIO, jev, policy="v4", max_checks=2)
+        self.assertEqual(t["observed"], [VCHECK, "cron-history"])
+
+    def test_challenge_payload_names_the_leader_and_offers_only_unrun_checks(self):
+        p = agent.challenge_payload(SCENARIO, [VCHECK], CAUSE)
+        q = p["questions"]["challenge_check"]
+        self.assertIn(f"`{CAUSE}`", q["instructions"])
+        self.assertNotIn(VCHECK, q["criteria"])
+        self.assertIn(triage.NONE, q["criteria"])
+        self.assertEqual(p["state"], agent.visible_state(SCENARIO, [VCHECK]))
+        # The informativeness sentence names no check type.
+        for word in ("log", "Log", "service"):
+            self.assertNotIn(word, agent.INFORMATIVE)
+        self.assertIn(agent.INFORMATIVE, agent.round_payload(SCENARIO, [], policy="v4")
+                      ["questions"]["next_check"]["instructions"])
+        self.assertNotIn(agent.INFORMATIVE, agent.round_payload(SCENARIO, [], policy="v3")
+                         ["questions"]["next_check"]["instructions"])
+
+    def test_no_truth_in_challenge_payloads(self):
+        for name in rca.scenario_names():
+            scenario, truth = rca.load_scenario(name), rca.load_ground_truth(name)
+            checks = list(scenario["checks"])
+            for h in scenario["hypotheses"]:
+                blob = json.dumps(agent.challenge_payload(scenario, checks[:2], h))
+                self.assertNotIn(truth["mechanism"], blob)
+                for word in ("version_check", "decoy", "TRAP", "NOISE", '"traps"'):
+                    self.assertNotIn(word, blob, f"{name}: {word}")
+                for c in checks[2:]:
+                    self.assertNotIn(json.dumps(scenario["checks"][c]["result"])[1:-1], blob)
+
+    def test_a_failed_challenge_call_is_infrastructure(self):
+        good = FakeJev(supported_after="never")
+
+        def down(payload):
+            if "challenge_check" in payload["questions"]:
+                raise triage.JevError("HTTP 503")
+            return good(payload)
+        t = agent.run_agent_trial(SCENARIO, down, policy="v4")
+        self.assertEqual(t["status"], "jev_error")
+        self.assertTrue(rca.score_trial(t, TRUTH)["infra_failure"])
 
 
 class Budgets(unittest.TestCase):

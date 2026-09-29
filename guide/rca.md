@@ -445,7 +445,7 @@ top pick, every alternative fell under that floor and was exempt, so being
 outranked counted as being ruled out. pool_etl_cron was "verified" after a single
 check.
 
-v3 (`--agent-policy v3`, the default; v1 and v2 stay available) changes only that
+v3 (`--agent-policy v3`; v1 and v2 stay available) changes only that
 rule. An alternative must be ruled out (P ≥ 0.5) if it was plausible at *any* point
 in the investigation: its highest `best_explanation` so far, starting before the
 first check, is 0.1 or more. The suspect everyone starts with must therefore be
@@ -464,6 +464,52 @@ python3 rca_experiment.py --setup jev-agent --agent-policy v3 --scenarios $H --t
 python3 rca_experiment.py --compare rca_results/2026-09-28-v4-deepseek-hard/free.jsonl \
     rca_results/2026-09-28-v4-glm-hard/free.jsonl rca_results/2026-09-28-jev-agent-v2/hard.jsonl \
     $R/hard.jsonl --html $R/compare.html
+```
+
+### Policy v4: challenge the leader
+
+The v3 run showed two weaknesses:
+
+- **Anchoring on a second wrong suspect.** In 3 of 40 trials Jev dropped the
+  initial suspect, then held a *second* wrong one for three or more checks. One of
+  those trials ended wrong: host_patch_routes, where it stuck with the network plugin
+  and never ran the node journal.
+- **Wasted checks.** In 12 of 40 trials it spent a check on a search that came back
+  empty or timed out.
+
+v4 (`--agent-policy v4`, the default; v1–v3 stay available) adds two things and
+changes nothing else:
+
+1. **A challenge check.** Once a hypothesis leads with `best_explanation` ≥ 0.5, a
+   separate request, sent after the round because it names the leader, asks:
+   *"`h` currently leads. Which unrun check would most likely show `h` is wrong if it
+   is wrong, or directly show what a competing hypothesis names?"* v4 runs that
+   check. It falls back to `next_check` only if Jev answers none. This costs one more
+   Jev call per round.
+2. **One generic sentence about informative checks,** added to both check questions:
+   prefer checks whose likely results would clearly move the ranking; a broad search
+   that may come back empty or time out usually tells you little.
+
+   The sentence names no check type. Code never down-ranks a check by how its
+   description is worded. That would fit how this benchmark's dead-end checks happen
+   to be written, and would inflate the score.
+
+**What a v4 run can and can't show.** v4 was designed after reading v3's traces on
+all eight scenarios, the three hand-written ones included. No scenario here is held
+out any more, so a v4 result on these eight shows whether the fixes work, not how v4
+does on incidents it hasn't seen. That needs new scenarios or recorded incidents.
+Compare v4 with v3 on the same scenarios, and watch three things:
+
+- whether host_patch_routes stops ending wrong;
+- how often a dead-end check is run;
+- whether the extra call costs accuracy anywhere else.
+
+```
+R=rca_results/<date>-jev-agent-v4 && mkdir -p $R
+python3 rca_experiment.py --setup jev-agent --agent-policy v4 --scenarios $A --trials 5 --out $R/hard.jsonl --html $R/hard.html
+python3 rca_experiment.py --setup jev-agent --agent-policy v4 --scenarios $H --trials 5 --out $R/heldout.jsonl --html $R/heldout.html
+python3 rca_experiment.py --compare rca_results/2026-09-28-jev-agent-v3/hard.jsonl $R/hard.jsonl
+python3 rca_experiment.py --compare rca_results/2026-09-28-jev-agent-v3/heldout.jsonl $R/heldout.jsonl
 ```
 
 Limits specific to this mode:
