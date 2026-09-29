@@ -167,7 +167,7 @@ didn't include a check for the injected fault type, so Jev said *where* but not
 
    No model writes it.
 
-v5 stays the default until v6 is evaluated.
+v6 became the default after run 2 (below).
 
 **Preregistration.** Run 1's test cases are spent: v6 was designed from their traces.
 Run 2 uses cases no version has seen:
@@ -195,6 +195,43 @@ python3 rca_experiment.py --scenario-dir rca_recorded/re2-test2 --compare rca_re
 
 Each v6 trace carries its `evidence_report`. Include a few in the write-up, the
 wrong ones among them.
+
+## Results: run 2, v5 against v6
+
+The traces, comparison and sample evidence reports are in
+`rca_results/2026-09-29-recorded-test2/`.
+
+- **Setup held:** 120 scenarios, frozen before any trial (commit 51fc971). The cause
+  was among the suspects in 118/120. The two lost were ts-auth-service network faults
+  cut by the 12-suspect cap. There were no infrastructure failures.
+- **Supported diagnosis, the primary metric:** v5 68/120, **v6 90/120.** v6 gained 25
+  cases and lost 3 (exact McNemar test, p < 0.001). It ran a check for the injected
+  fault type in 101 cases, against 79.
+- **Right service:** v5 110/120, v6 108/120. v6 lost 5 and gained 3, a difference
+  within noise, despite 2 fewer checks for finding the service.
+- **Verification:** v5 verified 10, v6 11, and none of either was wrong.
+- **Speed and cost:** v6 3.5 s per case, v5 5.0 s; both about $0.004.
+
+| | v5 Sock Shop | v5 Train Ticket | v6 Sock Shop | v6 Train Ticket |
+|---|---|---|---|---|
+| Right service | 56/60 | 54/60 | 55/60 | 53/60 |
+| Supported diagnosis | 36/60 | 32/60 | 45/60 | 45/60 |
+| Verified | 5/60 | 5/60 | 8/60 | 3/60 |
+
+**Where v6 still falls short:**
+- **Wrong service, 12 cases.** 10 are network faults (delay or packet loss), where Jev
+  blamed a neighbour: a service's database instead of the service, or a caller
+  instead of the callee. 2 are the cases whose cause was not among the suspects.
+- **Right service, no supporting evidence, 18 cases.** 15 are disk faults. Jev rarely
+  picks a service's disk check.
+- **Rarely verified.** 112 of 120 investigations used the whole budget, mostly with 1
+  or 2 alternatives not ruled out.
+- **"What failed" is often empty.** Jev usually runs and cites the fault check, but
+  files it as evidence of *where*. Only 30 of the 120 evidence reports have a "What
+  failed" section.
+
+Run 2's test cases are now spent too: v7 will be designed from them. The next
+preregistered test needs fresh cases, such as RE2-OB instances 2 and 3.
 
 ## Limits
 

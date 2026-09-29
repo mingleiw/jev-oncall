@@ -79,7 +79,7 @@ AGENT_SETUP = "jev-agent"
 # A policy is a decision rule; its version goes in every trace, and --compare never
 # pools versions. v1 is kept so its results stay reproducible; v2 is the default.
 POLICIES = {"v1": 1, "v2": 2, "v3": 3, "v4": 4, "v5": 5, "v6": 6}
-DEFAULT_POLICY = "v5"
+DEFAULT_POLICY = "v6"
 ANSWERING = ("v2", "v3", "v4", "v5", "v6")  # policies that always answer, like the LLM setups
 CHALLENGE = ("v4", "v5", "v6")  # policies that challenge the leading hypothesis
 # v6: after finding where the fault is, spend up to MECH_CHECKS checks finding what
