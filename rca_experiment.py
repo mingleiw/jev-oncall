@@ -18,6 +18,9 @@ own stated beliefs are measured in all of them:
               sees Jev's ranking and the most contradicted hypothesis.
   jev-contra  the model sees only the hypothesis Jev judges most contradicted.
 
+A fourth setup, jev-agent (rca_jev_agent.py), has no LLM in the loop: Jev
+answers bounded questions and code picks the checks, concludes or abstains.
+
 Usage:
     export TYPESAFE_API_KEY=...  ANTHROPIC_API_KEY=...  OPENAI_API_KEY=...
     python3 rca_experiment.py --dry-run                     # prompts + Jev payload, no calls
@@ -49,8 +52,11 @@ SCENARIO_DIR = os.path.join(BASE, "rca_scenarios")
 DEFAULT_SCENARIO = "pool_etl_cron"
 TRACES_PATH = os.path.join(BASE, "rca_traces.jsonl")
 MAX_CHECKS = 6  # tight enough that wandering costs; the pilot's agents solved it in 3-7
-SETUPS = ("alone", "jev", "jev-contra")
+SETUPS = ("alone", "jev", "jev-contra")  # an LLM investigates; "all" on the command line
 JEV_SETUPS = ("jev", "jev-contra")  # setups that call Jev
+AGENT_SETUP = "jev-agent"  # Jev investigates, no LLM in the loop: rca_jev_agent.py
+ALL_SETUPS = (*SETUPS, AGENT_SETUP)
+INFRA_STATUSES = ("model_error", "jev_error")  # the call failed, not the diagnosis
 DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5"}
 HARNESS_VERSION = 4  # bump when prompts or scoring change, so old traces stay tellable
 
@@ -435,7 +441,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
     version_check = scenario["version_check"]
     trace = {"setup": setup, "forced": forced, "status": "ok", "states": [],
              "observed": [], "final": None, "error": None,
-             "usage": {"input_tokens": 0, "output_tokens": 0, "jev_calls": 0},
+             "usage": {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0, "jev_calls": 0},
              "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     t0 = time.monotonic()
 
@@ -459,6 +465,7 @@ def run_trial(scenario, setup, ask, jev=None, forced=False, max_checks=MAX_CHECK
     while True:
         try:
             text, assistant_msg, usage = ask(SYSTEM_PROMPT, messages)
+            trace["usage"]["llm_calls"] += 1
         except Exception as e:
             trace["status"], trace["error"] = "model_error", f"{type(e).__name__}: {e}"
             break
@@ -574,7 +581,7 @@ def score_trial(trace, truth):
            "jev_errors": sum(1 for s in trace["states"] if s.get("jev_error")),
            "ran_version_check": truth["version_check"] in observed}
     out.update(belief_shift(measured_beliefs(trace), observed, truth))
-    jev = jev_beliefs(trace) if trace["setup"] in JEV_SETUPS else []
+    jev = jev_beliefs(trace) if trace["setup"] in (*JEV_SETUPS, AGENT_SETUP) else []
     out.update(belief_shift(jev, observed, truth, prefix="jev_"))
     decoy = truth["decoy"]
 
@@ -590,10 +597,30 @@ def score_trial(trace, truth):
                                           for group in truth["mechanism_keywords"]))
         out["evidence_all_observed"] = bool(cited) and cited <= set(observed)
         out["cited_trap"] = bool(cited & set(truth["traps"]))
+        # A rubric on check IDs, not text, so it applies to every setup alike: the right
+        # cause, every cited check actually run, no failed/empty query cited, and at least
+        # one cited check that shows the mechanism.
+        out["evidence_valid"] = (out["correct_hypothesis"] and out["evidence_all_observed"]
+                                 and not out["cited_trap"] and bool(cited & set(truth["mechanism_checks"])))
     else:
         for key in ("correct_hypothesis", "blamed_decoy", "named_component", "found_mechanism",
-                    "evidence_all_observed", "cited_trap"):
+                    "evidence_all_observed", "cited_trap", "evidence_valid"):
             out[key] = None
+    out["abstained"] = bool(trace.get("abstained"))
+    out["infra_failure"] = trace.get("status") in INFRA_STATUSES
+    out["traps_run"] = len(set(observed) & set(truth["traps"]))
+    out["explanation_mechanism"] = None
+    if trace["setup"] == AGENT_SETUP:
+        # Jev writes no text: the text metrics do not apply, and are never earned by
+        # pasting a hypothesis description or evidence. An optional explanation written
+        # after the diagnosis froze is scored on its own line.
+        out["found_mechanism"] = out["named_component"] = None
+        exp = trace.get("explanation") or {}
+        if final and exp.get("mechanism") is not None:
+            text = f"{exp.get('component') or ''} {exp['mechanism']}".lower()
+            out["explanation_mechanism"] = (any(c in observed for c in truth["mechanism_checks"])
+                                            and all(any(w in text for w in group)
+                                                    for group in truth["mechanism_keywords"]))
     out["checks_used"] = len(observed)
     out["noise_checks"] = len(set(observed) & set(truth["noise"]))
     return out
@@ -617,6 +644,9 @@ METRICS = [
     ("blamed_decoy", "count", "blamed the decoy"),
     ("evidence_all_observed", "count", "cited only checks it ran"),
     ("cited_trap", "count", "cited a failed/empty query"),
+    ("evidence_valid", "count", "supported diagnosis (IDs)"),
+    ("abstained", "count", "abstained"),
+    ("infra_failure", "count", "infrastructure failures"),
     ("checks_used", "mean", "mean checks used"),
     ("noise_checks", "mean", "mean noise checks"),
     ("jev_errors", "sum", "Jev call errors"),
@@ -652,12 +682,13 @@ def report(traces, out=None):
     for (name, model, forced, version), by_setup in sorted(groups.items(), key=lambda g: str(g[0])):
         mode = "forced version check" if forced else "free choice"
         print(f"\n{name} | {model} | {mode} | harness v{version}", file=out)
-        print(f"  {'':<30}" + "".join(f"{s:>12}" for s in SETUPS), file=out)
-        print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>12}" for s in SETUPS),
+        cols = SETUPS if set(by_setup) & set(SETUPS) else (AGENT_SETUP,)
+        print(f"  {'':<30}" + "".join(f"{s:>12}" for s in cols), file=out)
+        print(f"  {'trials':<30}" + "".join(f"{len(by_setup.get(s, [])):>12}" for s in cols),
               file=out)
         for key, kind, label in METRICS:
             print(f"  {label:<30}" + "".join(f"{_cell(by_setup.get(s, []), key, kind):>12}"
-                                            for s in SETUPS), file=out)
+                                            for s in cols), file=out)
 
 
 def trial_key(t):
@@ -680,7 +711,7 @@ def read_traces(path):
         for line in f:
             if line.strip():
                 t = json.loads(line)
-                kept = [p for p in by_key.get(trial_key(t), []) if p.get("status") != "model_error"]
+                kept = [p for p in by_key.get(trial_key(t), []) if p.get("status") not in INFRA_STATUSES]
                 by_key[trial_key(t)] = kept + [t]
     return [t for group in by_key.values() for t in group]
 
@@ -730,7 +761,18 @@ def main(argv=None):
     ap.add_argument("--scenarios", help="comma-separated scenario names (default: all in rca_scenarios/)")
     ap.add_argument("--setup", default="all",
                     help="comma-separated setups from alone, jev (Jev's ranking and contradiction "
-                         "scores), jev-contra (only the hypothesis Jev judges most contradicted), or all")
+                         "scores), jev-contra (only the hypothesis Jev judges most contradicted), "
+                         "jev-agent (Jev investigates, no LLM in the loop; run once per scenario and "
+                         "trial, not per model), or all (the three LLM setups)")
+    ap.add_argument("--max-rounds", type=int,
+                    help="jev-agent: decision rounds allowed (default: --max-checks + 1)")
+    ap.add_argument("--explain-model", metavar="PROVIDER:MODEL",
+                    help="jev-agent: after the diagnosis is frozen, have this LLM write an explanation "
+                         "(recorded apart; it cannot change the diagnosis)")
+    ap.add_argument("--compare", metavar="JSONL", nargs="+",
+                    help="compare saved traces from several files: LLM alone, LLM + Jev and jev-agent, "
+                         "with calls, latency, tokens and cost")
+    ap.add_argument("--pricing", help="price table for --compare (default: rca_pricing.json)")
     ap.add_argument("--trials", type=int, default=1, help="trials per scenario, model and setup")
     ap.add_argument("--forced", action="store_true",
                     help="run the version check first in every trial, so every trial sees the contradiction")
@@ -752,6 +794,13 @@ def main(argv=None):
     ap.add_argument("--note", help="a notice shown at the top of the HTML page")
     args = ap.parse_args(argv)
 
+    if args.compare:
+        import rca_jev_agent
+        traces = [t for path in args.compare for t in read_traces(path)]
+        rca_jev_agent.print_compare(traces, rca_jev_agent.load_pricing(args.pricing))
+        write_html(traces, args.html, args.note)
+        return 0
+
     if args.report:
         traces = read_traces(args.report)
         report(traces)
@@ -769,32 +818,58 @@ def main(argv=None):
     except ValueError as e:
         ap.error(str(e))
     setups = list(SETUPS) if args.setup == "all" else [s.strip() for s in args.setup.split(",") if s.strip()]
-    if not setups or set(setups) - set(SETUPS):
-        ap.error(f"--setup takes all, or a comma-separated list of: {', '.join(SETUPS)}")
-    uses_jev = bool(set(setups) & set(JEV_SETUPS))
-    plan = [(i, n, p, m, s) for i in range(args.trials) for n in names
-            for p, m in models for s in setups]
+    if not setups or set(setups) - set(ALL_SETUPS):
+        ap.error(f"--setup takes all, or a comma-separated list of: {', '.join(ALL_SETUPS)}")
+    agent = AGENT_SETUP in setups
+    llm_setups = [s for s in setups if s != AGENT_SETUP]
+    uses_jev = bool(set(setups) & {*JEV_SETUPS, AGENT_SETUP})
+    explain_spec = None
+    if args.explain_model:
+        try:
+            explain_spec = parse_model_spec(args.explain_model)
+        except ValueError as e:
+            ap.error(str(e))
+    # Jev investigates on its own: one trial per scenario and trial number, credited to
+    # Jev (model "jev:<jev model>"), never to an LLM.
+    plan = []
+    for i in range(args.trials):
+        for n in names:
+            plan += [(i, n, p, m, s) for p, m in models for s in llm_setups]
+            if agent:
+                plan.append((i, n, "jev", args.jev_model, AGENT_SETUP))
 
     if args.dry_run:
         print("=== system prompt (every scenario and setup) ===\n" + SYSTEM_PROMPT)
         for n, scenario in scenarios.items():
             print(f"\n=== {n}: first user message (jev adds Jev's starting scores; jev-contra adds nothing) ===\n"
                   + build_initial_prompt(scenario, args.max_checks))
-            if uses_jev:
+            if set(setups) & set(JEV_SETUPS):
                 print(f"\n=== {n}: Jev payload after the version check ===")
                 print(json.dumps(build_jev_payload(scenario, [scenario["version_check"]],
                                                    args.jev_model), indent=2))
+            if agent:
+                import rca_jev_agent
+                print(f"\n=== {n}: jev-agent round request after the version check ===")
+                print(json.dumps(rca_jev_agent.round_payload(scenario, [scenario["version_check"]],
+                                                             args.jev_model), indent=2))
         print(f"\n=== plan: {len(plan)} trials, {'forced' if args.forced else 'free'} mode ===")
         for i, n, p, m, s in plan:
             print(f"  trial {i + 1}  {n}  {p}:{m}  {s}")
         return 0
 
+    llm_models = models if llm_setups else []
+    if explain_spec and explain_spec not in llm_models:
+        llm_models = [*llm_models, explain_spec]
     if args.check:
-        return 0 if check_access(models, uses_jev, args.jev_model) else 1
+        return 0 if check_access(llm_models, uses_jev, args.jev_model) else 1
 
     try:
-        clients = {(p, m): model_client(p, m, max_tokens=args.max_tokens) for p, m in models}
-        jev = jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model) if uses_jev else None
+        clients = {(p, m): model_client(p, m, max_tokens=args.max_tokens) for p, m in llm_models}
+        jev = (jev_scorer(os.environ.get("TYPESAFE_API_KEY"), args.jev_model)
+               if set(llm_setups) & set(JEV_SETUPS) else None)
+        if agent:
+            import rca_jev_agent
+            ask_jev = rca_jev_agent.jev_asker(os.environ.get("TYPESAFE_API_KEY"))
     except ModelError as e:
         sys.exit(f"error: {e}")
 
@@ -803,7 +878,7 @@ def main(argv=None):
     if os.path.exists(args.out):
         existing = read_traces(args.out)
         if args.resume:
-            done = {trial_key(t) for t in existing if t.get("status") != "model_error"}
+            done = {trial_key(t) for t in existing if t.get("status") not in INFRA_STATUSES}
         else:
             # A new run into the same file adds trials after the ones already there,
             # instead of reusing their numbers and replacing them.
@@ -820,18 +895,25 @@ def main(argv=None):
           f"{'forced' if args.forced else 'free'} mode, appending to {args.out}")
     traces = []
     for k, (i, name, provider, model, setup) in enumerate(todo, 1):
-        trace = run_trial(scenarios[name], setup, clients[(provider, model)],
-                          jev if setup in JEV_SETUPS else None, args.forced, args.max_checks)
+        if setup == AGENT_SETUP:
+            trace = rca_jev_agent.run_agent_trial(
+                scenarios[name], ask_jev, args.forced, args.max_checks, args.max_rounds, args.jev_model,
+                clients[explain_spec] if explain_spec else None)
+            trace["explain_model"] = f"{explain_spec[0]}:{explain_spec[1]}" if explain_spec else None
+        else:
+            trace = run_trial(scenarios[name], setup, clients[(provider, model)],
+                              jev if setup in JEV_SETUPS else None, args.forced, args.max_checks)
         trace.update({"run_id": run_id, "trial": i, "scenario": name,
                       "scenario_digest": digests[name],
                       "model": f"{provider}:{model}",
-                      "jev_model": args.jev_model if setup in JEV_SETUPS else None,
+                      "jev_model": args.jev_model if setup in (*JEV_SETUPS, AGENT_SETUP) else None,
                       "harness_version": HARNESS_VERSION})
         with open(args.out, "a", encoding="utf-8") as f:
             f.write(json.dumps(trace) + "\n")
         traces.append(trace)
         s = score_trial(trace, load_ground_truth(name))
-        answer = trace["final"]["hypothesis"] if trace["final"] else trace["status"]
+        answer = (trace["final"]["hypothesis"] if trace["final"] else
+                  "abstain" if trace.get("abstained") else trace["status"])
         print(f"[{k}/{len(todo)}] {name} {provider}:{model} {setup:<5} checks={s['checks_used']} "
               f"changed_direction={s['changed_direction']} answer={answer} ({trace['seconds']}s)")
     if args.resume:

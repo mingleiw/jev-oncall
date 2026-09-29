@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import rca_experiment as rca
 
-ORGS = {"anthropic": "Anthropic", "openai": "OpenAI", "test": "Test stand-in"}
+ORGS = {"anthropic": "Anthropic", "openai": "OpenAI", "jev": "TypeSafe", "test": "Test stand-in"}
 
 # key, header, better ("high" / "low"), definition, denominator ("all" trials or "applicable")
 RATES = [
@@ -70,6 +70,8 @@ def scored(traces):
             truths[name] = rca.load_ground_truth(name)
         s = rca.score_trial(t, truths[name])
         s["resolved"] = bool(s["correct_hypothesis"] and s["found_mechanism"])
+        if t["setup"] == rca.AGENT_SETUP:
+            s["resolved"] = None  # no generated text to score a mechanism in: not comparable
         for key in ("correct_hypothesis", "blamed_decoy"):
             s[key] = bool(s[key])  # an unfinished trial got neither right
         usage = t.get("usage") or {}
@@ -115,7 +117,7 @@ def split_model(spec):
     return (ORGS.get(provider, provider or "?"), name or spec)
 
 
-SETUP_TAGS = {"jev": "+ Jev", "jev-contra": "+ Jev contradictions"}
+SETUP_TAGS = {"jev": "+ Jev", "jev-contra": "+ Jev contradictions", "jev-agent": "Jev investigates"}
 SETUP_LABELS = {"alone": "alone", "jev": "+ Jev (ranking)", "jev-contra": "+ Jev (contradictions only)"}
 
 
@@ -299,7 +301,8 @@ def trials_table(rows):
             cls = "right" if s["resolved"] else "part" if s["correct_hypothesis"] else "wrong"
             answer = f'<span class="ans {cls}">{_e(final["hypothesis"])}</span>'
         else:
-            answer = f'<span class="ans none">{_e(t.get("status", "no answer"))}</span>'
+            label = "abstained" if t.get("abstained") else t.get("status", "no answer")
+            answer = f'<span class="ans none">{_e(label)}</span>'
         chips = []
         for c in t["observed"]:
             cls = ("vc" if c == truth["version_check"] else "trap" if c in truth["traps"]
@@ -450,6 +453,34 @@ document.querySelectorAll('table.board thead button').forEach(function (btn) {
 """
 
 
+def compare_section(traces):
+    """LLM alone, LLM + Jev and Jev as the investigator side by side, with calls,
+    latency, tokens and cost. Empty unless a jev-agent trace is present."""
+    if not any(t["setup"] == rca.AGENT_SETUP for t in traces):
+        return ""
+    import rca_jev_agent
+    try:
+        pricing = rca_jev_agent.load_pricing()
+    except OSError:
+        pricing = {}
+    table, digests = rca_jev_agent.compare(traces, pricing)
+    systems = sorted(table, key=lambda s: (s.startswith("Jev investigates"), s))
+    head = "".join(f'<th scope="col" class="num">{_e(s)}</th>' for s in systems)
+    body = "".join(f'<tr><th scope="row">{_e(label)}</th>'
+                   + "".join(f'<td class="num">{_e(table[s][key])}</td>' for s in systems) + "</tr>"
+                   for key, label in rca_jev_agent.COMPARE_ROWS)
+    same = len({frozenset(d) for d in digests.values()}) == 1
+    warn = ("" if same else '<div class="notice" role="note"><b>Mismatch</b><p>These systems ran different '
+            "scenarios or scenario versions; compare only matching digests.</p></div>")
+    return (f'<section aria-labelledby="agent-h"><h2 id="agent-h">Jev as the investigator</h2>'
+            '<p class="muted">In the jev-agent rows no LLM chooses checks or writes the diagnosis: Jev answers '
+            'bounded questions and code decides. Infrastructure failures are counted apart and left out of every '
+            'rate. The text mechanism score applies only to generated text, so for Jev it is shown only for an '
+            'optional explanation written after the diagnosis froze. "Unpriced" means a price is missing from '
+            f'rca_pricing.json.</p>{warn}<div class="scroll"><table><thead><tr><th scope="col"></th>{head}'
+            f'</tr></thead><tbody>{body}</tbody></table></div></section>')
+
+
 def render(traces, note=None, standalone=True):
     """The report as HTML. standalone=False omits the <html>/<head>/<body> shell."""
     rows = scored(traces)
@@ -505,6 +536,7 @@ interval. Click a column to sort; hover it for its definition.</p>
 <h2 id="lift-h">Does Jev help? % Resolved, alone vs + Jev</h2>
 {lift_chart(rows)}
 </section>
+{compare_section(traces)}
 <section aria-labelledby="belief-h">
 <h2 id="belief-h">Belief in the decoy, across the key check</h2>
 <p class="muted">Mean P(decoy), the probability given to what looked guilty at the start. The model's own stated belief is measured in both setups; on + Jev rows,
